@@ -18,7 +18,21 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        // Some sandboxes and CI images ship a pre-installed Chromium whose
+        // build number does not match what this Playwright version expects.
+        // Honour PLAYWRIGHT_CHROMIUM_PATH when it is set rather than failing
+        // with "Executable doesn't exist".
+        ...(process.env.PLAYWRIGHT_CHROMIUM_PATH
+          ? { launchOptions: { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } }
+          : {}),
+      },
+    },
+  ],
   webServer: {
     // E2E runs against a production build with mock adapters — no keys needed.
     command: `pnpm build && pnpm start --port ${PORT}`,

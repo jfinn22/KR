@@ -1,104 +1,81 @@
 # Build status
 
-Honest account of what exists in this repository and what does not. The full
-plan is 17 workstreams; this records where the line currently sits.
+An honest account of what exists and what does not. The plan is 17
+workstreams; this records where the line sits.
 
-## Complete and tested
+## CI
 
-### W0 — Foundation and design system
+All three jobs green:
 
-Next.js 15 + TypeScript strict, Tailwind, pnpm, Vitest (unit + integration
-projects), Playwright config, CI workflow, session-start hook.
+| Job           | Runs                                                                |
+| ------------- | ------------------------------------------------------------------- |
+| `static`      | typecheck, lint, format:check, unit tests, adapter contracts        |
+| `integration` | migrations + tenant isolation + booking race, against real Postgres |
+| `e2e`         | seed + Playwright against a production build on mock adapters       |
 
-The salon design system is fully specified: white/blue/gold with black text,
-Cormorant Garamond display over Inter UI, hairline borders, near-invisible
-shadows, gold used as a garnish rather than a fill. Colour tokens live once in
-`globals.css` as RGB channel triplets so Tailwind alpha modifiers resolve, and
-no component may hard-code a hex value. `/design-system` renders the reference.
+The e2e job was previously gated `if: false` because it had nothing to run, and
+`verify:adapters` pointed at a directory that did not exist. Both are fixed by
+the workstreams below rather than by weakening the checks.
 
-`tests/unit/design/palette.test.ts` parses the real tokens and asserts WCAG AA
-on every text/background pair. It caught two genuine failures during setup —
-the amber `--warn` at 3.7:1 on white and `gold-600` at 3.5:1 — which is why
-`--warn` is darkened and `gold-700` is now the only text-carrying gold rung.
-
-`scripts/dev-db.sh` drives the system PostgreSQL 16 cluster directly rather than
-Docker, because the CLI is present in this environment but the daemon is not.
-
-### W1 — Data model
-
-99 models across nine schema files. Tenancy, catalog with phase chains,
-scheduling, consultation intelligence, hair record, commerce, communications,
-compliance, operations.
-
-A hand-written migration adds the generated `tstzrange` column, two GiST
-exclusion constraints, the job-queue NOTIFY trigger, and row-level security on
-every table carrying a `salonId`. Exclusion behaviour verified directly against
-Postgres: overlapping bookings and overlapping holds rejected; back-to-back,
-processing overlap and released holds accepted.
-
-### W2 — Tenancy, auth, authorization
-
-Auth.js v5 with credentials, `TenantContext` resolution, the `dbFor(salonId)`
-Prisma extension, `withAuthz` as the single mutation path, audit logging.
-
-A permission matrix over 60 actions and 5 staff roles, with clients and
-background jobs as separate principal kinds rather than weak roles.
-
-43 unit tests including a loop proving no role reaches another salon for any
-action. 17 integration tests including a DMMF walk that fails if a model skips
-the tenancy decision, and a `pg_catalog` query confirming RLS on every tenant
-table.
-
-### W6 — Consultation rules engine
-
-17 rules, pure and deterministic. Complexity scoring, duration estimation with
-a breakdown and stylist calibration, deposit banding, multi-session planning,
-requirement dedup, consultation mode selection.
-
-60 tests: positive and negative cases per rule, determinism across repeated
-runs, hash stability under key reordering, ruleset-hash sensitivity to version
-bumps, and order-independence proven against a reversed ruleset.
+Counts: **296 unit**, **36 integration**, **14 end-to-end**.
 
 ---
 
-## Not yet built
+## Built and tested
 
-These are designed — the data model, permission actions and plan features for
-each already exist — but the code is not written.
+|                            | What it covers                                                                                                                                                                                     |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **W0** Foundation          | Next.js 15 + TS strict, the salon design system (white/blue/gold, black text, Cormorant Garamond over Inter), `/design-system`, WCAG AA contrast test that caught two real failures in the palette |
+| **W1** Data model          | 99 models; GiST exclusion constraints proving overlapping bookings and holds are rejected while back-to-back and processing overlap are accepted; RLS on every tenant table                        |
+| **W2** Tenancy & authz     | 60-action × 5-role matrix, `dbFor()` scoping extension, `withAuthz` as the single mutation path, DMMF test that fails if a model skips the tenancy decision                                        |
+| **W3** Ports & adapters    | Seven ports, mock + real, one shared contract suite. EXIF stripping, payment idempotency, PII refusal on the AI port                                                                               |
+| **W5** Scheduling          | Pure interval solver with phase chains, interleaving, resource assignment and gap-fill ranking; DST across four zones; 25-way concurrent booking race proven safe                                  |
+| **W6** Consultation engine | 17 rules, deterministic and versioned; every flag carries a recommended path; order-independence proven against a reversed ruleset                                                                 |
+| **W12** Jobs               | Postgres queue with `FOR UPDATE SKIP LOCKED`, long-lived worker, outbox dispatch, reminders, hold expiry, waitlist matching, calibration                                                           |
+| **W17** Seed & e2e         | Deterministic Aurora Hair Studio demo; Playwright suite against a production build                                                                                                                 |
 
-| Workstream                               | State                                                                                    |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------- |
-| W3 Ports & adapters                      | Interfaces designed, env resolution in `src/env.ts`; adapter implementations not written |
-| W4 Service catalog                       | Schema complete; admin UI and services not written                                       |
-| W5 Scheduling core & availability solver | Data model and DB constraints complete and verified; the solver itself is not written    |
-| W7 Client portal                         | Not written                                                                              |
-| W8 Stylist dashboard                     | Not written                                                                              |
-| W9 Front desk dashboard                  | Not written                                                                              |
-| W10 Commerce & policy                    | Schema complete; logic not written                                                       |
-| W11 Consent & compliance                 | Schema complete; flows not written                                                       |
-| W12 Jobs & automation                    | Job table and NOTIFY trigger exist; worker not written                                   |
-| W13 AI layer                             | Port contract designed; adapters not written                                             |
-| W14 Day-of workflow                      | Schema complete; screens not written                                                     |
-| W15 Owner analytics                      | Schema complete; dashboards not written                                                  |
-| W16 Integrations                         | Not written                                                                              |
-| W17 Seed & docs                          | This document and the README exist; the demo seed does not                               |
+### The demo salon
 
-`pnpm seed` and `pnpm test:e2e` are wired into `package.json` and CI but have no
-implementation behind them yet, so CI's e2e job will fail until W17 lands.
+`pnpm seed` builds **Aurora Hair Studio**: 2 locations in different timezones,
+12 services with real phase chains, 6 staff with divergent skills and pace, 40
+clients with hair profiles, 120 completed appointments with matching
+quote-accuracy rows so calibration and analytics have genuine inputs, a
+consultation template with conditional logic, reminder schedules, and consent
+form placeholders. A second salon (**Bloom**) exists so tenant isolation is
+visible rather than theoretical.
+
+Every account uses password `salon1234`:
+`owner@aurora.test` · `manager@aurora.test` · `frontdesk@aurora.test` ·
+`rowan@aurora.test` · `client@aurora.test`
 
 ---
 
-## Suggested order to continue
+## Not built
 
-The dependency spine from the plan still holds:
+The schema, permission actions, plan features and domain logic for these exist.
+What is missing is the **user interface** and the services that sit behind it.
 
-1. **W3 ports** — mock adapters unblock everything downstream and let the whole
-   flow run without credentials.
-2. **W5 availability solver** — pure domain code against the segment model that
-   is already proven at the database layer.
-3. **W4 catalog** then **W7 client portal** — the first user-visible slice.
-4. **W8 review workspace** — closes the consult → approve → book loop, at which
-   point the product is demonstrable end to end.
+| Workstream           | State                                                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| W4 Service catalog   | Schema, phase chains and modifiers exist and are used by the solver. No admin UI.                                          |
+| W7 Client portal     | Not built. The consultation engine, availability solver and booking transaction it would call are all complete and tested. |
+| W8 Stylist dashboard | Not built. Review/approve logic is expressible today via `withAuthz` + `evaluate()`.                                       |
+| W9 Front desk        | Not built. Holds, waitlist matching and cancellation are implemented server-side.                                          |
+| W10 Commerce         | Payments port, deposits and the schema exist. Invoicing, refunds and subscription billing services are not written.        |
+| W11 Compliance       | Schema, form placeholders and the e-sign port exist. Signing flows are not built.                                          |
+| W13 AI layer         | Port, prompts, mock and Anthropic adapters exist. The eight call sites are not wired to services.                          |
+| W14 Day-of workflow  | `checkInToken` and the schema exist. Check-in and in-chair screens are not built.                                          |
+| W15 Owner analytics  | Calibration is implemented and tested. Dashboards are not built.                                                           |
+| W16 Integrations     | Calendar port and ICS builder exist. OAuth flows and export are not built.                                                 |
 
-Everything after that is valuable but conventional salon software; the
-differentiated core is W5 plus W6, and W6 is done.
+### Suggested order to continue
+
+1. **W4 catalog UI** — the phase editor is where a salon declares that balayage
+   is 90 active / 40 processing / 45 active, which everything downstream reads.
+2. **W7 client portal** then **W8 review workspace** — closes the
+   consult → approve → book loop end to end, at which point the product is
+   demonstrable to a salon.
+3. Everything after that is conventional salon software.
+
+The differentiated core — the rules engine and the availability solver — is
+done, tested, and proven against a real database.

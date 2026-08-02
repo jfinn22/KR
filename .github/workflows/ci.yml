@@ -58,21 +58,15 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # btree_gist is declared in the Prisma datasource, so the init migration
+      # creates it. Doing it here as well would only cause drift.
       - name: Create test database
-        run: |
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE salon_test' || true
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d salon_dev  -c 'CREATE EXTENSION IF NOT EXISTS btree_gist'
-          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d salon_test -c 'CREATE EXTENSION IF NOT EXISTS btree_gist'
+        run: PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c 'CREATE DATABASE salon_test' || true
       - run: pnpm exec prisma migrate deploy
       - run: pnpm test:integration
 
-  # The end-to-end job is wired and correct but has nothing to run yet: the
-  # demo seed (W17) and the Playwright specs do not exist. It is gated off
-  # rather than deleted so it switches on with a one-line change once they land.
-  # See docs/STATUS.md.
   e2e:
     name: End-to-end
-    if: false
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -93,7 +87,6 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -d salon_dev -c 'CREATE EXTENSION IF NOT EXISTS btree_gist'
       - run: pnpm exec prisma migrate deploy
       - run: pnpm seed
       - run: pnpm exec playwright install --with-deps chromium
