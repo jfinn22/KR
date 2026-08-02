@@ -823,6 +823,59 @@ async function main() {
       },
     })
 
+    /*
+     * A completed appointment nobody paid for.
+     *
+     * Without these the owner's takings panel reads zero on a salon with 120
+     * finished services, which makes the whole dashboard look broken. Roughly
+     * one in eight gets a tip, because a demo where everybody tips is as
+     * misleading as one where nobody does.
+     */
+    const tip = rand(`${seed}-tip`) > 0.85 ? Math.round((spec.price * 0.15) / 100) * 100 : 0
+    const invoiceNumber = String(appointments + 1).padStart(6, '0')
+
+    const invoice = await db.invoice.create({
+      data: {
+        salonId: salon.id,
+        appointmentId: appointment.id,
+        clientProfileId: clientId,
+        number: invoiceNumber,
+        status: 'PAID',
+        subtotalCents: spec.price,
+        totalCents: spec.price + tip,
+        tipCents: tip,
+        paidCents: spec.price + tip,
+        issuedAt: endsAt,
+        paidAt: endsAt,
+        lines: {
+          create: {
+            salonId: salon.id,
+            kind: 'SERVICE',
+            description: spec.name,
+            quantity: 1,
+            unitPriceCents: spec.price,
+            totalCents: spec.price,
+            sequence: 0,
+          },
+        },
+      },
+    })
+
+    await db.payment.create({
+      data: {
+        salonId: salon.id,
+        invoiceId: invoice.id,
+        appointmentId: appointment.id,
+        clientProfileId: clientId,
+        amountCents: spec.price,
+        tipCents: tip,
+        method: pick(`${seed}-pm`, ['CARD', 'CARD', 'CARD', 'CASH'] as const),
+        status: 'SUCCEEDED',
+        idempotencyKey: `seed-pay-${appointment.id}`,
+        capturedAt: endsAt,
+      },
+    })
+
     appointments++
   }
 

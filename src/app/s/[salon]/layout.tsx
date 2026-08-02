@@ -98,4 +98,6 @@ const STAFF_NAV: { href: string; label: string; action: Action }[] = [
   { href: '/review', label: 'Reviews', action: 'consultation.review' },
   { href: '/desk/clients', label: 'Clients', action: 'client.viewAny' },
   { href: '/admin/services', label: 'Services', action: 'service.manage' },
+  { href: '/insights', label: 'Insights', action: 'report.viewSalon' },
+  { href: '/admin/integrations', label: 'Integrations', action: 'integration.manage' },
 ]
