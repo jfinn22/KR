@@ -311,17 +311,21 @@ function computeDuration(
   return { totalMin, breakdown, confidence }
 }
 
+/** How many minutes a scoped multiplier actually applies to. */
 function scopeShare(d: DurationAdjustment, facts: ConsultationFacts, subtotal: number): number {
-  if (d.scope === 'TOTAL') return subtotal
-  if ('phaseKind' in d.scope) {
-    const kind = d.scope.phaseKind
+  const scope = d.scope
+  if (scope === 'TOTAL') return subtotal
+
+  if ('phaseKind' in scope) {
     return facts.request.services.reduce(
       (sum, s) =>
-        sum + s.phases.filter((p) => p.kind === kind).reduce((a, p) => a + p.durationMin, 0),
+        sum +
+        s.phases.filter((p) => p.kind === scope.phaseKind).reduce((a, p) => a + p.durationMin, 0),
       0,
     )
   }
-  const service = facts.request.services.find((s) => s.serviceId === d.scope.serviceId)
+
+  const service = facts.request.services.find((s) => s.serviceId === scope.serviceId)
   return service ? service.phases.reduce((a, p) => a + p.durationMin, 0) : 0
 }
 
