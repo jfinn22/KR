@@ -148,15 +148,9 @@ export function DecisionPanel({
     <section className="rounded-lg border border-line bg-canvas p-6 shadow-card">
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="font-display text-display-md text-ink">Your decision</h2>
-        {recommended === 'AUTO_APPROVE_ELIGIBLE' && (
-          <Badge tone="success">Engine sees nothing to worry about</Badge>
-        )}
-        {recommended === 'REQUIRE_IN_PERSON' && (
-          <Badge tone="warn">Engine suggests in person</Badge>
-        )}
-        {recommended === 'DECLINE_ONLINE' && (
-          <Badge tone="danger">Engine blocks online booking</Badge>
-        )}
+        {recommended === 'AUTO_APPROVE_ELIGIBLE' && <Badge tone="success">Nothing flagged</Badge>}
+        {recommended === 'REQUIRE_IN_PERSON' && <Badge tone="warn">Better seen in person</Badge>}
+        {recommended === 'DECLINE_ONLINE' && <Badge tone="danger">Not safe to book online</Badge>}
       </div>
 
       {estimate && (
@@ -166,11 +160,7 @@ export function DecisionPanel({
           </p>
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Field
-              label="Minutes"
-              htmlFor="ov-duration"
-              help={`Engine says ${estimate.durationMin}`}
-            >
+            <Field label="Minutes" htmlFor="ov-duration" help={`Suggested ${estimate.durationMin}`}>
               <Input
                 id="ov-duration"
                 type="number"
@@ -186,7 +176,7 @@ export function DecisionPanel({
             <Field
               label="Price"
               htmlFor="ov-price"
-              help={`Engine says ${formatMoney(estimate.priceCents, currency)}`}
+              help={`Suggested ${formatMoney(estimate.priceCents, currency)}`}
             >
               <Input
                 id="ov-price"
@@ -203,7 +193,7 @@ export function DecisionPanel({
             <Field
               label="Deposit"
               htmlFor="ov-deposit"
-              help={`Engine says ${formatMoney(estimate.depositCents, currency)}`}
+              help={`Suggested ${formatMoney(estimate.depositCents, currency)}`}
             >
               <Input
                 id="ov-deposit"

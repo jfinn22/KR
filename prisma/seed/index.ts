@@ -1035,14 +1035,14 @@ async function main() {
     {
       key: 'goal_level',
       section: 'Your goal',
-      prompt: 'How light would you like to go?',
+      prompt: 'What colour are you after?',
       inputType: 'LEVEL_PICKER',
       factKey: 'goal.targetLevel',
     },
     {
       key: 'natural_level',
       section: 'Your hair',
-      prompt: 'What is your natural level?',
+      prompt: 'What is your natural colour?',
       inputType: 'LEVEL_PICKER',
       factKey: 'hair.naturalLevel',
     },
@@ -1147,18 +1147,31 @@ async function main() {
       slug: 'full-balayage',
       clientIndex: 3,
       // Box dye plus a four-level lift: the staged-lift case.
-      answers: { goal_level: 9, natural_level: 5, box_dye: true, box_dye_when: '2026-04-01' },
+      answers: {
+        goal_level: { level: 9, tone: 'BLONDE_BEIGE_BLONDE' },
+        natural_level: { level: 5, tone: 'NATURAL_LIGHT_BROWN' },
+        box_dye: true,
+        box_dye_when: '2026-04-01',
+      },
       overdueHours: 6,
     },
     {
       slug: 'half-head-foils',
       clientIndex: 11,
-      answers: { goal_level: 8, natural_level: 6, box_dye: false },
+      answers: {
+        goal_level: { level: 8, tone: 'BLONDE_GOLDEN_BLONDE' },
+        natural_level: { level: 6, tone: 'NATURAL_DARK_BLONDE' },
+        box_dye: false,
+      },
     },
     {
       slug: 'gloss',
       clientIndex: 19,
-      answers: { goal_level: 6, natural_level: 6, box_dye: false },
+      answers: {
+        goal_level: { level: 6, tone: 'BLONDE_DARK_GOLDEN_BLONDE' },
+        natural_level: { level: 6, tone: 'NATURAL_DARK_BLONDE' },
+        box_dye: false,
+      },
     },
   ]
 
@@ -1183,7 +1196,7 @@ async function main() {
           : question.inputType === 'BOOLEAN'
             ? false
             : question.inputType === 'LEVEL_PICKER'
-              ? 6
+              ? { level: 6, tone: 'NATURAL_DARK_BLONDE' }
               : question.inputType === 'SINGLE_SELECT'
                 ? (question.options?.[0] ?? 'NONE')
                 : question.inputType === 'DATE'

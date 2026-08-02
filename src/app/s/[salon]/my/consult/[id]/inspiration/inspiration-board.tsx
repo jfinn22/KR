@@ -1,19 +1,25 @@
 'use client'
 
 import * as React from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { EmptyState } from '@/components/ui/feedback'
-import { tagInspirationAction } from '@/server/actions/consultation'
+import { submitConsultationAction, tagInspirationAction } from '@/server/actions/consultation'
 
 /**
- * The inspiration board.
+ * Reference pictures: the last step of every consultation.
+ *
+ * This used to be a text link at the bottom of the photo step, which is where
+ * features go to be ignored. It is the single most useful thing a client can
+ * give a stylist — "level 8 golden blonde" is four words that three colourists
+ * will read three ways, and a picture is not — so it gets its own screen, the
+ * upload is the largest thing on it, and the consultation submits from here.
  *
  * Every uploaded reference immediately asks "what do you like about it?", with
  * the answer as a small set of tags rather than a free-text box. Tags are what
- * a stylist can act on; a paragraph is what they have to interpret.
+ * a stylist can act on; a paragraph is what they have to interpret. A photo
+ * still beats no photo, so nothing here blocks on tagging.
  */
 
 const ATTRIBUTES = [
@@ -46,10 +52,26 @@ export function InspirationBoard({
   consultationId: string
   initialPhotos: InspirationPhotoView[]
 }) {
+  const router = useRouter()
+
   const [photos, setPhotos] = React.useState(initialPhotos)
   const [uploading, setUploading] = React.useState(false)
+  const [submitting, setSubmitting] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
+
+  async function submit() {
+    setSubmitting(true)
+    setError(null)
+
+    const result = await submitConsultationAction(salonSlug, { consultationId })
+    if (!result.ok) {
+      setError(result.error)
+      setSubmitting(false)
+      return
+    }
+    router.push(`/s/${salonSlug}/my/consult/${consultationId}/review`)
+  }
 
   async function upload(file: File) {
     setUploading(true)
@@ -112,43 +134,48 @@ export function InspirationBoard({
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-8">
-      <header>
-        <h1 className="font-display text-display-lg text-ink">The look you are after</h1>
-        <p className="mt-2 max-w-prose text-body text-ink-muted">
-          Add any pictures you have saved, then tell us what caught your eye. Knowing whether you
-          mean the tone or the brightness is the difference between getting it right and getting it
-          nearly right.
+      <header className="flex flex-col gap-3">
+        <p className="label-caps">Last step</p>
+        <h1 className="heading-flourish font-display text-display-lg text-ink">
+          Show us the look you want
+        </h1>
+        <p className="max-w-prose text-body text-ink-muted">
+          A picture settles it. &ldquo;Golden blonde&rdquo; means three different things to three
+          colourists — a photo means one. Add anything you have saved, then tell us what caught your
+          eye.
         </p>
       </header>
 
-      {photos.length === 0 ? (
-        <EmptyState
-          title="Nothing added yet"
-          description="A screenshot from your camera roll is perfect — it does not need to be a professional photo."
-          action={
-            <Button onClick={() => inputRef.current?.click()} disabled={uploading}>
-              {uploading ? 'Uploading…' : 'Add a picture'}
-            </Button>
-          }
-        />
-      ) : (
-        <>
-          <div className="grid gap-5 sm:grid-cols-2">
-            {photos.map((photo) => (
-              <InspirationCard key={photo.id} photo={photo} onTags={setTags} />
-            ))}
-          </div>
+      {/*
+       * The upload is the biggest thing on the screen whether or not anything
+       * has been added yet, because the whole point of this change was that
+       * clients were not finding it.
+       */}
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={uploading}
+        className="wash-rose group flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-rose-500/40 px-6 py-12 text-center transition-all hover:border-rose-500 hover:shadow-card disabled:pointer-events-none disabled:opacity-60"
+      >
+        <span className="font-display text-display-sm text-ink">
+          {uploading
+            ? 'Uploading…'
+            : photos.length === 0
+              ? 'Add a reference picture'
+              : 'Add another picture'}
+        </span>
+        <span className="max-w-prose text-secondary text-ink-muted">
+          A screenshot from your camera roll is perfect. It does not need to be a professional
+          photo, and you can add as many as you like.
+        </span>
+      </button>
 
-          <div>
-            <Button
-              variant="secondary"
-              onClick={() => inputRef.current?.click()}
-              disabled={uploading}
-            >
-              {uploading ? 'Uploading…' : 'Add another'}
-            </Button>
-          </div>
-        </>
+      {photos.length > 0 && (
+        <div className="grid gap-5 sm:grid-cols-2">
+          {photos.map((photo) => (
+            <InspirationCard key={photo.id} photo={photo} onTags={setTags} />
+          ))}
+        </div>
       )}
 
       {error && (
@@ -169,11 +196,16 @@ export function InspirationBoard({
         }}
       />
 
-      <div className="border-t border-line pt-6">
-        <Button asChild>
-          <Link href={`/s/${salonSlug}/my/consult/${consultationId}/review`}>
-            Done — see my plan
-          </Link>
+      <div className="flex flex-wrap items-center justify-between gap-4 border-t border-line pt-6">
+        {/*
+         * Skippable in one tap. A client with nothing saved should not be stuck
+         * on the last screen of a consultation they have otherwise finished.
+         */}
+        <span className="text-secondary text-ink-muted">
+          {photos.length === 0 ? 'No picture? You can send it without one.' : null}
+        </span>
+        <Button variant="gold" onClick={submit} disabled={submitting || uploading}>
+          {submitting ? 'Working…' : 'See my plan'}
         </Button>
       </div>
     </div>

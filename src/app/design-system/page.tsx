@@ -23,16 +23,19 @@ const SWATCHES = [
   ['Surface', '--surface', '#FAFAFB'],
   ['Surface alt', '--surface-alt', '#F4F5F7'],
   ['Line', '--line', '#E6E7EB'],
-  ['Blue 900', '--blue-900', '#0F2A4A'],
-  ['Blue 700', '--blue-700', '#1B4C7E'],
-  ['Blue 500', '--blue-500', '#2E6FA8'],
-  ['Blue 100', '--blue-100', '#E8F0F8'],
+  ['Blue 900', '--blue-900', '#133458'],
+  ['Blue 700', '--blue-700', '#1A558D'],
+  ['Blue 500', '--blue-500', '#2A6EB0'],
+  ['Blue 100', '--blue-100', '#E2EEFA'],
   ['Gold 700', '--gold-700', '#8A6C1F'],
   ['Gold 600', '--gold-600', '#A8842C'],
   ['Gold 500', '--gold-500', '#C9A227'],
   ['Gold 100', '--gold-100', '#FBF5E3'],
+  ['Rose 700', '--rose-700', '#962F5C'],
+  ['Rose 500', '--rose-500', '#C75285'],
+  ['Rose 100', '--rose-100', '#FCEEF5'],
   ['Success', '--success', '#2F6B4F'],
-  ['Warn', '--warn', '#B07A12'],
+  ['Warn', '--warn', '#8A6108'],
   ['Danger', '--danger', '#A32E2E'],
 ]
 
@@ -48,9 +51,10 @@ export default function DesignSystemPage() {
         <p className="label-caps">Reference</p>
         <h1 className="mt-2 font-display text-display-xl text-ink">Design system</h1>
         <p className="mt-3 max-w-prose text-body text-ink-muted">
-          White, blue and gold with black text. Generous whitespace, hairline borders, almost
-          invisible shadows. Gold is a garnish — it marks distinction and status, and never fills a
-          surface or carries body copy.
+          White, blue and gold with black text, and rose for the hair itself. Generous whitespace,
+          hairline borders, soft shadows. Blue is action, gold is money and status, rose is the
+          colour work — used consistently, they let somebody find the part of a screen they want
+          without reading it.
         </p>
         <hr className="rule-gold mt-6" />
       </header>
@@ -77,10 +81,10 @@ export default function DesignSystemPage() {
       <section className="mb-14">
         <SectionHeading
           title="Typography"
-          description="Cormorant Garamond for display, Inter for everything operational."
+          description="Plus Jakarta Sans for display, Inter for everything operational. Both sans — legibility beats flourish on a screen answered one-handed."
         />
         <div className="space-y-4">
-          <p className="font-display text-display-xl text-ink">Corrective colour consultation</p>
+          <p className="font-display text-display-xl text-ink">Balayage consultation</p>
           <p className="font-display text-display-lg text-ink">Aurora Hair Studio</p>
           <p className="font-display text-display-md text-ink">Your hair timeline</p>
           <p className="text-body text-ink">

@@ -33,13 +33,16 @@
     --line: 230 231 235; /* #E6E7EB */
     --line-strong: 211 213 219; /* #D3D5DB */
 
-    /* --- Blue: structure and action. Nav, primary buttons, links. --- */
-    --blue-900: 15 42 74; /* #0F2A4A */
-    --blue-700: 27 76 126; /* #1B4C7E */
-    --blue-500: 46 111 168; /* #2E6FA8 */
-    --blue-300: 123 167 205; /* #7BA7CD */
-    --blue-100: 232 240 248; /* #E8F0F8 */
-    --blue-50: 244 248 252; /* #F4F8FC */
+    /* --- Blue: structure and action. Nav, primary buttons, links.
+           Lighter and cleaner than a corporate navy — a button has to look
+           tappable across a salon, and near-black blue reads as disabled. Every
+           rung here still carries white text at AA or better. --- */
+    --blue-900: 19 52 88; /* #133458 */
+    --blue-700: 26 85 141; /* #1A558D */
+    --blue-500: 42 110 176; /* #2A6EB0 */
+    --blue-300: 133 179 219; /* #85B3DB */
+    --blue-100: 226 238 250; /* #E2EEFA */
+    --blue-50: 242 248 254; /* #F2F8FE */
 
     /* --- Gold: distinction and status. A garnish, never a surface fill.
            Exactly one rung carries text: gold-700. gold-600 is for borders and
@@ -49,6 +52,15 @@
     --gold-500: 201 162 39; /* #C9A227 */
     --gold-300: 226 199 102; /* #E2C766 */
     --gold-100: 251 245 227; /* #FBF5E3 */
+
+    /* --- Rose: the third colour, and the one that makes it a salon.
+           Blue and gold alone read as a bank. Rose carries the parts of the
+           product that are about the hair itself — the shade chart, inspiration,
+           the timeline — and never competes with blue for actions. Same ladder
+           discipline as gold: 700 is the only rung that carries text. --- */
+    --rose-700: 150 47 92; /* #962F5C */
+    --rose-500: 199 82 133; /* #C75285 */
+    --rose-100: 252 238 245; /* #FCEEF5 */
 
     /* --- Semantic. Each clears 4.5:1 on white AND on its own soft background.
            Use gold-500 when you want a bright amber *fill* rather than text. --- */
@@ -61,7 +73,16 @@
 
     --radius: 10px;
 
-    --font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+    /*
+     * Display type is a sans, not a serif.
+     *
+     * A high-contrast garamond looks handsome on a marketing page and costs
+     * real legibility on the screens that matter — a consultation answered
+     * one-handed in bad light, a stylist reading a flag between clients. Plus
+     * Jakarta Sans keeps a distinct voice at heading sizes without asking
+     * anyone to work at reading it.
+     */
+    --font-display: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
     --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   }
 
@@ -89,8 +110,8 @@
   h4 {
     @apply text-ink;
     font-family: var(--font-display);
-    font-weight: 600;
-    letter-spacing: -0.01em;
+    font-weight: 700;
+    letter-spacing: -0.02em;
     line-height: 1.2;
   }
 
@@ -155,6 +176,62 @@
   /* Every AI-produced element wears this so it can never read as fact. */
   .ai-suggestion {
     @apply rounded-lg border border-dashed border-blue-300 bg-blue-50 p-4;
+  }
+
+  /*
+   * Washes. A tinted panel instead of another white box.
+   *
+   * Colour here is doing a job, not decorating: blue is the salon's own
+   * information, gold is money and status, rose is the hair itself. Used
+   * consistently they let somebody find the part of a screen they want without
+   * reading it, which is the whole argument for having a palette.
+   */
+  .wash-blue {
+    @apply border border-blue-300/40 bg-blue-50;
+  }
+  .wash-gold {
+    @apply border border-gold-500/30 bg-gold-100;
+  }
+  .wash-rose {
+    @apply border border-rose-500/25 bg-rose-100;
+  }
+
+  /*
+   * The gilt edge. One hairline of gold along the top of a shell or a hero,
+   * fading out at both ends — the finishing touch a salon's own signage has and
+   * a dashboard never does.
+   */
+  .edge-gilt {
+    background-image: linear-gradient(
+      to right,
+      rgb(var(--gold-500) / 0) 0%,
+      rgb(var(--gold-500) / 0.9) 22%,
+      rgb(var(--gold-300)) 50%,
+      rgb(var(--gold-500) / 0.9) 78%,
+      rgb(var(--gold-500) / 0) 100%
+    );
+    @apply h-px w-full;
+  }
+
+  /* A warm, barely-there wash behind hero copy. Never behind body text. */
+  .hero-wash {
+    background-image:
+      radial-gradient(80rem 32rem at 12% -10%, rgb(var(--blue-100) / 0.9), transparent 60%),
+      radial-gradient(60rem 28rem at 92% 0%, rgb(var(--gold-100)), transparent 62%),
+      radial-gradient(48rem 26rem at 60% 110%, rgb(var(--rose-100) / 0.8), transparent 60%);
+  }
+
+  /*
+   * A section heading with a gold flourish on the baseline rather than a plain
+   * rule. Small, and it is most of the difference between "software" and
+   * "somewhere you would book".
+   */
+  .heading-flourish {
+    @apply relative pb-3;
+  }
+  .heading-flourish::after {
+    content: '';
+    @apply absolute bottom-0 left-0 h-0.5 w-10 rounded-pill bg-gold-500;
   }
 }
 

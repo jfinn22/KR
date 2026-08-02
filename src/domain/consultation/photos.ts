@@ -38,17 +38,35 @@ export type PhotoView =
  */
 const SHAPE: readonly PhotoView[] = []
 
-/** Existing colour and how it sits — needed before anything is applied. */
-const COLOUR: readonly PhotoView[] = ['FRONT', 'BACK', 'ROOTS', 'MIDS', 'ENDS']
+/**
+ * Existing colour and how it sits — needed before anything is applied.
+ *
+ * Texture is required, not suggested. A shot taken head-on at arm's length
+ * cannot tell fine straight hair from coarse curly hair, and the difference
+ * changes how fast it processes, how evenly it takes, and what it looks like
+ * dry — so an estimate made without it is a guess wearing a number. It is one
+ * extra frame on a set that already runs to five, which is a small cost against
+ * being wrong about the timing.
+ */
+const COLOUR: readonly PhotoView[] = ['FRONT', 'BACK', 'ROOTS', 'MIDS', 'ENDS', 'TEXTURE']
 
 /**
  * Lightening also needs the sides: banding and previous foil lines show at the
  * temples long before they show head-on, and the ends decide how far it lifts.
  */
-const LIGHTENING: readonly PhotoView[] = ['FRONT', 'BACK', 'LEFT', 'RIGHT', 'ROOTS', 'MIDS', 'ENDS']
+const LIGHTENING: readonly PhotoView[] = [
+  'FRONT',
+  'BACK',
+  'LEFT',
+  'RIGHT',
+  'ROOTS',
+  'MIDS',
+  'ENDS',
+  'TEXTURE',
+]
 
-/** Extensions are matched against real density at the part line. */
-const EXTENSIONS: readonly PhotoView[] = ['FRONT', 'BACK', 'PART', 'ENDS']
+/** Extensions are matched against real density and texture at the part line. */
+const EXTENSIONS: readonly PhotoView[] = ['FRONT', 'BACK', 'PART', 'ENDS', 'TEXTURE']
 
 const ORDER: readonly PhotoView[] = [
   'FRONT',
@@ -98,15 +116,16 @@ export function requiredPhotoViews(services: readonly PhotoNeedInput[]): readonl
 /**
  * Photos a client should be nudged for but never blocked on.
  *
- * Texture and a wet shot make a real difference to a curly cut or a smoothing
- * treatment, but a client without them is not a client we refuse to quote.
+ * Only the wet shot is left here. Texture used to sit in this list and was
+ * moved into the required sets — it is the frame that decides whether an
+ * estimate is honest, and something the estimate depends on does not belong in
+ * a list of nice-to-haves.
  */
 export function suggestedPhotoViews(services: readonly PhotoNeedInput[]): readonly PhotoView[] {
   const required = new Set(requiredPhotoViews(services))
   const suggested = new Set<PhotoView>(['FRONT', 'BACK'])
 
   for (const service of services) {
-    if (service.isChemical || service.isLightening) suggested.add('TEXTURE')
     if (service.isLightening) suggested.add('WET')
   }
 

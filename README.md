@@ -37,9 +37,15 @@ Sign in at `/login` — every seeded account uses password `salon1234`.
 | `/s/aurora/my/consult/new` | Pick services and start a consultation                    |
 | `/s/aurora/my/timeline`    | Every chemical event on their hair, in order              |
 
+Colour is asked for by name, not by number: pick a family — blonde, brown, red
+and copper, grey and silver, vivid — and the swatches under it become that
+family's real shades. Every consultation then closes on reference pictures of
+the look the client is after, because a photograph settles what four words
+cannot.
+
 A cut consults, auto-approves and books with nobody in the middle. A balayage
-with box dye and a level-9 goal raises flags, plans two visits, and waits for
-a stylist — which is the whole product in two journeys.
+with box dye and a beige-blonde goal raises flags, plans two visits, and waits
+for a stylist — which is the whole product in two journeys.
 
 **As `owner@aurora.test`:**
 

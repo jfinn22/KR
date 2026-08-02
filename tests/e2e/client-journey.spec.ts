@@ -48,10 +48,16 @@ async function answerStep(page: Page, opts: { boxDye?: boolean; level?: number }
       continue
     }
 
-    // Hair level swatches
-    const levels = fieldset.getByRole('radio', { name: /^Level \d+$/ })
-    if ((await levels.count()) === 10) {
-      await levels.nth((opts.level ?? 6) - 1).click()
+    // The shade chart: a colour family, then a named shade inside it. The
+    // natural family spans every level, so the wanted depth is always reachable
+    // without having to change family first.
+    const familySelect = fieldset.locator('select[id$="-family"]')
+    if ((await familySelect.count()) > 0) {
+      const wanted = fieldset.getByRole('radio', {
+        name: new RegExp(`, level ${opts.level ?? 6}$`, 'i'),
+      })
+      const target = (await wanted.count()) > 0 ? wanted : fieldset.getByRole('radio')
+      await target.first().click()
       continue
     }
 
@@ -116,7 +122,9 @@ async function completeFlow(page: Page, opts: { boxDye?: boolean; level?: number
 
     await answerStep(page, opts)
 
-    const next = page.getByRole('button', { name: /continue|see my plan|add photos/i })
+    const next = page.getByRole('button', {
+      name: /continue|add photos|reference photos|see my plan/i,
+    })
     if ((await next.count()) === 0) break
 
     const sectionBefore = await page.getByRole('heading', { level: 1 }).innerText()
@@ -128,13 +136,34 @@ async function completeFlow(page: Page, opts: { boxDye?: boolean; level?: number
       .waitForFunction(
         (before) =>
           document.querySelector('h1')?.textContent !== before ||
-          /\/review|\/photos/.test(location.pathname),
+          /\/review|\/photos|\/inspiration/.test(location.pathname),
         sectionBefore,
         { timeout: 15_000 },
       )
       .catch(() => undefined)
 
-    if (/\/review|\/photos/.test(page.url())) break
+    if (/\/review|\/photos|\/inspiration/.test(page.url())) break
+  }
+}
+
+/**
+ * Walk the two steps that come after the questions.
+ *
+ * Photos of the hair they have, then pictures of the look they want. Both are
+ * skippable in one tap by design — a client with nothing saved should never be
+ * stuck on the last screen of a consultation they have otherwise finished — and
+ * the consultation submits from the reference step.
+ */
+async function finishConsultation(page: Page) {
+  if (/\/photos/.test(page.url())) {
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/show us your hair/i)
+    await page.getByRole('button', { name: /next: the look you want/i }).click()
+    await page.waitForURL(/\/inspiration/, { timeout: 20_000 })
+  }
+
+  if (/\/inspiration/.test(page.url())) {
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/the look you want/i)
+    await page.getByRole('button', { name: /see my plan/i }).click()
   }
 }
 
@@ -155,6 +184,7 @@ test.describe('the client journey', () => {
     await expect(page).toHaveURL(CONSULT_URL, { timeout: 15_000 })
 
     await completeFlow(page)
+    await finishConsultation(page)
 
     await expect(page).toHaveURL(/\/review/, { timeout: 20_000 })
     await expect(page.getByText(/estimated price/i)).toBeVisible()
@@ -194,10 +224,7 @@ test.describe('the client journey', () => {
     await completeFlow(page, { boxDye: true, level: 9 })
 
     // Lightening asks for photos; the questions come first so the client knows why.
-    if (/\/photos/.test(page.url())) {
-      await expect(page.getByRole('heading', { level: 1 })).toContainText(/show us your hair/i)
-      await page.getByRole('button', { name: /see my plan/i }).click()
-    }
+    await finishConsultation(page)
 
     await expect(page).toHaveURL(/\/review/, { timeout: 20_000 })
 
@@ -293,6 +320,84 @@ test.describe('the client journey', () => {
     await expect(page).toHaveURL(CONSULT_URL, { timeout: 15_000 })
 
     await expect(page.getByRole('link', { name: /in-person consultation/i })).toBeVisible()
+  })
+
+  /*
+   * A client asks for a colour, not a number. One strip from black to blonde
+   * cannot express copper, so the family comes first and the shades under it
+   * are named the way somebody would say them out loud.
+   */
+  test('a client picks the exact shade, by family and by name', async ({ page }) => {
+    await signIn(page, CLIENT)
+    await page.goto(`/s/${SALON}/my/consult/new`)
+
+    await page
+      .getByRole('button', { name: /balayage/i })
+      .first()
+      .click()
+    await page.getByRole('button', { name: /^continue$/i }).click()
+    await expect(page).toHaveURL(CONSULT_URL, { timeout: 15_000 })
+
+    const family = page.locator('select[id$="-family"]').first()
+    await expect(family).toBeVisible({ timeout: 15_000 })
+
+    // Every way a client describes their colour is on offer, not just depth.
+    const families = await family.locator('option').allInnerTexts()
+    expect(families.join(' ')).toMatch(/blonde/i)
+    expect(families.join(' ')).toMatch(/brown|brunette/i)
+    expect(families.join(' ')).toMatch(/red|copper/i)
+
+    // Choosing a family swaps the swatches for that family's real shades.
+    await family.selectOption('RED')
+    const copper = page.getByRole('radio', { name: /^copper, level/i }).first()
+    await expect(copper).toBeVisible()
+    await copper.click()
+
+    // Said back in words, because a grid of swatches all looks alike on a phone.
+    await expect(page.getByText(/you picked/i)).toBeVisible()
+    await expect(page.getByText('Copper', { exact: true }).first()).toBeVisible()
+
+    // And it survives a reload, which is what proves the shade was stored.
+    // Long enough for the autosave debounce to fire and land, as elsewhere.
+    await page.waitForTimeout(1500)
+    await page.reload()
+    await expect(page.getByRole('radio', { name: /^copper, level/i })).toHaveAttribute(
+      'aria-checked',
+      'true',
+      { timeout: 15_000 },
+    )
+  })
+
+  /*
+   * The reference picture used to be a text link at the bottom of the photo
+   * step. It is the most useful thing a client can hand a stylist, so it is now
+   * the last step of every consultation — and still skippable in one tap.
+   */
+  test('every consultation ends on the look they want, and can be sent without one', async ({
+    page,
+  }) => {
+    await signIn(page, CLIENT)
+    await page.goto(`/s/${SALON}/my/consult/new`)
+
+    await page
+      .getByRole('button', { name: /cut & finish/i })
+      .first()
+      .click()
+    await page.getByRole('button', { name: /^continue$/i }).click()
+    await expect(page).toHaveURL(CONSULT_URL, { timeout: 15_000 })
+
+    await completeFlow(page)
+
+    // A cut needs no photos of its own hair, and still lands here.
+    await expect(page).toHaveURL(/\/inspiration/, { timeout: 20_000 })
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/the look you want/i)
+
+    // The upload is the screen, not a footnote at the bottom of it.
+    await expect(page.getByRole('button', { name: /add a reference picture/i })).toBeVisible()
+
+    await expect(page.getByText(/you can send it without one/i)).toBeVisible()
+    await page.getByRole('button', { name: /see my plan/i }).click()
+    await expect(page).toHaveURL(/\/review/, { timeout: 20_000 })
   })
 })
 

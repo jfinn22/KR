@@ -26,16 +26,16 @@ Counts: **419 unit**, **83 integration**, **48 end-to-end**.
 
 ## Built and tested
 
-|                            | What it covers                                                                                                                                                                                     |
-| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **W0** Foundation          | Next.js 15 + TS strict, the salon design system (white/blue/gold, black text, Cormorant Garamond over Inter), `/design-system`, WCAG AA contrast test that caught two real failures in the palette |
-| **W1** Data model          | 99 models; GiST exclusion constraints proving overlapping bookings and holds are rejected while back-to-back and processing overlap are accepted; RLS on every tenant table                        |
-| **W2** Tenancy & authz     | 60-action × 5-role matrix, `dbFor()` scoping extension, `withAuthz` as the single mutation path, DMMF test that fails if a model skips the tenancy decision                                        |
-| **W3** Ports & adapters    | Seven ports, mock + real, one shared contract suite. EXIF stripping, payment idempotency, PII refusal on the AI port                                                                               |
-| **W5** Scheduling          | Pure interval solver with phase chains, interleaving, resource assignment and gap-fill ranking; DST across four zones; 25-way concurrent booking race proven safe                                  |
-| **W6** Consultation engine | 17 rules, deterministic and versioned; every flag carries a recommended path; order-independence proven against a reversed ruleset                                                                 |
-| **W12** Jobs               | Postgres queue with `FOR UPDATE SKIP LOCKED`, long-lived worker, outbox dispatch, reminders, hold expiry, waitlist matching, calibration                                                           |
-| **W17** Seed & e2e         | Deterministic Aurora Hair Studio demo; Playwright suite against a production build                                                                                                                 |
+|                            | What it covers                                                                                                                                                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **W0** Foundation          | Next.js 15 + TS strict, the salon design system (white/blue/gold with rose for the colour work, black text, Plus Jakarta Sans over Inter), `/design-system`, WCAG AA contrast test that caught two real failures in the palette |
+| **W1** Data model          | 99 models; GiST exclusion constraints proving overlapping bookings and holds are rejected while back-to-back and processing overlap are accepted; RLS on every tenant table                                                     |
+| **W2** Tenancy & authz     | 60-action × 5-role matrix, `dbFor()` scoping extension, `withAuthz` as the single mutation path, DMMF test that fails if a model skips the tenancy decision                                                                     |
+| **W3** Ports & adapters    | Seven ports, mock + real, one shared contract suite. EXIF stripping, payment idempotency, PII refusal on the AI port                                                                                                            |
+| **W5** Scheduling          | Pure interval solver with phase chains, interleaving, resource assignment and gap-fill ranking; DST across four zones; 25-way concurrent booking race proven safe                                                               |
+| **W6** Consultation engine | 17 rules, deterministic and versioned; every flag carries a recommended path; order-independence proven against a reversed ruleset                                                                                              |
+| **W12** Jobs               | Postgres queue with `FOR UPDATE SKIP LOCKED`, long-lived worker, outbox dispatch, reminders, hold expiry, waitlist matching, calibration                                                                                        |
+| **W17** Seed & e2e         | Deterministic Aurora Hair Studio demo; Playwright suite against a production build                                                                                                                                              |
 
 ### The demo salon
 
@@ -55,18 +55,18 @@ Every account uses password `salon1234`:
 
 ## What each workstream ended up being
 
-| Workstream            | What it covers                                                                                                                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **W4** Catalog        | `catalog.ts` as the single mapping from a stored service to the scheduler's chain spec and the engine's fact spec; the phase editor, which shows what each chain frees up      |
-| **W7** Client portal  | Guided consultation (one section per screen, client-side branching, autosave), photo capture scaled to the basket, inspiration tagging, plan review, slot picker, booking      |
-| **W8** Stylist review | Queue ordered by urgency rather than arrival; review screen with the stylist-facing detail; flag acknowledge/resolve/override with a mandatory reason; decision with overrides |
-| **W9** Front desk     | The day grouped by what needs doing, with "running late" computed rather than stored; client search; the diary drawing processing gaps as free time; the till                  |
-| **W10** Commerce      | Deposits, invoices, payments, refunds and cancellation fees — all money math pure and in one place, all policies snapshotted, all provider calls idempotent                    |
-| **W11** Compliance    | Patch tests with a 48-hour read gate, forms hashed at signing and verifiable afterwards, dated consent grants, export, and erasure that keeps the books                        |
-| **W13** AI            | Eight call sites, all advisory, all redacted, all recorded, none used until a named person accepts them; photo analysis behind a second opt-in                                 |
-| **W14** Day-of        | A state machine over four separate timestamps, because chair time is the only honest input to calibration                                                                      |
-| **W15** Analytics     | Quote accuracy first, per stylist; funnel that names the biggest drop; utilisation against days actually worked; which rules people override                                   |
-| **W16** Integrations  | Per-stylist subscribable calendar feed (hashed token, shown once, initials only), two-way sync and webhooks off the job queue                                                  |
+| Workstream            | What it covers                                                                                                                                                                                                                         |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **W4** Catalog        | `catalog.ts` as the single mapping from a stored service to the scheduler's chain spec and the engine's fact spec; the phase editor, which shows what each chain frees up                                                              |
+| **W7** Client portal  | Guided consultation (one section per screen, client-side branching, autosave), a shade chart of named colours by family, photo capture scaled to the basket, reference pictures as the closing step, plan review, slot picker, booking |
+| **W8** Stylist review | Queue ordered by urgency rather than arrival; review screen with the stylist-facing detail; flag acknowledge/resolve/override with a mandatory reason; decision with overrides                                                         |
+| **W9** Front desk     | The day grouped by what needs doing, with "running late" computed rather than stored; client search; the diary drawing processing gaps as free time; the till                                                                          |
+| **W10** Commerce      | Deposits, invoices, payments, refunds and cancellation fees — all money math pure and in one place, all policies snapshotted, all provider calls idempotent                                                                            |
+| **W11** Compliance    | Patch tests with a 48-hour read gate, forms hashed at signing and verifiable afterwards, dated consent grants, export, and erasure that keeps the books                                                                                |
+| **W13** AI            | Eight call sites, all advisory, all redacted, all recorded, none used until a named person accepts them; photo analysis behind a second opt-in                                                                                         |
+| **W14** Day-of        | A state machine over four separate timestamps, because chair time is the only honest input to calibration                                                                                                                              |
+| **W15** Analytics     | Quote accuracy first, per stylist; funnel that names the biggest drop; utilisation against days actually worked; which rules people override                                                                                           |
+| **W16** Integrations  | Per-stylist subscribable calendar feed (hashed token, shown once, initials only), two-way sync and webhooks off the job queue                                                                                                          |
 
 ---
 

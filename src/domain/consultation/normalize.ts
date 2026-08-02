@@ -12,6 +12,7 @@ import type {
   SplitEnds,
   Texture,
 } from './facts'
+import { readShadeAnswer } from '@/domain/hair/tone'
 
 /**
  * Building the rules engine's input.
@@ -139,6 +140,19 @@ function level(value: unknown): Level | null {
   return clamped as Level
 }
 
+/**
+ * A tone: a shade key from the chart, or a salon's own wording.
+ *
+ * Not validated against the chart, because a salon is free to point a question
+ * at goal.targetTone with its own vocabulary in it. Anything that resolves to a
+ * chart shade is rendered by name and depth; anything else is shown as written.
+ * Discarding a tone we do not recognise would quietly lose a real answer.
+ */
+function tone(value: unknown): string | null {
+  const text = typeof value === 'string' ? value.trim() : ''
+  return text === '' ? null : text
+}
+
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T): T {
   const candidate = String(value ?? '').toUpperCase()
   return (allowed as readonly string[]).includes(candidate) ? (candidate as T) : fallback
@@ -225,6 +239,25 @@ export function normalizeFacts(input: NormalizeInput): ConsultationFacts {
   for (const [questionKey, factKey] of Object.entries(input.factKeys)) {
     const value = input.answers[questionKey]
     if (value === undefined || value === '') continue
+
+    /*
+     * A shade question answers two facts at once.
+     *
+     * "Copper" is a depth and a tone together, and a client picks it as one
+     * thing, so splitting it into two questions would be an artefact of our
+     * storage rather than anything a client would recognise. The depth goes to
+     * the declared fact path and the tone to its sibling — hair.naturalLevel
+     * carries hair.naturalTone, goal.targetLevel carries goal.targetTone —
+     * which is a convention rather than configuration, but a one-line one that
+     * only applies to paths actually ending in Level.
+     */
+    const shade = readShadeAnswer(value)
+    if (shade && factKey.endsWith('Level')) {
+      setPath(overrides, factKey, shade.level)
+      if (shade.tone) setPath(overrides, `${factKey.slice(0, -'Level'.length)}Tone`, shade.tone)
+      continue
+    }
+
     setPath(overrides, factKey, value)
   }
 
@@ -253,6 +286,7 @@ export function normalizeFacts(input: NormalizeInput): ConsultationFacts {
         (profile?.naturalLevel ?? null) as Level | null,
         level,
       ),
+      naturalTone: tone(getPath(overrides, 'hair.naturalTone')),
       currentLevel: {
         roots: pick(
           'hair.currentLevel.roots',
@@ -372,7 +406,7 @@ export function normalizeFacts(input: NormalizeInput): ConsultationFacts {
 
     goal: {
       targetLevel: level(getPath(overrides, 'goal.targetLevel')),
-      targetTone: (getPath(overrides, 'goal.targetTone') as string | null) ?? null,
+      targetTone: tone(getPath(overrides, 'goal.targetTone')),
       techniques: normalizeStringArray(getPath(overrides, 'goal.techniques')),
       wantsAllOver: bool(getPath(overrides, 'goal.wantsAllOver')),
       contrastPreference: normalizeContrast(getPath(overrides, 'goal.contrastPreference')),

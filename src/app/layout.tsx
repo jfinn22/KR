@@ -1,15 +1,20 @@
 import type { Metadata, Viewport } from 'next'
-import { Cormorant_Garamond, Inter } from 'next/font/google'
+import { Inter, Plus_Jakarta_Sans } from 'next/font/google'
 import './globals.css'
 
 /**
- * Cormorant Garamond carries the display voice — page titles, salon names,
- * section headers. Inter carries every control, label and table. The pairing
- * is what makes the product read as a salon rather than a dashboard.
+ * Plus Jakarta Sans carries the display voice — page titles, salon names,
+ * section headers. Inter carries every control, label and table.
+ *
+ * Both are sans on purpose. A display serif photographs beautifully and costs
+ * legibility exactly where this product is used: a consultation answered
+ * one-handed on a phone, a stylist scanning a risk flag between clients. The
+ * character comes from weight, spacing and colour instead, which cost nothing
+ * to read.
  */
-const display = Cormorant_Garamond({
+const display = Plus_Jakarta_Sans({
   subsets: ['latin'],
-  weight: ['400', '500', '600', '700'],
+  weight: ['500', '600', '700', '800'],
   variable: '--font-display',
   display: 'swap',
 })
@@ -32,7 +37,7 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  themeColor: '#0f2a4a',
+  themeColor: '#133458',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

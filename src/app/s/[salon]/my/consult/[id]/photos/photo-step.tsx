@@ -11,7 +11,6 @@ import {
 } from '@/components/salon/photo-capture-grid'
 import { Button } from '@/components/ui/button'
 import { ProgressRail } from '@/components/ui/feedback'
-import { submitConsultationAction } from '@/server/actions/consultation'
 
 /**
  * The photo step.
@@ -23,6 +22,10 @@ import { submitConsultationAction } from '@/server/actions/consultation'
  * A missing photo warns rather than blocks. The rules engine already treats an
  * incomplete set as a DATA_QUALITY caution and says so in the estimate, which
  * is a better outcome than a client who gives up at the upload screen.
+ *
+ * This step is about the hair they have. The step after it is about the hair
+ * they want, which is a separate screen because they are separate questions and
+ * clients answer them with different pictures.
  */
 export function PhotoStep({
   salonSlug,
@@ -77,17 +80,9 @@ export function PhotoStep({
     }
   }
 
-  async function submit() {
+  function goToReferences() {
     setSubmitting(true)
-    setError(null)
-
-    const result = await submitConsultationAction(salonSlug, { consultationId })
-    if (!result.ok) {
-      setError(result.error)
-      setSubmitting(false)
-      return
-    }
-    router.push(`/s/${salonSlug}/my/consult/${consultationId}/review`)
+    router.push(`/s/${salonSlug}/my/consult/${consultationId}/inspiration`)
   }
 
   return (
@@ -135,25 +130,14 @@ export function PhotoStep({
           <div className="flex items-center gap-4">
             {progress.missing.length > 0 && (
               <span className="text-label text-warn">
-                {progress.missing.length} still to add — you can send it anyway
+                {progress.missing.length} still to add — you can carry on anyway
               </span>
             )}
-            <Button onClick={submit} disabled={submitting}>
-              {submitting ? 'Working…' : 'See my plan'}
+            <Button onClick={goToReferences} disabled={submitting}>
+              {submitting ? 'Working…' : 'Next: the look you want'}
             </Button>
           </div>
         </div>
-
-        <p className="text-secondary text-ink-muted">
-          Got a picture of the look you want?{' '}
-          <Link
-            href={`/s/${salonSlug}/my/consult/${consultationId}/inspiration`}
-            className="text-blue-500 underline-offset-4 hover:underline"
-          >
-            Add it as inspiration
-          </Link>
-          .
-        </p>
       </div>
     </div>
   )

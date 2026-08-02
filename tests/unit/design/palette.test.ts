@@ -64,6 +64,9 @@ describe('palette tokens', () => {
       'gold-500',
       'gold-300',
       'gold-100',
+      'rose-700',
+      'rose-500',
+      'rose-100',
       'success',
       'success-soft',
       'warn',
@@ -76,7 +79,15 @@ describe('palette tokens', () => {
 })
 
 describe('body text contrast (WCAG AA, 4.5:1)', () => {
-  const backgrounds = ['canvas', 'surface', 'surface-alt', 'blue-50', 'blue-100', 'gold-100']
+  const backgrounds = [
+    'canvas',
+    'surface',
+    'surface-alt',
+    'blue-50',
+    'blue-100',
+    'gold-100',
+    'rose-100',
+  ]
 
   it.each(backgrounds)('ink on %s', (bg) => {
     expect(contrastRatio(token('ink'), token(bg))).toBeGreaterThanOrEqual(AA_NORMAL)
@@ -86,12 +97,38 @@ describe('body text contrast (WCAG AA, 4.5:1)', () => {
     expect(contrastRatio(token('ink-muted'), token(bg))).toBeGreaterThanOrEqual(AA_NORMAL)
   })
 
-  it('white text on the primary navy button', () => {
-    expect(contrastRatio(token('ink-inverse'), token('blue-900'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  /*
+   * The primary button is blue-500 — the lit rung, not the near-black one — so
+   * that is the pair that has to hold. Lightening it any further to "make the
+   * buttons pop" fails here rather than in front of a client.
+   */
+  it('white text on the primary button', () => {
+    expect(contrastRatio(token('ink-inverse'), token('blue-500'))).toBeGreaterThanOrEqual(AA_NORMAL)
   })
 
   it('white text on the blue-700 hover state', () => {
     expect(contrastRatio(token('ink-inverse'), token('blue-700'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it('white text on the deepest blue, used for nav and active states', () => {
+    expect(contrastRatio(token('ink-inverse'), token('blue-900'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  /*
+   * The gold button is a solid fill with BLACK type, which is the only way gold
+   * carries text — white on gold is unreadable and always will be.
+   */
+  it('black text on the gold button', () => {
+    expect(contrastRatio(token('ink'), token('gold-500'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it('black text on the gold hover state', () => {
+    expect(contrastRatio(token('ink'), token('gold-300'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it('blue-700 is the text rung on the secondary button', () => {
+    expect(contrastRatio(token('blue-700'), token('canvas'))).toBeGreaterThanOrEqual(AA_NORMAL)
+    expect(contrastRatio(token('blue-700'), token('blue-50'))).toBeGreaterThanOrEqual(AA_NORMAL)
   })
 
   it('white text on the danger button', () => {
@@ -123,6 +160,18 @@ describe('accent text contrast', () => {
 
   it('link blue is readable on white', () => {
     expect(contrastRatio(token('blue-500'), token('canvas'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  // Rose keeps gold's discipline: one text rung, one border rung, one wash.
+  it('rose-700 is the text-safe rose on white and on the rose wash', () => {
+    expect(contrastRatio(token('rose-700'), token('canvas'))).toBeGreaterThanOrEqual(AA_NORMAL)
+    expect(contrastRatio(token('rose-700'), token('rose-100'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it('rose-500 is a border/icon colour — it clears 3:1 but NOT the text bar', () => {
+    const onWhite = contrastRatio(token('rose-500'), token('canvas'))
+    expect(onWhite).toBeGreaterThanOrEqual(AA_UI)
+    expect(onWhite).toBeLessThan(AA_NORMAL)
   })
 
   it('blue-900 badge text is readable on the blue wash', () => {

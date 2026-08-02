@@ -24,7 +24,31 @@ describe('required photo views', () => {
   })
 
   it('asks for existing colour before anything is applied', () => {
-    expect(requiredPhotoViews([gloss])).toEqual(['FRONT', 'BACK', 'ROOTS', 'MIDS', 'ENDS'])
+    expect(requiredPhotoViews([gloss])).toEqual([
+      'FRONT',
+      'BACK',
+      'ROOTS',
+      'MIDS',
+      'ENDS',
+      'TEXTURE',
+    ])
+  })
+
+  /*
+   * Texture is required rather than invited. A head-on shot at arm's length
+   * cannot tell fine straight hair from coarse curly hair, and that difference
+   * changes how fast the colour processes and how evenly it takes — so an
+   * estimate made without it is a guess with a number on it.
+   */
+  it('requires texture wherever it asks for photos at all', () => {
+    for (const service of [gloss, balayage, extensions]) {
+      expect(requiredPhotoViews([service]), JSON.stringify(service)).toContain('TEXTURE')
+    }
+  })
+
+  // A dry cut is still quoted from its own price and duration, not a picture.
+  it('does not start demanding photos of a cut to get texture', () => {
+    expect(requiredPhotoViews([cut])).toEqual([])
   })
 
   // Banding and old foil lines show at the temples long before they show head-on.
@@ -32,7 +56,7 @@ describe('required photo views', () => {
     const views = requiredPhotoViews([balayage])
     expect(views).toContain('LEFT')
     expect(views).toContain('RIGHT')
-    expect(views).toHaveLength(7)
+    expect(views).toHaveLength(8)
   })
 
   it('asks for the part line before extensions', () => {
@@ -70,8 +94,12 @@ describe('suggested photo views', () => {
     expect(suggestedPhotoViews([balayage]).some((v) => required.has(v))).toBe(false)
   })
 
-  it('invites texture for chemical work and a wet shot for lightening', () => {
-    expect(suggestedPhotoViews([gloss])).toContain('TEXTURE')
-    expect(suggestedPhotoViews([balayage])).toEqual(['TEXTURE', 'WET'])
+  it('invites a wet shot for lightening, since it shows the real state of the ends', () => {
+    expect(suggestedPhotoViews([balayage])).toEqual(['WET'])
+  })
+
+  // It is required now, so inviting it as well would show the same tile twice.
+  it('no longer merely invites texture', () => {
+    expect(suggestedPhotoViews([gloss])).not.toContain('TEXTURE')
   })
 })

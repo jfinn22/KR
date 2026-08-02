@@ -178,6 +178,71 @@ describe('normalizing answers into facts', () => {
   })
 })
 
+/*
+ * A client picks "copper", not "level 6" — one choice that answers two facts.
+ * Splitting it into two questions would be an artefact of our storage rather
+ * than anything a client would recognise, so the shade answer lands on the
+ * declared path and its sibling: hair.naturalLevel carries hair.naturalTone,
+ * goal.targetLevel carries goal.targetTone.
+ */
+describe('a shade answers a depth and a tone together', () => {
+  it('writes the depth to the declared path and the tone to its sibling', () => {
+    const facts = normalizeFacts(
+      input({
+        answers: {
+          q_goal: { level: 8, tone: 'BLONDE_GOLDEN_BLONDE' },
+          q_natural: { level: 5, tone: 'NATURAL_LIGHT_BROWN' },
+        },
+        factKeys: { q_goal: 'goal.targetLevel', q_natural: 'hair.naturalLevel' },
+      }),
+    )
+
+    expect(facts.goal.targetLevel).toBe(8)
+    expect(facts.goal.targetTone).toBe('BLONDE_GOLDEN_BLONDE')
+    expect(facts.hair.naturalLevel).toBe(5)
+    expect(facts.hair.naturalTone).toBe('NATURAL_LIGHT_BROWN')
+  })
+
+  // Two vivids can need the same base, so the shade sets the depth, not vice versa.
+  it('takes the depth from the shade when only a tone came through', () => {
+    const facts = normalizeFacts(
+      input({
+        answers: { q: { tone: 'FASHION_PASTEL_PINK' } },
+        factKeys: { q: 'goal.targetLevel' },
+      }),
+    )
+    expect(facts.goal.targetLevel).toBe(10)
+    expect(facts.goal.targetTone).toBe('FASHION_PASTEL_PINK')
+  })
+
+  /*
+   * Consultations started before the picker had families stored a bare number.
+   * Losing a half-finished consultation to a deploy would be a worse bug than
+   * the one the families fixed.
+   */
+  it('still reads a bare level from before shades existed', () => {
+    const facts = normalizeFacts(input({ answers: { q: 7 }, factKeys: { q: 'goal.targetLevel' } }))
+    expect(facts.goal.targetLevel).toBe(7)
+    expect(facts.goal.targetTone).toBeNull()
+  })
+
+  // A salon is free to point a question at a tone path with its own wording.
+  it('keeps a tone it does not recognise rather than discarding the answer', () => {
+    const facts = normalizeFacts(
+      input({ answers: { q: 'warm caramel, no brass' }, factKeys: { q: 'goal.targetTone' } }),
+    )
+    expect(facts.goal.targetTone).toBe('warm caramel, no brass')
+  })
+
+  it('leaves the sibling alone for a path that is not a depth', () => {
+    const facts = normalizeFacts(
+      input({ answers: { q: 4 }, factKeys: { q: 'lifestyle.washesPerWeek' } }),
+    )
+    expect(facts.lifestyle.washesPerWeek).toBe(4)
+    expect(facts.hair.naturalTone).toBeNull()
+  })
+})
+
 describe('chemical history', () => {
   it('derives months-ago from a recorded date', () => {
     const facts = normalizeFacts(

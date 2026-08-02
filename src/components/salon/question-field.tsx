@@ -3,6 +3,15 @@
 import * as React from 'react'
 import { cn } from '@/lib/utils'
 import { Input, Label, Select, Textarea } from '@/components/ui/field'
+import {
+  DEFAULT_FAMILY,
+  TONE_FAMILIES,
+  familyByKey,
+  familyOfShade,
+  readShadeAnswer,
+  shadeByKey,
+  type ToneFamilyKey,
+} from '@/domain/hair/tone'
 
 /**
  * One consultation question, rendered for its input type.
@@ -13,8 +22,8 @@ import { Input, Label, Select, Textarea } from '@/components/ui/field'
  *  - Big targets. This is answered one-handed, on a phone, often in bad light.
  *  - Never a placeholder as a label — a placeholder disappears the moment
  *    somebody starts typing, exactly when they need it most.
- *  - Yes/No is two buttons, not a dropdown. Hair level is a swatch strip, not
- *    a number entry. The question type should look like the answer.
+ *  - Yes/No is two buttons, not a dropdown. Colour is a chart of named shades,
+ *    not a number entry. The question type should look like the answer.
  *  - Autosave is a prop, not a save button. Progress is never lost.
  */
 
@@ -337,25 +346,18 @@ function ChoiceList({
 }
 
 /**
- * The hair level scale, 1 (black) to 10 (lightest blonde).
+ * The shade picker: pick a colour family, then the exact shade in it.
  *
- * Rendered as actual swatches because a number means nothing to a client and
- * everything to a colourist. Getting this answer right is what makes the whole
- * lift calculation possible, so it is worth the pixels.
+ * One strip from black to blonde is how a colourist thinks about depth and it
+ * is useless to a client who wants copper — "level 6" describes a dark blonde,
+ * a caramel brown and a bright copper equally well. So the family comes first,
+ * as a dropdown, and choosing one swaps the swatches beneath it for that
+ * family's real shades, named the way a client would name them.
+ *
+ * What is stored is the shade, and every shade carries the depth it sits at, so
+ * the client picks "copper" and the engine still gets the number it needs to
+ * work out how much lift the service takes.
  */
-const LEVEL_SWATCHES = [
-  '#0d0b0a',
-  '#241a15',
-  '#3b2a1e',
-  '#54382a',
-  '#6f4a33',
-  '#8d6544',
-  '#ab8459',
-  '#c6a479',
-  '#ddc6a1',
-  '#efe0c4',
-]
-
 function LevelPicker({
   id,
   value,
@@ -367,46 +369,100 @@ function LevelPicker({
   onChange: (value: unknown) => void
   disabled?: boolean
 }) {
-  const current = typeof value === 'number' ? value : Number(value) || null
+  const answer = readShadeAnswer(value)
+  const chosen = shadeByKey(answer?.tone)
+
+  /*
+   * The family follows the answer when there is one, so coming back to a
+   * half-finished consultation reopens on the family they were looking at
+   * rather than resetting them to natural.
+   */
+  const [familyKey, setFamilyKey] = React.useState<ToneFamilyKey>(
+    () => familyOfShade(answer?.tone)?.key ?? DEFAULT_FAMILY,
+  )
+  const family = familyByKey(familyKey) ?? TONE_FAMILIES[0]!
 
   return (
-    <div>
-      <div className="flex flex-wrap gap-2" role="radiogroup" aria-labelledby={id}>
-        {LEVEL_SWATCHES.map((swatch, index) => {
-          const level = index + 1
-          const isSelected = current === level
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${id}-family`}>Colour family</Label>
+        <Select
+          id={`${id}-family`}
+          className="max-w-xs"
+          value={family.key}
+          disabled={disabled}
+          onChange={(e) => setFamilyKey(e.target.value as ToneFamilyKey)}
+        >
+          {TONE_FAMILIES.map((option) => (
+            <option key={option.key} value={option.key}>
+              {option.label}
+            </option>
+          ))}
+        </Select>
+        <p className="text-secondary text-ink-muted">{family.help}</p>
+      </div>
+
+      <div
+        className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-5"
+        role="radiogroup"
+        aria-labelledby={id}
+      >
+        {family.shades.map((shade) => {
+          const isSelected = chosen?.key === shade.key
           return (
             <button
-              key={level}
+              key={shade.key}
               type="button"
               role="radio"
               aria-checked={isSelected}
-              aria-label={`Level ${level}`}
+              aria-label={`${shade.name}, level ${shade.level}`}
               disabled={disabled}
-              onClick={() => onChange(level)}
+              onClick={() => onChange({ level: shade.level, tone: shade.key })}
               className={cn(
-                'flex h-16 w-14 flex-col items-center justify-end rounded-lg border-2 pb-1 transition-all',
+                'group overflow-hidden rounded-lg border-2 bg-canvas text-left transition-all',
                 isSelected
-                  ? 'border-gold-500 ring-2 ring-gold-300/50'
-                  : 'border-line hover:border-line-strong',
+                  ? 'border-gold-500 shadow-raised ring-2 ring-gold-300/50'
+                  : 'border-line hover:-translate-y-0.5 hover:border-gold-600 hover:shadow-card',
                 disabled && 'pointer-events-none opacity-45',
               )}
-              style={{ backgroundColor: swatch }}
             >
+              {/*
+               * The inset ring is what keeps platinum and icy white from
+               * vanishing into a white card — a swatch you cannot see the edge
+               * of is not a swatch.
+               */}
               <span
-                className={cn(
-                  'tabular rounded px-1.5 text-label font-medium',
-                  level >= 8 ? 'bg-canvas/70 text-ink' : 'bg-ink/40 text-ink-inverse',
-                )}
-              >
-                {level}
+                aria-hidden
+                className="block h-14 w-full ring-1 ring-inset ring-ink/10"
+                style={{ backgroundColor: shade.hex }}
+              />
+              <span className="block px-2 py-1.5">
+                {/* Two lines reserved, so a wrapping name cannot misalign the row. */}
+                <span className="block min-h-9 text-secondary font-medium leading-tight text-ink">
+                  {shade.name}
+                </span>
+                <span className="tabular block text-label text-ink-subtle">
+                  Level {shade.level}
+                </span>
               </span>
             </button>
           )
         })}
       </div>
-      <p className="mt-2 text-secondary text-ink-muted">
-        1 is black, 10 is the lightest blonde. Pick the closest — we will confirm it in person.
+
+      {/*
+       * Said back to them in words. A grid of swatches all looks similar on a
+       * phone in bad light, and this is the answer the whole quote is built on.
+       */}
+      <p aria-live="polite" className="text-secondary text-ink-muted">
+        {chosen ? (
+          <>
+            You picked <span className="font-medium text-ink">{chosen.name}</span>, a level{' '}
+            {chosen.level}. Add a photo of the look you want and we will match it exactly.
+          </>
+        ) : (
+          'Pick the closest shade — you can add a reference photo next, and we will confirm it in person.'
+        )}
       </p>
     </div>
   )

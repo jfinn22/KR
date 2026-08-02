@@ -100,6 +100,7 @@ export function baseFacts(overrides: DeepPartial<ConsultationFacts> = {}): Consu
     priorCompletedVisits: 6,
     hair: {
       naturalLevel: 6 as Level,
+      naturalTone: null,
       currentLevel: { roots: 6 as Level, mids: 6 as Level, ends: 6 as Level },
       lengthCategory: 'SHOULDER',
       texture: 'MEDIUM',

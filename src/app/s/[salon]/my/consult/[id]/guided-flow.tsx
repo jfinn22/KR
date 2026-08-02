@@ -7,7 +7,7 @@ import { buildSteps, completionRatio, missingRequired } from '@/domain/consultat
 import { QuestionField, type Question } from '@/components/salon/question-field'
 import { Button } from '@/components/ui/button'
 import { ProgressRail } from '@/components/ui/feedback'
-import { saveAnswerAction, submitConsultationAction } from '@/server/actions/consultation'
+import { saveAnswerAction } from '@/server/actions/consultation'
 
 /**
  * The guided consultation flow.
@@ -131,25 +131,16 @@ export function GuidedFlow({
       return
     }
 
-    // Photos come after the questions, so the client sees why they are needed.
-    if (hasPhotoStep) {
-      router.push(`/s/${salonSlug}/my/consult/${consultationId}/photos`)
-      return
-    }
-    await submit()
-  }
-
-  async function submit() {
     setSubmitting(true)
-    setError(null)
-
-    const result = await submitConsultationAction(salonSlug, { consultationId })
-    if (!result.ok) {
-      setError(result.error)
-      setSubmitting(false)
-      return
-    }
-    router.push(`/s/${salonSlug}/my/consult/${consultationId}/review`)
+    // Photos come after the questions, so the client sees why they are needed.
+    // Every consultation then ends on the reference pictures, chemical or not —
+    // a picture of the finish somebody wants is the single most useful thing
+    // they can give a stylist, and a cut benefits from it as much as a colour.
+    router.push(
+      hasPhotoStep
+        ? `/s/${salonSlug}/my/consult/${consultationId}/photos`
+        : `/s/${salonSlug}/my/consult/${consultationId}/inspiration`,
+    )
   }
 
   if (!step) {
@@ -168,7 +159,7 @@ export function GuidedFlow({
         <div className="flex items-baseline justify-between gap-4">
           <p className="label-caps">{serviceNames.join(' + ')}</p>
           <p className="tabular text-label text-ink-subtle">
-            Step {safeIndex + 1} of {steps.length + (hasPhotoStep ? 1 : 0)}
+            Step {safeIndex + 1} of {steps.length + (hasPhotoStep ? 2 : 1)}
           </p>
         </div>
 
@@ -220,7 +211,7 @@ export function GuidedFlow({
                 : isLastStep
                   ? hasPhotoStep
                     ? 'Add photos'
-                    : 'See my plan'
+                    : 'Add your reference photos'
                   : 'Continue'}
             </Button>
           </div>

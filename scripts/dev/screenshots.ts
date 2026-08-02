@@ -65,15 +65,25 @@ async function main() {
   await client.screenshot({ path: `${OUT}/05-guided-consultation.png`, fullPage: true })
   console.log('  05-guided-consultation.png')
 
-  // The hair-level swatch strip, which is the flow's most distinctive control.
+  // The shade chart, which is the flow's most distinctive control. It lives on
+  // the goal section, so open the colour family that shows it off.
   const consultUrl = client.url()
+  const consultPath = new URL(consultUrl).pathname
 
-  // An already-reviewed consultation shows the plan; use the seeded one.
-  await shot(client, '06-my-appointments', `/s/${SALON}/my/appointments`)
-  await shot(client, '07-hair-timeline', `/s/${SALON}/my/timeline`)
+  const familySelect = client.locator('select[id$="-family"]').first()
+  if ((await familySelect.count()) > 0) {
+    await familySelect.selectOption('BLONDE')
+    await client.waitForTimeout(400)
+    await client.screenshot({ path: `${OUT}/06-shade-chart.png`, fullPage: true })
+    console.log('  06-shade-chart.png')
+  }
 
-  // Photos step, reached directly.
-  await shot(client, '08-photo-capture', `${new URL(consultUrl).pathname}/photos`)
+  await shot(client, '07-my-appointments', `/s/${SALON}/my/appointments`)
+  await shot(client, '08-hair-timeline', `/s/${SALON}/my/timeline`)
+
+  // The two photo steps: the hair they have, then the look they want.
+  await shot(client, '09-photo-capture', `${consultPath}/photos`)
+  await shot(client, '10-reference-pictures', `${consultPath}/inspiration`)
 
   await clientCtx.close()
 
@@ -83,9 +93,9 @@ async function main() {
   console.log('\n▸ Salon')
   await signIn(staff, 'owner@aurora.test')
 
-  await shot(staff, '09-front-desk', `/s/${SALON}/desk`)
-  await shot(staff, '10-diary', `/s/${SALON}/desk/calendar`, false)
-  await shot(staff, '11-review-queue', `/s/${SALON}/review`)
+  await shot(staff, '11-front-desk', `/s/${SALON}/desk`)
+  await shot(staff, '12-diary', `/s/${SALON}/desk/calendar`, false)
+  await shot(staff, '13-review-queue', `/s/${SALON}/review`)
 
   // Open the first consultation in the queue.
   await staff.goto(`${BASE}/s/${SALON}/review`, { waitUntil: 'domcontentloaded' })
@@ -94,11 +104,11 @@ async function main() {
     await first.click()
     await staff.waitForURL(/\/review\/[a-z0-9]+/, { timeout: 20_000 })
     await staff.waitForTimeout(800)
-    await staff.screenshot({ path: `${OUT}/12-review-detail.png`, fullPage: true })
-    console.log('  12-review-detail.png')
+    await staff.screenshot({ path: `${OUT}/14-review-detail.png`, fullPage: true })
+    console.log('  14-review-detail.png')
   }
 
-  await shot(staff, '13-services', `/s/${SALON}/admin/services`)
+  await shot(staff, '15-services', `/s/${SALON}/admin/services`)
 
   // The phase editor — open the balayage chain.
   await staff.goto(`${BASE}/s/${SALON}/admin/services`, { waitUntil: 'domcontentloaded' })
@@ -108,12 +118,12 @@ async function main() {
     .click()
   await staff.waitForURL(/\/admin\/services\/[a-z0-9]+/, { timeout: 20_000 })
   await staff.waitForTimeout(800)
-  await staff.screenshot({ path: `${OUT}/14-phase-editor.png`, fullPage: true })
-  console.log('  14-phase-editor.png')
+  await staff.screenshot({ path: `${OUT}/16-phase-editor.png`, fullPage: true })
+  console.log('  16-phase-editor.png')
 
-  await shot(staff, '15-insights', `/s/${SALON}/insights?days=90`)
-  await shot(staff, '16-integrations', `/s/${SALON}/admin/integrations`)
-  await shot(staff, '17-client-record', `/s/${SALON}/desk/clients?q=Ada`)
+  await shot(staff, '17-insights', `/s/${SALON}/insights?days=90`)
+  await shot(staff, '18-integrations', `/s/${SALON}/admin/integrations`)
+  await shot(staff, '19-client-record', `/s/${SALON}/desk/clients?q=Ada`)
 
   // --- Mobile, since the client flow is answered one-handed --------------------
   const phoneCtx = await browser.newContext({
@@ -123,8 +133,8 @@ async function main() {
   const phone = await phoneCtx.newPage()
   console.log('\n▸ Phone')
   await signIn(phone, 'client@aurora.test')
-  await shot(phone, '18-phone-home', `/s/${SALON}/my`)
-  await shot(phone, '19-phone-consult', `${new URL(consultUrl).pathname}`)
+  await shot(phone, '20-phone-home', `/s/${SALON}/my`)
+  await shot(phone, '21-phone-consult', consultPath)
   await phoneCtx.close()
 
   await staffCtx.close()

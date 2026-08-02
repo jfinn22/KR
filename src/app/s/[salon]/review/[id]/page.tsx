@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionHeading } from '@/components/ui/data'
 import { formatDayHeading, formatMinutes, formatMoney } from '@/lib/format'
+import { describeShade, readShadeAnswer } from '@/domain/hair/tone'
 import { ReviewFlags } from './review-flags'
 import { DecisionPanel } from './decision-panel'
 import { AiSummaryCard } from './ai-summary'
@@ -268,6 +269,15 @@ function renderAnswer(value: unknown): string {
   if (value === true) return 'Yes'
   if (value === false) return 'No'
   if (Array.isArray(value)) return value.map(String).join(', ')
+
+  /*
+   * A shade reads as what the client chose, not as the object it is stored in.
+   * Both halves are shown because they answer different questions: the name is
+   * what they asked for, the level is what the service has to achieve.
+   */
+  const shade = readShadeAnswer(value)
+  if (shade) return describeShade(shade.tone) ?? `Level ${shade.level}`
+
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
 }

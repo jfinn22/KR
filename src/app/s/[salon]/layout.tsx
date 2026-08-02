@@ -49,6 +49,9 @@ export default async function SalonLayout({
 
   return (
     <div className="flex min-h-screen flex-col bg-surface">
+      {/* The gilt edge: one hairline of gold across the top of every screen. */}
+      <div aria-hidden="true" className="edge-gilt" />
+
       <header className="border-b border-line bg-canvas">
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-6 px-5">
           <Link href={`/s/${salon}/my`} className="flex items-baseline gap-2.5">
@@ -64,7 +67,7 @@ export default async function SalonLayout({
               <Link
                 key={item.href}
                 href={`/s/${salon}${item.href}`}
-                className="rounded-md px-3 py-2 text-ink-muted transition-colors hover:bg-surface-alt hover:text-ink"
+                className="rounded-md px-3 py-2 font-medium text-ink-muted transition-colors hover:bg-blue-50 hover:text-blue-700"
               >
                 {item.label}
               </Link>

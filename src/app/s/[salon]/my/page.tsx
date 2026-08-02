@@ -69,19 +69,18 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
             </CardContent>
           </Card>
         ) : (
-          <Card className="mt-5">
-            <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-display text-display-sm text-ink">Nothing booked yet</p>
-                <p className="mt-1 text-secondary text-ink-muted">
-                  Tell us what you are after and we will tell you honestly what it takes.
-                </p>
-              </div>
-              <Button asChild>
-                <Link href={`/s/${salon}/my/consult/new`}>Start a consultation</Link>
-              </Button>
-            </CardContent>
-          </Card>
+          <div className="wash-blue mt-5 flex flex-col gap-4 rounded-xl p-6 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="font-display text-display-sm text-ink">Nothing booked yet</p>
+              <p className="mt-1 max-w-prose text-secondary text-ink-muted">
+                Tell us what you are after — the shade, and a picture of it if you have one — and we
+                will tell you honestly what it takes.
+              </p>
+            </div>
+            <Button asChild>
+              <Link href={`/s/${salon}/my/consult/new`}>Start a consultation</Link>
+            </Button>
+          </div>
         )}
       </section>
 
@@ -95,7 +94,7 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
               return (
                 <div
                   key={plan.id}
-                  className="flex flex-col gap-4 rounded-lg border border-line bg-canvas p-5 sm:flex-row sm:items-center sm:justify-between"
+                  className="wash-gold flex flex-col gap-4 rounded-lg p-5 sm:flex-row sm:items-center sm:justify-between"
                 >
                   <div>
                     <p className="text-body font-medium text-ink">
@@ -105,7 +104,7 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
                     </p>
                     <p className="mt-1 text-secondary text-ink-muted">{nextSession.name}</p>
                   </div>
-                  <Button asChild>
+                  <Button variant="gold" asChild>
                     <Link href={`/s/${salon}/my/book/${plan.id}?session=${nextSession.sequence}`}>
                       Pick a time
                     </Link>
@@ -127,23 +126,42 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
                 label: consultation.status,
               }
               return (
-                <Link
+                <div
                   key={consultation.id}
-                  href={`/s/${salon}/my/consult/${consultation.id}`}
-                  className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-5 transition-colors hover:bg-surface-alt sm:flex-row sm:items-center sm:justify-between"
+                  className="flex flex-col gap-3 rounded-lg border border-line bg-canvas p-5"
                 >
-                  <div>
-                    <p className="text-body font-medium text-ink">
-                      {consultation.serviceNames.join(' + ')}
-                    </p>
-                    <p className="mt-1 text-secondary text-ink-muted">
-                      {consultation.status === 'DRAFT'
-                        ? 'Pick up where you left off'
-                        : `Sent ${formatRelative(consultation.updatedAt)}`}
-                    </p>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <Link href={`/s/${salon}/my/consult/${consultation.id}`} className="group">
+                      <p className="text-body font-medium text-ink group-hover:text-blue-700">
+                        {consultation.serviceNames.join(' + ')}
+                      </p>
+                      <p className="mt-1 text-secondary text-ink-muted">
+                        {consultation.status === 'DRAFT'
+                          ? 'Pick up where you left off'
+                          : `Sent ${formatRelative(consultation.updatedAt)}`}
+                      </p>
+                    </Link>
+                    <Badge tone={status.tone}>{status.label}</Badge>
                   </div>
-                  <Badge tone={status.tone}>{status.label}</Badge>
-                </Link>
+
+                  {/*
+                   * Reachable from outside the flow too. A client often only
+                   * finds the picture they wanted days after they answered the
+                   * questions, and having to restart a consultation to add it
+                   * is how a salon ends up guessing.
+                   */}
+                  <Link
+                    href={`/s/${salon}/my/consult/${consultation.id}/inspiration`}
+                    className="wash-rose flex items-center justify-between gap-3 rounded-md px-4 py-3 transition-colors hover:border-rose-500"
+                  >
+                    <span className="text-secondary text-ink">
+                      Add a picture of the look you want
+                    </span>
+                    <span aria-hidden="true" className="text-secondary font-medium text-rose-700">
+                      Add →
+                    </span>
+                  </Link>
+                </div>
               )
             })}
           </div>
@@ -153,7 +171,7 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
       <section>
         <SectionHeading
           title="Something new"
-          description="Every service starts with a few questions, so what we quote is what you pay."
+          description="Every service starts with a few questions and a picture of what you are after, so what we quote is what you pay."
         />
         <div className="mt-4 flex flex-wrap gap-3">
           <Button asChild>

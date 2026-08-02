@@ -47,6 +47,11 @@ const config: Config = {
           300: c('gold-300'),
           100: c('gold-100'),
         },
+        rose: {
+          700: c('rose-700'),
+          500: c('rose-500'),
+          100: c('rose-100'),
+        },
         success: {
           DEFAULT: c('success'),
           soft: c('success-soft'),
@@ -61,11 +66,11 @@ const config: Config = {
         },
       },
       fontFamily: {
-        display: ['var(--font-display)', 'Georgia', 'serif'],
+        display: ['var(--font-display)', 'system-ui', 'sans-serif'],
         sans: ['var(--font-sans)', 'system-ui', 'sans-serif'],
       },
       fontSize: {
-        // Display scale — serif, used for page titles and section headers.
+        // Display scale — used for page titles and section headers.
         'display-xl': ['2.5rem', { lineHeight: '1.15', letterSpacing: '-0.01em' }],
         'display-lg': ['2rem', { lineHeight: '1.2', letterSpacing: '-0.01em' }],
         'display-md': ['1.5rem', { lineHeight: '1.25' }],

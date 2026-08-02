@@ -77,6 +77,8 @@ export interface ConsultationFacts {
 
   readonly hair: {
     naturalLevel: Level | null
+    /** Shade key from the chart — the tone the depth sits at, e.g. ash vs golden. */
+    naturalTone: string | null
     currentLevel: { roots: Level | null; mids: Level | null; ends: Level | null }
     lengthCategory: LengthCategory
     texture: Texture
