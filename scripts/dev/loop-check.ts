@@ -212,8 +212,15 @@ async function main() {
 }
 
 function firstOption(optionsJson: unknown): string | null {
-  if (Array.isArray(optionsJson) && optionsJson.length > 0) {
-    const first = optionsJson[0]
+  // The seeded templates use { options: [...] }; a bare array is also valid.
+  const list = Array.isArray(optionsJson)
+    ? optionsJson
+    : optionsJson && typeof optionsJson === 'object'
+      ? ((optionsJson as { options?: unknown[] }).options ?? [])
+      : []
+
+  if (list.length > 0) {
+    const first = list[0]
     if (typeof first === 'string') return first
     if (first && typeof first === 'object') {
       const record = first as Record<string, unknown>

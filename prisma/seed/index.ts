@@ -1,5 +1,10 @@
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
+import {
+  saveAnswer,
+  startConsultation,
+  submitConsultation,
+} from '../../src/server/services/consultation'
 
 /**
  * Aurora Hair Studio — the demo salon.
@@ -821,6 +826,122 @@ async function main() {
     appointments++
   }
 
+  /*
+   * A live day.
+   *
+   * Without this the front desk — the screen a salon looks at first, every
+   * morning — demos as empty, because every seeded appointment is historical.
+   * These are spread across today in the states a real morning contains, so
+   * "running late", "in the chair" and "processing, stylist free" all show up
+   * with something in them.
+   *
+   * Times are chosen relative to now rather than fixed, so the demo reads
+   * correctly whenever the seed happens to be run.
+   */
+  const now = new Date()
+  const minutesFromNow = (minutes: number) => new Date(now.getTime() + minutes * 60_000)
+
+  const liveDay: {
+    offsetMin: number
+    slug: string
+    status: 'BOOKED' | 'CHECKED_IN' | 'IN_CHAIR' | 'PROCESSING' | 'COMPLETED'
+    stylistIndex: number
+  }[] = [
+    // Started 25 minutes ago and nobody has touched it — the running-late case.
+    { offsetMin: -25, slug: 'cut-finish', status: 'BOOKED', stylistIndex: 0 },
+    { offsetMin: -95, slug: 'full-balayage', status: 'PROCESSING', stylistIndex: 1 },
+    { offsetMin: -45, slug: 'root-touch-up', status: 'IN_CHAIR', stylistIndex: 2 },
+    { offsetMin: -180, slug: 'gloss', status: 'COMPLETED', stylistIndex: 3 },
+    { offsetMin: 20, slug: 'blow-dry', status: 'CHECKED_IN', stylistIndex: 0 },
+    { offsetMin: 75, slug: 'half-head-foils', status: 'BOOKED', stylistIndex: 1 },
+    { offsetMin: 150, slug: 'cut-finish', status: 'BOOKED', stylistIndex: 2 },
+    { offsetMin: 210, slug: 'bond-treatment', status: 'BOOKED', stylistIndex: 4 },
+  ]
+
+  /*
+   * A stylist cannot be in two chairs at once, and the database enforces that
+   * with an exclusion constraint rather than trusting the seed. So the offsets
+   * below are intentions, not guarantees: where one would overlap the previous
+   * appointment in the same column, it is pushed to when that stylist is
+   * actually free. Writing the demo any other way just moves the collision
+   * from "seed fails loudly" to "seed fails on somebody else's machine".
+   */
+  const freeFrom = new Map<string, Date>()
+
+  let liveCount = 0
+  for (const [index, entry] of liveDay.entries()) {
+    const spec = services.find((s) => s.slug === entry.slug)
+    const serviceId = serviceIds.get(entry.slug)
+    const stylist = stylistIds[entry.stylistIndex % stylistIds.length]
+    const clientId = clientIds[(index * 7) % clientIds.length]
+    if (!spec || !serviceId || !stylist || !clientId) continue
+
+    const estimated = spec.phases.reduce((sum, p) => sum + p.min, 0)
+    const wanted = minutesFromNow(entry.offsetMin)
+    const busyUntil = freeFrom.get(stylist.id)
+    const startsAt = busyUntil && busyUntil > wanted ? busyUntil : wanted
+    const endsAt = new Date(startsAt.getTime() + estimated * 60_000)
+    freeFrom.set(stylist.id, endsAt)
+    const started = entry.status !== 'BOOKED' && entry.status !== 'CHECKED_IN'
+
+    const appointment = await db.appointment.create({
+      data: {
+        salonId: salon.id,
+        locationId: mainLocation.id,
+        clientProfileId: clientId,
+        primaryStylistId: stylist.id,
+        status: entry.status,
+        source: index % 3 === 0 ? 'FRONT_DESK' : 'CLIENT_PORTAL',
+        startsAt,
+        endsAt,
+        checkedInAt: entry.status === 'BOOKED' ? null : startsAt,
+        chairStartedAt: started ? startsAt : null,
+        chairEndedAt: entry.status === 'COMPLETED' ? endsAt : null,
+        checkedOutAt: entry.status === 'COMPLETED' ? endsAt : null,
+        estimatedDurationMin: estimated,
+        estimatedTotalCents: spec.price,
+        services: {
+          create: {
+            salonId: salon.id,
+            serviceId,
+            stylistProfileId: stylist.id,
+            sequence: 0,
+            plannedDurationMin: estimated,
+            priceCents: spec.price,
+          },
+        },
+      },
+    })
+
+    /*
+     * Segments, so the diary column view has something to draw — and so the
+     * processing gaps show as gold. `blocksStylist: false` on a PROCESSING
+     * phase is the whole reason interleaving works, and a demo that omits it
+     * hides the product's best argument.
+     */
+    let cursor = startsAt
+    for (const [sequence, phase] of spec.phases.entries()) {
+      const phaseEnd = new Date(cursor.getTime() + phase.min * 60_000)
+      await db.appointmentSegment.create({
+        data: {
+          salonId: salon.id,
+          locationId: mainLocation.id,
+          appointmentId: appointment.id,
+          stylistProfileId: stylist.id,
+          kind: phase.kind,
+          sequence,
+          startsAt: cursor,
+          endsAt: phaseEnd,
+          blocksStylist: phase.kind !== 'PROCESSING',
+          state: 'ACTIVE',
+        },
+      })
+      cursor = phaseEnd
+    }
+
+    liveCount++
+  }
+
   // --- Consultation template ----------------------------------------------
   const template = await db.consultationTemplate.create({
     data: {
@@ -932,6 +1053,97 @@ async function main() {
         isRequired: question.inputType !== 'LONG_TEXT',
       },
     })
+  }
+
+  /*
+   * Consultations waiting for a stylist.
+   *
+   * Without these the review queue — the screen where the product's promise is
+   * actually kept — demos as empty, and its urgency ordering has nothing to
+   * order. Three of them, deliberately different: one straightforward, one
+   * carrying a real risk flag, and one whose SLA has already been missed, so
+   * the queue visibly sorts overdue and flagged work above routine work.
+   *
+   * They go through the real services rather than being written as rows, which
+   * means the seeded evaluations are produced by the actual rules engine and
+   * cannot drift from it.
+   */
+  const pending: {
+    slug: string
+    clientIndex: number
+    answers: Record<string, unknown>
+    overdueHours?: number
+  }[] = [
+    {
+      slug: 'full-balayage',
+      clientIndex: 3,
+      // Box dye plus a four-level lift: the staged-lift case.
+      answers: { goal_level: 9, natural_level: 5, box_dye: true, box_dye_when: '2026-04-01' },
+      overdueHours: 6,
+    },
+    {
+      slug: 'half-head-foils',
+      clientIndex: 11,
+      answers: { goal_level: 8, natural_level: 6, box_dye: false },
+    },
+    {
+      slug: 'gloss',
+      clientIndex: 19,
+      answers: { goal_level: 6, natural_level: 6, box_dye: false },
+    },
+  ]
+
+  let waiting = 0
+  for (const entry of pending) {
+    const serviceId = serviceIds.get(entry.slug)
+    const clientId = clientIds[entry.clientIndex % clientIds.length]
+    if (!serviceId || !clientId) continue
+
+    const consultationId = await startConsultation({
+      salonId: salon.id,
+      clientProfileId: clientId,
+      serviceIds: [serviceId],
+    })
+
+    // Answer every required question, using the overrides above where given.
+    for (const [sortOrder, question] of questions.entries()) {
+      const override = entry.answers[question.key]
+      const value =
+        override !== undefined
+          ? override
+          : question.inputType === 'BOOLEAN'
+            ? false
+            : question.inputType === 'LEVEL_PICKER'
+              ? 6
+              : question.inputType === 'SINGLE_SELECT'
+                ? (question.options?.[0] ?? 'NONE')
+                : question.inputType === 'DATE'
+                  ? '2026-01-01'
+                  : 'No'
+
+      // Skip questions a condition currently hides — answering them would make
+      // the seeded consultation inconsistent with what a client would have seen.
+      if (question.key === 'box_dye_when' && entry.answers.box_dye !== true) continue
+
+      void sortOrder
+      await saveAnswer({
+        salonId: salon.id,
+        consultationId,
+        questionKey: question.key,
+        value,
+      })
+    }
+
+    await submitConsultation({ salonId: salon.id, consultationId })
+
+    if (entry.overdueHours) {
+      await db.consultation.update({
+        where: { id: consultationId },
+        data: { slaDueAt: new Date(Date.now() - entry.overdueHours * 3_600_000) },
+      })
+    }
+
+    waiting++
   }
 
   // --- Messaging and reminders --------------------------------------------
@@ -1064,6 +1276,8 @@ async function main() {
   Staff           ${staff.length}
   Clients         ${clientIds.length}
   Appointments    ${appointments} completed, with matching quote-accuracy rows
+  Today           ${liveCount} live, spread across the front desk's day
+  Awaiting review ${waiting} consultations, one already past its SLA
 
   Logins — password for every account: ${PASSWORD}
     owner@aurora.test       Owner

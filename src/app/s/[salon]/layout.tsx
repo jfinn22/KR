@@ -1,6 +1,12 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
-import { NoAccessError, UnauthenticatedError, requireContext } from '@/server/auth/context'
+import {
+  NoAccessError,
+  UnauthenticatedError,
+  permitted,
+  requireContext,
+} from '@/server/auth/context'
+import type { Action } from '@/domain/authz/actions'
 
 /**
  * Salon shell.
@@ -33,6 +39,14 @@ export default async function SalonLayout({
 
   const isStaff = ctx.principal.kind === 'staff'
 
+  /*
+   * Built from permissions rather than from role, so a stylist who cannot
+   * manage the catalog simply does not see the link. Hiding a link is not
+   * security — every page checks for itself — but a nav full of dead ends is
+   * how staff learn to distrust the whole product.
+   */
+  const nav = isStaff ? STAFF_NAV.filter((item) => permitted(ctx, item.action)) : CLIENT_NAV
+
   return (
     <div className="flex min-h-screen flex-col bg-surface">
       <header className="border-b border-line bg-canvas">
@@ -46,7 +60,7 @@ export default async function SalonLayout({
           </Link>
 
           <nav className="flex items-center gap-1 text-secondary">
-            {(isStaff ? STAFF_NAV : CLIENT_NAV).map((item) => (
+            {nav.map((item) => (
               <Link
                 key={item.href}
                 href={`/s/${salon}${item.href}`}
@@ -72,13 +86,16 @@ export default async function SalonLayout({
   )
 }
 
-const CLIENT_NAV = [
+const CLIENT_NAV: { href: string; label: string }[] = [
   { href: '/my', label: 'Home' },
   { href: '/my/appointments', label: 'Appointments' },
   { href: '/my/timeline', label: 'My hair' },
 ]
 
-const STAFF_NAV = [
-  { href: '/my', label: 'Home' },
-  { href: '/admin/services', label: 'Services' },
+const STAFF_NAV: { href: string; label: string; action: Action }[] = [
+  { href: '/desk', label: 'Today', action: 'appointment.viewAny' },
+  { href: '/desk/calendar', label: 'Diary', action: 'appointment.viewAny' },
+  { href: '/review', label: 'Reviews', action: 'consultation.review' },
+  { href: '/desk/clients', label: 'Clients', action: 'client.viewAny' },
+  { href: '/admin/services', label: 'Services', action: 'service.manage' },
 ]

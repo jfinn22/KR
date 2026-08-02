@@ -1,11 +1,10 @@
 import Link from 'next/link'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { pageContext } from '@/server/auth/page'
 import { clientHome } from '@/server/services/client-portal'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
-import { EmptyState } from '@/components/ui/feedback'
 import { SectionHeading } from '@/components/ui/data'
 import { formatDayHeading, formatTime, localDateIn } from '@/lib/format'
 
@@ -30,20 +29,9 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
   const { salon } = await params
   const ctx = await pageContext(salon)
 
-  // Staff land here too; they belong in the staff workspace, not this page.
-  if (ctx.principal.kind !== 'client') {
-    return (
-      <EmptyState
-        title="You are signed in as staff"
-        description="This page is the client view. Your work lives in the salon workspace."
-        action={
-          <Button asChild>
-            <Link href={`/s/${salon}/admin/services`}>Go to the salon</Link>
-          </Button>
-        }
-      />
-    )
-  }
+  // Staff land here from a bookmark or the logo; send them to their own day
+  // rather than showing a client page they cannot use.
+  if (ctx.principal.kind !== 'client') redirect(`/s/${salon}/desk`)
 
   const { next, openConsultations, plans, recent } = await clientHome(
     ctx.salonId,
