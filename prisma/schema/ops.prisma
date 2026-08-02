@@ -313,7 +313,10 @@ model SalonRulesetPin {
   salonId        String         @unique
   salon          Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
   rulesetVersion String
-  ruleset        RulesetVersion @relation(fields: [rulesetVersion], references: [version])
+  /// Deliberately restrictive, unlike every salon-scoped relation: a published
+  /// ruleset is global and immutable, and deleting one out from under a pinned
+  /// salon would make its past evaluations unreplayable.
+  ruleset        RulesetVersion @relation(fields: [rulesetVersion], references: [version], onDelete: Restrict)
   pinnedByUserId String?
   reason         String?
   pinnedAt       DateTime       @default(now()) @db.Timestamptz(3)

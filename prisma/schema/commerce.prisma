@@ -257,7 +257,7 @@ model ClientMembership {
   clientProfileId String
   clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
   planId          String
-  plan            ClientMembershipPlan @relation(fields: [planId], references: [id])
+  plan            ClientMembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
   status          ClientMembershipStatus @default(ACTIVE)
   startedAt       DateTime  @default(now()) @db.Timestamptz(3)
   renewsAt        DateTime? @db.Timestamptz(3)
@@ -291,7 +291,7 @@ model PackagePurchase {
   clientProfileId     String
   clientProfile       ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
   packageDefinitionId String
-  packageDefinition   PackageDefinition @relation(fields: [packageDefinitionId], references: [id])
+  packageDefinition   PackageDefinition @relation(fields: [packageDefinitionId], references: [id], onDelete: Cascade)
   sessionsRemaining   Int
   purchasedAt         DateTime  @default(now()) @db.Timestamptz(3)
   expiresAt           DateTime  @db.Timestamptz(3)
@@ -341,7 +341,7 @@ model RetailSale {
   id            String        @id @default(cuid())
   salonId       String
   productId     String
-  product       RetailProduct @relation(fields: [productId], references: [id])
+  product       RetailProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
   appointmentId String?
   appointment   Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   invoiceLineId String?

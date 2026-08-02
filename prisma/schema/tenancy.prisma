@@ -230,7 +230,9 @@ model Subscription {
   salonId  String             @unique
   salon    Salon              @relation(fields: [salonId], references: [id], onDelete: Cascade)
   planCode PlanCode
-  plan     Plan               @relation(fields: [planCode], references: [code])
+  /// Restrict, not cascade: the plan catalog is global. Removing a plan that
+  /// live subscriptions sit on is a billing incident, not a cleanup.
+  plan     Plan               @relation(fields: [planCode], references: [code], onDelete: Restrict)
   status   SubscriptionStatus @default(TRIALING)
 
   seats                Int       @default(1)
@@ -363,7 +365,7 @@ model StylistProfile {
   maxConcurrentClients Int?
   maxDailyChemicalServices Int?
   defaultLocationId  String?
-  defaultLocation    Location? @relation(fields: [defaultLocationId], references: [id])
+  defaultLocation    Location? @relation(fields: [defaultLocationId], references: [id], onDelete: SetNull)
   sortOrder          Int      @default(0)
   isActive           Boolean  @default(true)
 

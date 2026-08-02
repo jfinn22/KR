@@ -210,7 +210,7 @@ model Consultation {
   clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
 
   templateId      String
-  template        ConsultationTemplate @relation(fields: [templateId], references: [id])
+  template        ConsultationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
   templateVersion Int
 
   requestedServiceIds String[]
@@ -438,7 +438,7 @@ model ServicePlan {
   clientProfileId String
   clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
   stylistProfileId String
-  stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id])
+  stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
 
   status       PlanStatus @default(DRAFT)
   totalSessions Int       @default(1)
@@ -449,14 +449,14 @@ model ServicePlan {
   estimatedTotalCents Int
   depositCents        Int  @default(0)
   depositPolicyId     String?
-  depositPolicy       DepositPolicy? @relation(fields: [depositPolicyId], references: [id])
+  depositPolicy       DepositPolicy? @relation(fields: [depositPolicyId], references: [id], onDelete: SetNull)
   /// The policy as it stood at approval. A later policy edit must not silently
   /// change what an already-approved client was told they'd pay.
   depositPolicySnapshotJson Json?
 
   rulesetVersion String
   evaluationId   String?
-  evaluation     RuleEvaluation? @relation(fields: [evaluationId], references: [id])
+  evaluation     RuleEvaluation? @relation(fields: [evaluationId], references: [id], onDelete: SetNull)
 
   requiresStylistContinuity Boolean @default(false)
   notesToClient  String?   @db.Text
@@ -510,9 +510,9 @@ model ServicePlanSessionService {
   sessionId String
   session   ServicePlanSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   serviceId String
-  service   Service            @relation(fields: [serviceId], references: [id])
+  service   Service            @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   serviceVariantId String?
-  serviceVariant   ServiceVariant? @relation(fields: [serviceVariantId], references: [id])
+  serviceVariant   ServiceVariant? @relation(fields: [serviceVariantId], references: [id], onDelete: SetNull)
 
   sequence           Int
   plannedDurationMin Int

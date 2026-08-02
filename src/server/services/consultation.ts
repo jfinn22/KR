@@ -4,6 +4,7 @@ import { evaluate } from '@/domain/consultation/engine'
 import { getRuleset, DEFAULT_RULESET_VERSION } from '@/domain/consultation/registry'
 import { normalizeFacts } from '@/domain/consultation/normalize'
 import { buildSteps, completionRatio, missingRequired } from '@/domain/consultation/visibility'
+import { requiredPhotoViews, suggestedPhotoViews } from '@/domain/consultation/photos'
 import type { EvaluationResult } from '@/domain/consultation/types'
 import type { ServiceFactSpec } from '@/domain/consultation/facts'
 
@@ -19,8 +20,6 @@ import type { ServiceFactSpec } from '@/domain/consultation/facts'
  * attached to exactly the inputs and outputs they saw.
  */
 
-const REQUIRED_PHOTO_VIEWS = ['FRONT', 'BACK', 'LEFT', 'RIGHT', 'ROOTS', 'MIDS', 'ENDS'] as const
-
 export interface ConsultationView {
   id: string
   status: string
@@ -29,6 +28,7 @@ export interface ConsultationView {
   completion: number
   missing: string[]
   requiredPhotoViews: readonly string[]
+  suggestedPhotoViews: readonly string[]
   providedPhotoViews: string[]
   evaluation: EvaluationResult | null
 }
@@ -184,6 +184,16 @@ export async function loadConsultation(
     evaluation = (row?.outputSnapshotJson as EvaluationResult | undefined) ?? null
   }
 
+  const services = await unsafeDb.service.findMany({
+    where: { salonId, id: { in: consultation.requestedServiceIds } },
+    select: {
+      isChemical: true,
+      isLightening: true,
+      containsDye: true,
+      isExtensionInstall: true,
+    },
+  })
+
   return {
     id: consultation.id,
     status: consultation.status,
@@ -191,7 +201,8 @@ export async function loadConsultation(
     answers,
     completion: completionRatio(questions, answers),
     missing: missingRequired(questions, answers).map((q) => q.key),
-    requiredPhotoViews: REQUIRED_PHOTO_VIEWS,
+    requiredPhotoViews: requiredPhotoViews(services),
+    suggestedPhotoViews: suggestedPhotoViews(services),
     providedPhotoViews: consultation.photos.map((p) => p.view),
     evaluation,
   }
@@ -319,7 +330,8 @@ export async function evaluateConsultation(input: {
     },
     photos: {
       providedViews: consultation.photos.map((p) => p.view),
-      requiredViews: REQUIRED_PHOTO_VIEWS,
+      // Scaled to the basket: a dry cut is not held up waiting for root shots.
+      requiredViews: requiredPhotoViews(services),
       lowestQualityScore: consultation.photos.length
         ? Math.min(...consultation.photos.map((p) => Number(p.qualityScore ?? 1)))
         : null,

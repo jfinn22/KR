@@ -94,7 +94,7 @@ model FormSubmission {
   salonId        String
   salon          Salon        @relation(fields: [salonId], references: [id], onDelete: Cascade)
   formTemplateId String
-  formTemplate   FormTemplate @relation(fields: [formTemplateId], references: [id])
+  formTemplate   FormTemplate @relation(fields: [formTemplateId], references: [id], onDelete: Cascade)
   templateVersion Int
   clientProfileId String
   clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
