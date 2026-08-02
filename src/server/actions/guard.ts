@@ -23,31 +23,11 @@ import { audit } from '@/server/audit'
  * being a question anyone has to ask per endpoint.
  */
 
-export type ActionResult<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: string; code: ActionErrorCode; fieldErrors?: Record<string, string[]> }
+import { DomainError } from '@/server/errors'
+import type { ActionErrorCode, ActionResult } from '@/server/errors'
 
-export type ActionErrorCode =
-  | 'UNAUTHENTICATED'
-  | 'NO_ACCESS'
-  | 'FORBIDDEN'
-  | 'INVALID_INPUT'
-  | 'PLAN_UPGRADE_REQUIRED'
-  | 'REASON_REQUIRED'
-  | 'CONFLICT'
-  | 'NOT_FOUND'
-  | 'UNKNOWN'
-
-/** Thrown by services for expected, user-facing failures. */
-export class DomainError extends Error {
-  constructor(
-    readonly code: ActionErrorCode,
-    message: string,
-  ) {
-    super(message)
-    this.name = 'DomainError'
-  }
-}
+export { DomainError }
+export type { ActionResult, ActionErrorCode }
 
 export interface GuardOptions<I> {
   action: Action
