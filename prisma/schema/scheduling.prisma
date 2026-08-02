@@ -1,0 +1,330 @@
+// ---------------------------------------------------------------------------
+// Scheduling
+//
+// AppointmentSegment is the single source of truth for free/busy. Holds and
+// confirmed bookings live in the SAME table, distinguished by `state`, so a
+// hold genuinely reserves the slot at the storage layer rather than by
+// convention. Postgres exclusion constraints over a generated tstzrange
+// (added in a hand-written migration) make an overlap physically impossible.
+// ---------------------------------------------------------------------------
+
+enum AppointmentStatus {
+  BOOKED
+  CONFIRMED
+  CHECKED_IN
+  IN_CHAIR
+  PROCESSING
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum AppointmentSource {
+  CLIENT_PORTAL
+  FRONT_DESK
+  WAITLIST
+  REBOOK
+  IMPORT
+}
+
+enum SegmentKind {
+  BUFFER_BEFORE
+  ACTIVE
+  PROCESSING
+  RINSE
+  BUFFER_AFTER
+  BLOCK
+}
+
+enum SegmentState {
+  ACTIVE
+  HOLD
+  RELEASED
+}
+
+enum HoldStatus {
+  ACTIVE
+  CONSUMED
+  EXPIRED
+  RELEASED
+}
+
+enum TimeOffStatus {
+  REQUESTED
+  APPROVED
+  DENIED
+}
+
+enum ExceptionKind {
+  OPEN
+  CLOSED
+}
+
+enum WaitlistStatus {
+  OPEN
+  OFFERED
+  BOOKED
+  EXPIRED
+  CANCELLED
+}
+
+/// Recurring availability. A row with a null stylistProfileId is the salon or
+/// location's own opening hours. Minutes are local-from-midnight and resolve
+/// to UTC through the location's timezone — never by adding 24h.
+model WorkingHours {
+  id               String          @id @default(cuid())
+  salonId          String
+  salon            Salon           @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  locationId       String?
+  location         Location?       @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  stylistProfileId String?
+  stylistProfile   StylistProfile? @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
+
+  dayOfWeek     Int
+  startMinute   Int
+  endMinute     Int
+  effectiveFrom DateTime  @default(now()) @db.Date
+  effectiveTo   DateTime? @db.Date
+
+  @@index([salonId, stylistProfileId, dayOfWeek])
+  @@index([salonId, locationId, dayOfWeek])
+}
+
+model ScheduleException {
+  id               String          @id @default(cuid())
+  salonId          String
+  salon            Salon           @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  locationId       String?
+  location         Location?       @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  stylistProfileId String?
+  stylistProfile   StylistProfile? @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
+
+  date        DateTime      @db.Date
+  kind        ExceptionKind
+  startMinute Int?
+  endMinute   Int?
+  reason      String?
+
+  @@index([salonId, date])
+}
+
+model TimeOff {
+  id               String         @id @default(cuid())
+  salonId          String
+  salon            Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  stylistProfileId String
+  stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
+
+  startsAt        DateTime      @db.Timestamptz(3)
+  endsAt          DateTime      @db.Timestamptz(3)
+  allDay          Boolean       @default(false)
+  reason          String?
+  status          TimeOffStatus @default(REQUESTED)
+  approvedByUserId String?
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, stylistProfileId, startsAt])
+}
+
+model Appointment {
+  id         String   @id @default(cuid())
+  salonId    String
+  salon      Salon    @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  primaryStylistId String
+  primaryStylist   StylistProfile @relation(fields: [primaryStylistId], references: [id])
+
+  servicePlanId        String?
+  servicePlan          ServicePlan?        @relation(fields: [servicePlanId], references: [id], onDelete: SetNull)
+  servicePlanSessionId String?             @unique
+  servicePlanSession   ServicePlanSession? @relation(fields: [servicePlanSessionId], references: [id], onDelete: SetNull)
+  consultationId       String?
+
+  status AppointmentStatus @default(BOOKED)
+  source AppointmentSource @default(CLIENT_PORTAL)
+
+  startsAt DateTime @db.Timestamptz(3)
+  endsAt   DateTime @db.Timestamptz(3)
+
+  checkedInAt   DateTime? @db.Timestamptz(3)
+  chairStartedAt DateTime? @db.Timestamptz(3)
+  chairEndedAt  DateTime? @db.Timestamptz(3)
+  checkedOutAt  DateTime? @db.Timestamptz(3)
+  cancelledAt   DateTime? @db.Timestamptz(3)
+  cancellationReason String?
+  cancelledByUserId  String?
+  noShowAt      DateTime? @db.Timestamptz(3)
+
+  estimatedDurationMin Int
+  estimatedTotalCents  Int  @default(0)
+  actualTotalCents     Int?
+
+  clientNote   String? @db.Text
+  internalNote String? @db.Text
+  checkInToken String? @unique
+
+  createdByUserId String?
+  /// Optimistic lock — reschedule writes fail loudly rather than silently
+  /// clobbering a concurrent edit.
+  version   Int      @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  services      AppointmentService[]
+  segments      AppointmentSegment[]
+  photos        AppointmentPhoto[]
+  formulas      Formula[]
+  conditionChecks HairConditionAssessment[]
+  hairHistory   HairHistoryEvent[]
+  deposits      Deposit[]
+  invoice       Invoice?
+  payments      Payment[]
+  cancellationFee CancellationFee?
+  quoteAccuracy QuoteAccuracy?
+  noShowScores  NoShowScore[]
+  productUsage  ProductUsage[]
+  retailSales   RetailSale[]
+  productRecs   ProductRecommendation[]
+  packageRedemptions PackageRedemption[]
+  formSubmissions FormSubmission[]
+  patchTests    PatchTest[]
+  messageThreads MessageThread[]
+
+  @@index([salonId, startsAt])
+  @@index([salonId, primaryStylistId, startsAt])
+  @@index([salonId, clientProfileId, startsAt])
+  @@index([salonId, status, startsAt])
+}
+
+model AppointmentService {
+  id            String      @id @default(cuid())
+  salonId       String
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  serviceId     String
+  service       Service     @relation(fields: [serviceId], references: [id])
+  serviceVariantId String?
+  serviceVariant   ServiceVariant? @relation(fields: [serviceVariantId], references: [id])
+  stylistProfileId String
+  stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id])
+
+  sequence            Int
+  plannedDurationMin  Int
+  actualDurationMin   Int?
+  priceCents          Int
+  depositAppliedCents Int @default(0)
+
+  segments AppointmentSegment[]
+
+  @@index([salonId, appointmentId])
+}
+
+/// ★ The free/busy table.
+///
+/// A PROCESSING segment has `blocksStylist = false`, so it never appears in a
+/// stylist's busy set — interleaving falls out of the data model rather than
+/// being special-cased in the solver. Both holds and bookings live here, which
+/// is why the exclusion constraint protects both.
+model AppointmentSegment {
+  id            String       @id @default(cuid())
+  salonId       String
+  salon         Salon        @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  locationId    String
+  location      Location     @relation(fields: [locationId], references: [id])
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  appointmentServiceId String?
+  appointmentService   AppointmentService? @relation(fields: [appointmentServiceId], references: [id], onDelete: Cascade)
+  bookingHoldId String?
+  bookingHold   BookingHold? @relation(fields: [bookingHoldId], references: [id], onDelete: Cascade)
+
+  stylistProfileId String?
+  stylistProfile   StylistProfile? @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
+  resourceId       String?
+  resource         Resource?       @relation(fields: [resourceId], references: [id], onDelete: SetNull)
+
+  kind     SegmentKind
+  sequence Int          @default(0)
+  startsAt DateTime     @db.Timestamptz(3)
+  endsAt   DateTime     @db.Timestamptz(3)
+
+  blocksStylist  Boolean @default(true)
+  blocksResource Boolean @default(false)
+
+  state          SegmentState @default(ACTIVE)
+  holdExpiresAt  DateTime?    @db.Timestamptz(3)
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, startsAt, endsAt])
+  @@index([salonId, stylistProfileId, startsAt])
+  @@index([salonId, resourceId, startsAt])
+  @@index([state, holdExpiresAt])
+}
+
+/// A temporary reservation — "Hold My Spot" at the front desk, and the window
+/// while a client completes deposit checkout. Its segments carry
+/// `state = HOLD` so they contend with real bookings on the same constraint.
+model BookingHold {
+  id         String   @id @default(cuid())
+  salonId    String
+  salon      Salon    @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  clientProfileId String?
+  clientProfile   ClientProfile? @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  primaryStylistId String
+  primaryStylist   StylistProfile @relation(fields: [primaryStylistId], references: [id], onDelete: Cascade)
+
+  servicePlanId        String?
+  servicePlanSessionId String?
+
+  startsAt  DateTime   @db.Timestamptz(3)
+  endsAt    DateTime   @db.Timestamptz(3)
+  expiresAt DateTime   @db.Timestamptz(3)
+  status    HoldStatus @default(ACTIVE)
+  reason    String?
+  createdByUserId String?
+  idempotencyKey  String? @unique
+  payloadJson     Json?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  segments AppointmentSegment[]
+
+  @@index([salonId, status, expiresAt])
+  @@index([salonId, primaryStylistId, startsAt])
+}
+
+model WaitlistEntry {
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+
+  servicePlanId      String?
+  serviceIds         String[]
+  preferredStylistIds String[]
+  anyStylist         Boolean  @default(true)
+  requiredDurationMin Int
+
+  earliestDate     DateTime @db.Date
+  latestDate       DateTime @db.Date
+  /// Bitmask, Sunday = bit 0. Lets a client say "Tuesdays and Thursdays only".
+  dayOfWeekMask    Int      @default(127)
+  windowStartMinute Int     @default(0)
+  windowEndMinute   Int     @default(1440)
+
+  priority       Int            @default(0)
+  status         WaitlistStatus @default(OPEN)
+  offeredSlotJson Json?
+  offerExpiresAt DateTime?      @db.Timestamptz(3)
+  notifiedAt     DateTime?      @db.Timestamptz(3)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, status, earliestDate])
+}

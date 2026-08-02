@@ -1,0 +1,235 @@
+// ---------------------------------------------------------------------------
+// Communications
+//
+// Consent and suppression are checked at SEND time, not at schedule time — a
+// client who opts out on Tuesday must not receive Monday's queued reminder.
+// ---------------------------------------------------------------------------
+
+enum MessageChannel {
+  SMS
+  EMAIL
+  IN_APP
+  PUSH
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageAuthor {
+  CLIENT
+  STAFF
+  SYSTEM
+  AI_DRAFT
+}
+
+enum MessageStatus {
+  DRAFT
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum ThreadStatus {
+  OPEN
+  SNOOZED
+  CLOSED
+}
+
+enum NotificationTrigger {
+  APPOINTMENT_BEFORE
+  APPOINTMENT_AFTER
+  CONSULT_STALE
+  CONSULT_DECISION
+  PLAN_EXPIRING
+  PATCH_TEST_DUE
+  REBOOK_DUE
+  FORM_INCOMPLETE
+  DEPOSIT_DUE
+  WAITLIST_OFFER
+}
+
+enum ConsentPurpose {
+  TRANSACTIONAL
+  MARKETING
+}
+
+enum ConsentStatus {
+  GRANTED
+  REVOKED
+}
+
+enum SuppressionReason {
+  BOUNCE
+  COMPLAINT
+  UNSUBSCRIBE
+  MANUAL
+}
+
+model MessageThread {
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+
+  subject        String?
+  primaryChannel MessageChannel @default(IN_APP)
+  status         ThreadStatus   @default(OPEN)
+  assignedToUserId String?
+  appointmentId  String?
+  appointment    Appointment?   @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  consultationId String?
+  lastMessageAt  DateTime       @default(now()) @db.Timestamptz(3)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+
+  messages Message[]
+
+  @@index([salonId, status, lastMessageAt])
+  @@index([salonId, clientProfileId])
+}
+
+model Message {
+  id       String        @id @default(cuid())
+  salonId  String
+  threadId String
+  thread   MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  direction  MessageDirection
+  channel    MessageChannel
+  authorType MessageAuthor
+  authorUserId String?
+  body       String  @db.Text
+  bodyHtml   String? @db.Text
+  attachmentsJson Json?
+
+  status            MessageStatus @default(QUEUED)
+  providerMessageId String?
+  sentAt            DateTime?     @db.Timestamptz(3)
+  deliveredAt       DateTime?     @db.Timestamptz(3)
+  readAt            DateTime?     @db.Timestamptz(3)
+  failureReason     String?
+
+  /// An AI draft is never sent without a staff member clicking send.
+  aiSuggestionId   String?
+  approvedByUserId String?
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, threadId, createdAt])
+  @@index([salonId, status])
+}
+
+model MessageTemplate {
+  id      String  @id @default(cuid())
+  salonId String?
+  salon   Salon?  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  key     String
+  name    String
+  category String  @default("GENERAL")
+  channel MessageChannel
+  locale  String  @default("en-US")
+  subject String?
+  /// Handlebars-style `{{client.firstName}}` interpolation.
+  body    String  @db.Text
+  version Int     @default(1)
+  isSystem Boolean @default(false)
+  isActive Boolean @default(true)
+
+  schedules NotificationSchedule[]
+
+  @@unique([salonId, key, version])
+  @@index([salonId, category, isActive])
+}
+
+model NotificationSchedule {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  key     String
+  trigger NotificationTrigger
+  /// Negative is before the anchor, positive after. -1440 = 24h before.
+  offsetMinutes Int
+  channel    MessageChannel
+  templateId String
+  template   MessageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  audience   String  @default("CLIENT")
+  isEnabled  Boolean @default(true)
+
+  scheduled ScheduledNotification[]
+
+  @@unique([salonId, key])
+  @@index([salonId, trigger, isEnabled])
+}
+
+model ScheduledNotification {
+  id         String                @id @default(cuid())
+  salonId    String
+  scheduleId String?
+  schedule   NotificationSchedule? @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+
+  refType String
+  refId   String
+  channel MessageChannel
+  sendAt  DateTime      @db.Timestamptz(3)
+  status  MessageStatus @default(QUEUED)
+  jobId   String?
+  /// Makes re-materialisation after a reschedule idempotent.
+  dedupeKey   String    @unique
+  cancelledAt DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, status, sendAt])
+}
+
+model ContactConsent {
+  id              String        @id @default(cuid())
+  salonId         String
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  channel         MessageChannel
+  purpose         ConsentPurpose
+  status          ConsentStatus  @default(GRANTED)
+  capturedAt      DateTime       @default(now()) @db.Timestamptz(3)
+  capturedVia     String?
+  ipAddress       String?
+  proofJson       Json?
+  /// Quiet hours in local minutes-from-midnight; the send job defers rather
+  /// than texting someone at 6am.
+  quietHoursStart Int?
+  quietHoursEnd   Int?
+
+  @@unique([clientProfileId, channel, purpose])
+  @@index([salonId, channel, status])
+}
+
+model SuppressionEntry {
+  id        String            @id @default(cuid())
+  salonId   String?
+  channel   MessageChannel
+  address   String
+  reason    SuppressionReason
+  createdAt DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@unique([channel, address])
+  @@index([salonId, channel])
+}
+
+/// Mock adapter inspection. Every message the mock SMS/email adapters "send"
+/// lands here and is browsable at /api/dev/outbox, so the full notification
+/// flow is verifiable end to end with no provider account.
+model DevOutbox {
+  id        String         @id @default(cuid())
+  channel   MessageChannel
+  toAddress String
+  subject   String?
+  body      String         @db.Text
+  metaJson  Json?
+  createdAt DateTime       @default(now()) @db.Timestamptz(3)
+
+  @@index([createdAt])
+}

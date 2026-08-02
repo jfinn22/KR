@@ -30,10 +30,11 @@ if [ -f scripts/dev-db.sh ]; then
     || log "WARNING: could not start postgres — run scripts/dev-db.sh manually"
 fi
 
-# 4. Prisma client + migrations.
-if [ -f prisma/schema.prisma ] && [ -d node_modules ]; then
+# 4. Prisma client + migrations. The schema is a folder (prisma/schema), so
+#    migrations live alongside it at prisma/schema/migrations.
+if [ -d prisma/schema ] && [ -d node_modules ]; then
   pnpm exec prisma generate >/dev/null 2>&1 || log "WARNING: prisma generate failed"
-  if [ -d prisma/migrations ]; then
+  if [ -d prisma/schema/migrations ]; then
     pnpm exec prisma migrate deploy >/dev/null 2>&1 && log "migrations applied" \
       || log "WARNING: prisma migrate deploy failed"
   fi

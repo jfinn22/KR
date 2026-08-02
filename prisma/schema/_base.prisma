@@ -1,0 +1,32 @@
+// ---------------------------------------------------------------------------
+// Salon Intelligence Platform — schema root
+//
+// The schema is split by domain across this folder. Conventions that hold
+// everywhere:
+//
+//   * ids            cuid()
+//   * money          integer cents, field name ends `Cents`
+//   * durations      integer minutes, field name ends `Min`
+//   * timestamps     @db.Timestamptz(3) — never a naive local datetime
+//   * tenancy        every salon-owned row carries `salonId`, indexed leading.
+//
+// `salon Salon @relation(...)` is declared on top-level aggregates so deletes
+// cascade and referential integrity is enforced. Child rows that already
+// cascade from their parent (answers, line items, components) carry `salonId`
+// as an indexed scalar only — it is denormalised deliberately, so the RLS
+// predicate and the Prisma tenant extension can be uniform across every table
+// without a join.
+// ---------------------------------------------------------------------------
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  // btree_gist backs the AppointmentSegment exclusion constraints that make
+  // double-booking impossible at the storage layer.
+  extensions = [btree_gist]
+}

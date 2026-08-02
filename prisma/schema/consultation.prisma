@@ -1,0 +1,554 @@
+// ---------------------------------------------------------------------------
+// Consultation intelligence
+//
+// RuleEvaluation is immutable: a re-evaluation inserts a new row and repoints
+// `latestEvaluationId`. That is what makes an approval reproducible — the
+// decision stays attached to the exact inputs and outputs the stylist saw,
+// under the exact ruleset version that produced them.
+// ---------------------------------------------------------------------------
+
+enum ConsultationStatus {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  APPROVED
+  NEEDS_MORE_INFO
+  NEEDS_IN_PERSON
+  DECLINED
+  EXPIRED
+}
+
+enum ConsultationMode {
+  DIGITAL
+  PHOTO
+  VIDEO
+  IN_PERSON
+}
+
+enum TemplateStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum QuestionInput {
+  SINGLE_SELECT
+  MULTI_SELECT
+  BOOLEAN
+  NUMBER
+  TEXT
+  LONG_TEXT
+  DATE
+  SCALE
+  LEVEL_PICKER
+  PHOTO_PROMPT
+}
+
+enum PhotoView {
+  FRONT
+  BACK
+  LEFT
+  RIGHT
+  ROOTS
+  MIDS
+  ENDS
+  TEXTURE
+  WET
+  SCALP
+  PART
+  OTHER
+}
+
+enum InspirationKey {
+  TARGET_LEVEL
+  TARGET_TONE
+  TECHNIQUE
+  ROOT_SHADOW
+  CONTRAST
+  DIMENSION
+  BRIGHTNESS
+  CURLS
+  LENGTH
+  FRINGE
+  LAYERS
+  MAINTENANCE
+  OVERALL_VIBE
+}
+
+enum AttributeSource {
+  CLIENT
+  STYLIST
+  AI
+}
+
+enum FlagSeverity {
+  INFO
+  CAUTION
+  HIGH
+  BLOCKER
+}
+
+enum FlagStatus {
+  OPEN
+  ACKNOWLEDGED
+  OVERRIDDEN
+  RESOLVED
+}
+
+enum ReviewDecision {
+  APPROVE
+  APPROVE_WITH_CHANGES
+  REQUEST_IN_PERSON
+  REQUEST_MORE_PHOTOS
+  REQUEST_MORE_INFO
+  DECLINE
+}
+
+enum PlanStatus {
+  DRAFT
+  APPROVED
+  PARTIALLY_BOOKED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  EXPIRED
+}
+
+enum SessionStatus {
+  PLANNED
+  BOOKED
+  COMPLETED
+  SKIPPED
+  CANCELLED
+}
+
+enum RequirementKind {
+  PATCH_TEST
+  STRAND_TEST
+  IN_PERSON_CONSULT
+  FORM_SIGNATURE
+  PHOTO_RESUBMIT
+  DEPOSIT
+  TREATMENT_COURSE
+}
+
+enum RequirementDue {
+  BOOKING
+  SESSION
+}
+
+enum RequirementStatus {
+  PENDING
+  SATISFIED
+  WAIVED
+  FAILED
+}
+
+enum EvaluationTrigger {
+  SUBMIT
+  RE_EVALUATE
+  FACT_ACCEPTED
+  STAFF_EDIT
+  REPLAY
+}
+
+/// A salon may publish its own template versions; `salonId = null` rows are
+/// the platform starter library every new salon is seeded from.
+model ConsultationTemplate {
+  id       String         @id @default(cuid())
+  salonId  String?
+  salon    Salon?         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  key      String
+  version  Int            @default(1)
+  name     String
+  descriptionText String?
+  status   TemplateStatus @default(DRAFT)
+  appliesToServiceIds String[]
+  isSystem Boolean        @default(false)
+  createdAt DateTime      @default(now()) @db.Timestamptz(3)
+
+  questions     ConsultationQuestion[]
+  consultations Consultation[]
+
+  @@unique([salonId, key, version])
+  @@index([salonId, status])
+}
+
+model ConsultationQuestion {
+  id         String               @id @default(cuid())
+  salonId    String?
+  templateId String
+  template   ConsultationTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  key       String
+  section   String
+  sortOrder Int
+  prompt    String        @db.Text
+  helpText  String?       @db.Text
+  inputType QuestionInput
+  optionsJson Json?
+  validationJson Json?
+  /// Maps this answer into a ConsultationFacts path, e.g. `hair.naturalLevel`.
+  /// Questions without a factKey are captured for the stylist but never reach
+  /// the rules engine.
+  factKey    String?
+  isRequired Boolean @default(false)
+  /// Conditional logic AST evaluated by domain/consultation/visibility.ts.
+  visibleWhenJson Json?
+
+  answers ConsultationAnswer[]
+
+  @@unique([templateId, key])
+  @@index([templateId, sortOrder])
+}
+
+model Consultation {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+
+  templateId      String
+  template        ConsultationTemplate @relation(fields: [templateId], references: [id])
+  templateVersion Int
+
+  requestedServiceIds String[]
+  requestedStylistId  String?
+  preferredLocationId String?
+
+  status ConsultationStatus @default(DRAFT)
+  mode   ConsultationMode   @default(DIGITAL)
+
+  submittedAt DateTime? @db.Timestamptz(3)
+  /// Front-desk SLA countdown. Breaches are highlighted in the queue.
+  slaDueAt    DateTime? @db.Timestamptz(3)
+  reviewedAt  DateTime? @db.Timestamptz(3)
+  expiresAt   DateTime? @db.Timestamptz(3)
+
+  rulesetVersion     String?
+  latestEvaluationId String?
+  factsSnapshotJson  Json?
+  aiSuggestionJson   Json?
+
+  clientNote String?  @db.Text
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+
+  answers      ConsultationAnswer[]
+  photos       ConsultationPhoto[]
+  inspiration  InspirationPhoto[]
+  evaluations  RuleEvaluation[]
+  riskFlags    RiskFlag[]
+  reviews      ConsultationReview[]
+  servicePlan  ServicePlan?
+  requirements PreRequirement[]
+  hairHistory  HairHistoryEvent[]
+  conditionChecks HairConditionAssessment[]
+  strandTests  StrandTest[]
+  formSubmissions FormSubmission[]
+
+  @@index([salonId, status, slaDueAt])
+  @@index([salonId, clientProfileId, createdAt])
+}
+
+model ConsultationAnswer {
+  id             String               @id @default(cuid())
+  salonId        String
+  consultationId String
+  consultation   Consultation         @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  questionId     String
+  question       ConsultationQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  questionKey    String
+  valueJson      Json
+  answeredAt     DateTime             @default(now()) @db.Timestamptz(3)
+
+  @@unique([consultationId, questionKey])
+  @@index([salonId, consultationId])
+}
+
+/// One uploaded blob. Typed link rows below attach it to a consultation, an
+/// appointment or a client record, so the same image is never stored twice.
+model PhotoAsset {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId String?
+  clientProfile   ClientProfile? @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+
+  storageKey String
+  thumbKey   String?
+  mimeType   String
+  width      Int?
+  height     Int?
+  bytes      Int?
+  sha256     String?
+  capturedAt DateTime? @db.Timestamptz(3)
+  uploadedByUserId String?
+  /// EXIF carries GPS. Stripped in the photo.process job before anything is
+  /// shown, shared or sent to an AI adapter.
+  exifStripped Boolean @default(false)
+  isClientVisible     Boolean @default(true)
+  isMarketingApproved Boolean @default(false)
+  consentGrantId String?
+  deletedAt      DateTime? @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+
+  consultationPhotos ConsultationPhoto[]
+  inspirationPhotos  InspirationPhoto[]
+  appointmentPhotos  AppointmentPhoto[]
+
+  @@index([salonId, clientProfileId])
+  @@index([salonId, createdAt])
+}
+
+/// Guided capture. The `view` is what turns "one flattering selfie" into a
+/// usable record of the actual hair.
+model ConsultationPhoto {
+  id             String       @id @default(cuid())
+  salonId        String
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  photoAssetId   String
+  photoAsset     PhotoAsset   @relation(fields: [photoAssetId], references: [id], onDelete: Cascade)
+
+  view     PhotoView
+  sequence Int       @default(0)
+  qualityScore  Decimal? @db.Decimal(4, 3)
+  qualityIssues String[]
+  isApprovedForRecord Boolean @default(false)
+  aiObservationsJson  Json?
+
+  @@unique([consultationId, view, sequence])
+  @@index([salonId, consultationId])
+}
+
+model InspirationPhoto {
+  id             String       @id @default(cuid())
+  salonId        String
+  consultationId String
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  photoAssetId   String?
+  photoAsset     PhotoAsset?  @relation(fields: [photoAssetId], references: [id], onDelete: SetNull)
+  sourceUrl      String?
+  clientNote     String?      @db.Text
+  sequence       Int          @default(0)
+
+  attributes InspirationAttribute[]
+
+  @@index([salonId, consultationId])
+}
+
+/// What the client actually likes about a reference photo — tone, brightness,
+/// dimension, length and so on. Without this the stylist is guessing which
+/// part of the picture the client is pointing at.
+model InspirationAttribute {
+  id                 String           @id @default(cuid())
+  salonId            String
+  inspirationPhotoId String
+  inspirationPhoto   InspirationPhoto @relation(fields: [inspirationPhotoId], references: [id], onDelete: Cascade)
+  key                InspirationKey
+  value              String
+  confidence         Decimal?         @db.Decimal(4, 3)
+  source             AttributeSource  @default(CLIENT)
+  acceptedByUserId   String?
+  acceptedAt         DateTime?        @db.Timestamptz(3)
+
+  @@index([salonId, inspirationPhotoId])
+}
+
+/// Immutable audit record of one rules-engine run. Never updated.
+model RuleEvaluation {
+  id             String        @id @default(cuid())
+  salonId        String
+  salon          Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  consultationId String?
+  consultation   Consultation? @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  servicePlanId  String?
+
+  rulesetVersion String
+  rulesetHash    String
+  inputHash      String
+  inputSnapshotJson  Json
+  outputSnapshotJson Json
+  engineMs       Int               @default(0)
+  triggeredBy    EvaluationTrigger @default(SUBMIT)
+  createdByUserId String?
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+
+  riskFlags    RiskFlag[]
+  servicePlans ServicePlan[]
+
+  @@index([salonId, consultationId, createdAt])
+  @@index([rulesetVersion])
+}
+
+model RiskFlag {
+  id             String         @id @default(cuid())
+  salonId        String
+  consultationId String
+  consultation   Consultation   @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  evaluationId   String
+  evaluation     RuleEvaluation @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+
+  ruleId      String
+  ruleVersion Int
+  code        String
+  severity    FlagSeverity
+  title       String
+  detail      String       @db.Text
+  /// Which facts fired this rule, so the UI can show the client exactly why.
+  evidenceJson Json
+  /// Never a bare refusal — the engine's types require a route forward.
+  recommendedPath    String  @db.Text
+  blocksOnlineBooking Boolean @default(false)
+
+  status           FlagStatus @default(OPEN)
+  overriddenByUserId String?
+  overrideReason   String?    @db.Text
+  overriddenAt     DateTime?  @db.Timestamptz(3)
+  createdAt        DateTime   @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, consultationId, severity])
+  @@index([salonId, ruleId])
+}
+
+model ConsultationReview {
+  id             String         @id @default(cuid())
+  salonId        String
+  consultationId String
+  consultation   Consultation   @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  reviewerUserId String
+  decision       ReviewDecision
+  notesInternal  String?        @db.Text
+  notesToClient  String?        @db.Text
+  aiSuggestionId String?
+  decidedAt      DateTime       @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, consultationId])
+}
+
+/// The approved outcome: what will be done, in how many visits, for how much.
+model ServicePlan {
+  id             String       @id @default(cuid())
+  salonId        String
+  salon          Salon        @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  consultationId String       @unique
+  consultation   Consultation @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  stylistProfileId String
+  stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id])
+
+  status       PlanStatus @default(DRAFT)
+  totalSessions Int       @default(1)
+
+  complexityScore Int    @default(0)
+  riskLevel       FlagSeverity @default(INFO)
+  estimatedTotalMin   Int
+  estimatedTotalCents Int
+  depositCents        Int  @default(0)
+  depositPolicyId     String?
+  depositPolicy       DepositPolicy? @relation(fields: [depositPolicyId], references: [id])
+  /// The policy as it stood at approval. A later policy edit must not silently
+  /// change what an already-approved client was told they'd pay.
+  depositPolicySnapshotJson Json?
+
+  rulesetVersion String
+  evaluationId   String?
+  evaluation     RuleEvaluation? @relation(fields: [evaluationId], references: [id])
+
+  requiresStylistContinuity Boolean @default(false)
+  notesToClient  String?   @db.Text
+  approvedByUserId String?
+  approvedAt     DateTime? @db.Timestamptz(3)
+  validUntil     DateTime  @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
+
+  sessions     ServicePlanSession[]
+  requirements PreRequirement[]
+  appointments Appointment[]
+  strandTests  StrandTest[]
+  patchTests   PatchTest[]
+
+  @@index([salonId, status])
+  @@index([salonId, clientProfileId])
+}
+
+/// One visit in a multi-session plan, with the spacing the rules engine
+/// determined. Session 2 is not bookable until session 1 completes and the
+/// minimum gap has elapsed.
+model ServicePlanSession {
+  id            String      @id @default(cuid())
+  salonId       String
+  servicePlanId String
+  servicePlan   ServicePlan @relation(fields: [servicePlanId], references: [id], onDelete: Cascade)
+
+  sequence    Int
+  name        String
+  goalSummary String? @db.Text
+
+  estimatedDurationMin Int
+  estimatedPriceCents  Int
+  depositCents         Int  @default(0)
+  minDaysAfterPrevious Int?
+  maxDaysAfterPrevious Int?
+
+  status      SessionStatus @default(PLANNED)
+  appointment Appointment?
+
+  services ServicePlanSessionService[]
+
+  @@unique([servicePlanId, sequence])
+  @@index([salonId, servicePlanId])
+}
+
+model ServicePlanSessionService {
+  id        String             @id @default(cuid())
+  salonId   String
+  sessionId String
+  session   ServicePlanSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   Service            @relation(fields: [serviceId], references: [id])
+  serviceVariantId String?
+  serviceVariant   ServiceVariant? @relation(fields: [serviceVariantId], references: [id])
+
+  sequence           Int
+  plannedDurationMin Int
+  plannedPriceCents  Int
+  /// The phase chain frozen at approval, so a later catalog edit cannot
+  /// silently change the shape of an appointment a client already booked.
+  phaseChainJson     Json
+
+  @@index([salonId, sessionId])
+}
+
+/// Something that must happen before booking or before a given session —
+/// a patch test, a strand test, an in-person consult, a signed form.
+model PreRequirement {
+  id            String        @id @default(cuid())
+  salonId       String
+  servicePlanId String?
+  servicePlan   ServicePlan?  @relation(fields: [servicePlanId], references: [id], onDelete: Cascade)
+  consultationId String?
+  consultation  Consultation? @relation(fields: [consultationId], references: [id], onDelete: Cascade)
+
+  kind            RequirementKind
+  dueBefore       RequirementDue    @default(BOOKING)
+  sessionSequence Int?
+  leadHours       Int?
+  formTemplateKey String?
+  rationale       String            @db.Text
+
+  status          RequirementStatus @default(PENDING)
+  satisfiedByType String?
+  satisfiedById   String?
+  satisfiedAt     DateTime?         @db.Timestamptz(3)
+  waivedByUserId  String?
+  waiveReason     String?           @db.Text
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, servicePlanId, status])
+  @@index([salonId, consultationId, status])
+}

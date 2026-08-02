@@ -1,0 +1,464 @@
+// ---------------------------------------------------------------------------
+// Tenancy & identity
+// ---------------------------------------------------------------------------
+
+enum PlanCode {
+  STARTER
+  PRO
+  SALON
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  PAUSED
+}
+
+enum StaffRole {
+  OWNER
+  MANAGER
+  FRONT_DESK
+  STYLIST
+  ASSISTANT
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  ENDED
+}
+
+enum ResourceType {
+  CHAIR
+  BASIN
+  PROCESSING_SEAT
+  ROOM
+  DRYER
+}
+
+enum ClientStatus {
+  ACTIVE
+  ARCHIVED
+  MERGED
+}
+
+/// The tenant root. Everything salon-owned hangs off this.
+model Salon {
+  id              String   @id @default(cuid())
+  slug            String   @unique
+  name            String
+  legalName       String?
+  defaultTimezone String   @default("America/New_York")
+  currency        String   @default("USD")
+  locale          String   @default("en-US")
+  status          String   @default("ACTIVE")
+  brandJson       Json? // logo key, accent overrides within the palette
+  contactEmail    String?
+  contactPhone    String?
+  websiteUrl      String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  settings           SalonSettings?
+  subscription       Subscription?
+  rulesetPin         SalonRulesetPin?
+  locations          Location[]
+  resources          Resource[]
+  memberships        Membership[]
+  invitations        Invitation[]
+  stylistProfiles    StylistProfile[]
+  clientProfiles     ClientProfile[]
+  serviceCategories  ServiceCategory[]
+  services           Service[]
+  depositPolicies    DepositPolicy[]
+  serviceModifiers   ServiceModifier[]
+  workingHours       WorkingHours[]
+  scheduleExceptions ScheduleException[]
+  timeOff            TimeOff[]
+  appointments       Appointment[]
+  segments           AppointmentSegment[]
+  bookingHolds       BookingHold[]
+  waitlistEntries    WaitlistEntry[]
+  consultTemplates   ConsultationTemplate[]
+  consultations      Consultation[]
+  photoAssets        PhotoAsset[]
+  ruleEvaluations    RuleEvaluation[]
+  servicePlans       ServicePlan[]
+  hairProfiles       HairProfile[]
+  hairHistory        HairHistoryEvent[]
+  formulas           Formula[]
+  conditionChecks    HairConditionAssessment[]
+  deposits           Deposit[]
+  invoices           Invoice[]
+  payments           Payment[]
+  loyaltyAccounts    LoyaltyAccount[]
+  membershipPlans    ClientMembershipPlan[]
+  packages           PackageDefinition[]
+  retailProducts     RetailProduct[]
+  messageThreads     MessageThread[]
+  messageTemplates   MessageTemplate[]
+  notifySchedules    NotificationSchedule[]
+  formTemplates      FormTemplate[]
+  formSubmissions    FormSubmission[]
+  patchTests         PatchTest[]
+  strandTests        StrandTest[]
+  consentGrants      ConsentGrant[]
+  policies           Policy[]
+  auditLogs          AuditLog[]
+  quoteAccuracy      QuoteAccuracy[]
+  calibrations       StylistCalibration[]
+  metricSnapshots    MetricSnapshot[]
+  aiSuggestions      AiSuggestion[]
+  aiUsage            AiUsageCounter[]
+  integrations       IntegrationConnection[]
+
+  @@index([status])
+}
+
+/// Operating policy. One row per salon; every default the rules engine and
+/// availability solver read comes from here rather than being hard-coded.
+model SalonSettings {
+  id      String @id @default(cuid())
+  salonId String @unique
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  // Scheduling
+  slotGranularityMin      Int     @default(15)
+  minBookingLeadMin       Int     @default(120)
+  maxAdvanceDays          Int     @default(120)
+  defaultBufferBeforeMin  Int     @default(0)
+  defaultBufferAfterMin   Int     @default(10)
+  allowFinishAfterCloseMin Int    @default(15)
+  holdTtlSeconds          Int     @default(900)
+  /// Interleaving during colour processing. Off by default: it is the highest
+  /// variance feature in the product and salons should opt in deliberately.
+  interleaveEnabled       Boolean @default(false)
+  maxConcurrentClients    Int     @default(2)
+  minInterleaveMin        Int     @default(25)
+
+  // Consultation
+  consultationSlaHours    Int     @default(24)
+  consultationExpiryDays  Int     @default(60)
+  planValidityDays        Int     @default(90)
+  autoApproveSimple       Boolean @default(false)
+
+  // Policy
+  cancellationWindowHours Int @default(48)
+  cancellationFeePercent  Int @default(50)
+  noShowFeePercent        Int @default(100)
+  depositCapCents         Int @default(50000)
+
+  // AI
+  aiEnabled              Boolean @default(true)
+  aiPhotoAnalysisEnabled Boolean @default(false)
+
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+}
+
+/// A physical site. The IANA timezone lives here, not on Salon — multi-site
+/// salons genuinely span zones and every UTC conversion resolves through this.
+model Location {
+  id        String   @id @default(cuid())
+  salonId   String
+  salon     Salon    @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  name      String
+  timezone  String   @default("America/New_York")
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  region       String?
+  postalCode   String?
+  country      String  @default("US")
+  phone        String?
+  isActive     Boolean @default(true)
+  sortOrder    Int     @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  resources          Resource[]
+  workingHours       WorkingHours[]
+  scheduleExceptions ScheduleException[]
+  appointments       Appointment[]
+  segments           AppointmentSegment[]
+  bookingHolds       BookingHold[]
+  stylists           StylistProfile[]
+
+  @@index([salonId, isActive])
+}
+
+/// Bookable capacity. Chairs, basins and processing seats are counted per
+/// interval by the availability solver; a concrete resource is assigned at
+/// hold time so "capacity >= 1" becomes a per-row exclusion the DB enforces.
+model Resource {
+  id         String       @id @default(cuid())
+  salonId    String
+  salon      Salon        @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  locationId String
+  location   Location     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  type       ResourceType
+  name       String
+  isBookable Boolean      @default(true)
+  sortOrder  Int          @default(0)
+
+  segments AppointmentSegment[]
+
+  @@index([salonId, locationId, type])
+}
+
+/// Global plan catalogue. Not tenant-scoped.
+model Plan {
+  code                PlanCode @id
+  name                String
+  descriptionText     String
+  monthlyPriceCents   Int
+  yearlyPriceCents    Int
+  maxLocations        Int
+  maxStylists         Int
+  featuresJson        Json
+  aiMonthlyCostCapMicros BigInt @default(0)
+  stripePriceIdMonthly String?
+  stripePriceIdYearly  String?
+  sortOrder           Int      @default(0)
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id       String             @id @default(cuid())
+  salonId  String             @unique
+  salon    Salon              @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  planCode PlanCode
+  plan     Plan               @relation(fields: [planCode], references: [code])
+  status   SubscriptionStatus @default(TRIALING)
+
+  seats                Int       @default(1)
+  smsCreditsRemaining  Int       @default(500)
+  stripeCustomerId     String?
+  stripeSubscriptionId String?
+  currentPeriodEnd     DateTime? @db.Timestamptz(3)
+  trialEndsAt          DateTime? @db.Timestamptz(3)
+  cancelAtPeriodEnd    Boolean   @default(false)
+  createdAt            DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([status])
+}
+
+/// Global identity. A person has ONE User and may be staff at one salon and a
+/// client at another; per-salon roles live on Membership / ClientProfile.
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  emailVerified DateTime? @db.Timestamptz(3)
+  passwordHash  String?
+  name          String?
+  phone         String?
+  image         String?
+  timezone      String    @default("America/New_York")
+  locale        String    @default("en-US")
+  isPlatformAdmin Boolean @default(false)
+  lastLoginAt   DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @db.Timestamptz(3)
+
+  accounts       Account[]
+  sessions       Session[]
+  memberships    Membership[]
+  clientProfiles ClientProfile[]
+  auditLogs      AuditLog[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expires      DateTime @db.Timestamptz(3)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime @db.Timestamptz(3)
+
+  @@unique([identifier, token])
+}
+
+/// Staff membership. Clients are deliberately NOT modelled here — see
+/// ClientProfile — so a client can never accidentally acquire a staff role.
+model Membership {
+  id                     String           @id @default(cuid())
+  salonId                String
+  salon                  Salon            @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  userId                 String
+  user                   User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role                   StaffRole
+  status                 MembershipStatus @default(ACTIVE)
+  permissionOverridesJson Json?
+  startedAt              DateTime         @default(now()) @db.Timestamptz(3)
+  endedAt                DateTime?        @db.Timestamptz(3)
+
+  stylistProfile StylistProfile?
+
+  @@unique([salonId, userId])
+  @@index([salonId, role, status])
+}
+
+model Invitation {
+  id            String    @id @default(cuid())
+  salonId       String
+  salon         Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  email         String
+  role          StaffRole
+  tokenHash     String    @unique
+  invitedByUserId String
+  expiresAt     DateTime  @db.Timestamptz(3)
+  acceptedAt    DateTime? @db.Timestamptz(3)
+  revokedAt     DateTime? @db.Timestamptz(3)
+  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, email])
+}
+
+/// The service-providing side of a staff member.
+model StylistProfile {
+  id           String     @id @default(cuid())
+  salonId      String
+  salon        Salon      @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  membershipId String     @unique
+  membership   Membership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  displayName        String
+  title              String?
+  bio                String?  @db.Text
+  photoKey           String?
+  colorHex           String   @default("#0F2A4A")
+  acceptsNewClients  Boolean  @default(true)
+  isBoothRenter      Boolean  @default(false)
+  commissionBps      Int?
+  bookingLeadMin     Int?
+  maxConcurrentClients Int?
+  maxDailyChemicalServices Int?
+  defaultLocationId  String?
+  defaultLocation    Location? @relation(fields: [defaultLocationId], references: [id])
+  sortOrder          Int      @default(0)
+  isActive           Boolean  @default(true)
+
+  skills          StylistSkill[]
+  services        StylistService[]
+  workingHours    WorkingHours[]
+  scheduleExceptions ScheduleException[]
+  timeOff         TimeOff[]
+  appointments    Appointment[]
+  appointmentServices AppointmentService[]
+  segments        AppointmentSegment[]
+  bookingHolds    BookingHold[]
+  servicePlans    ServicePlan[]
+  formulas        Formula[]
+  calibrations    StylistCalibration[]
+  quoteAccuracy   QuoteAccuracy[]
+  preferredByClients ClientProfile[]
+
+  @@index([salonId, isActive])
+}
+
+/// Capability by skill code and level 1–5. The availability solver filters
+/// candidates on this before it considers a single time slot.
+model StylistSkill {
+  id               String         @id @default(cuid())
+  salonId          String
+  stylistProfileId String
+  stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
+  skillCode        String
+  level            Int            @default(3)
+
+  @@unique([stylistProfileId, skillCode])
+  @@index([salonId, skillCode, level])
+}
+
+/// A client is a PER-SALON record. `userId` is null for walk-ins the front
+/// desk created, which is why nothing here assumes a login exists.
+model ClientProfile {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  userId  String?
+  user    User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  firstName        String
+  lastName         String
+  email            String?
+  phone            String?
+  dateOfBirth      DateTime? @db.Date
+  pronouns         String?
+  preferredStylistId String?
+  preferredStylist StylistProfile? @relation(fields: [preferredStylistId], references: [id], onDelete: SetNull)
+  tags             String[]
+  source           String    @default("PORTAL")
+  status           ClientStatus @default(ACTIVE)
+  mergedIntoId     String?
+  internalNotes    String?   @db.Text
+  noShowCount      Int       @default(0)
+  completedVisits  Int       @default(0)
+  lifetimeSpendCents Int     @default(0)
+  firstVisitAt     DateTime? @db.Timestamptz(3)
+  lastVisitAt      DateTime? @db.Timestamptz(3)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  hairProfile      HairProfile?
+  loyaltyAccount   LoyaltyAccount?
+  appointments     Appointment[]
+  bookingHolds     BookingHold[]
+  waitlistEntries  WaitlistEntry[]
+  consultations    Consultation[]
+  servicePlans     ServicePlan[]
+  hairHistory      HairHistoryEvent[]
+  formulas         Formula[]
+  conditionChecks  HairConditionAssessment[]
+  photoAssets      PhotoAsset[]
+  deposits         Deposit[]
+  invoices         Invoice[]
+  payments         Payment[]
+  messageThreads   MessageThread[]
+  contactConsents  ContactConsent[]
+  formSubmissions  FormSubmission[]
+  patchTests       PatchTest[]
+  strandTests      StrandTest[]
+  consentGrants    ConsentGrant[]
+  policyAcks       PolicyAcknowledgement[]
+  memberships      ClientMembership[]
+  packagePurchases PackagePurchase[]
+  productRecs      ProductRecommendation[]
+  noShowScores     NoShowScore[]
+  scheduledNotifications ScheduledNotification[]
+
+  @@unique([salonId, userId])
+  @@index([salonId, status])
+  @@index([salonId, lastName, firstName])
+  @@index([salonId, email])
+  @@index([salonId, phone])
+}

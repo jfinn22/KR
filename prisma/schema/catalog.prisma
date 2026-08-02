@@ -1,0 +1,228 @@
+// ---------------------------------------------------------------------------
+// Service catalog
+//
+// The important idea here is ServicePhase. A service is not a flat block of
+// time — a balayage is 90 minutes of active work, 40 minutes of processing
+// where the stylist is free, then 45 minutes at the basin. Modelling that
+// explicitly is what lets the availability solver offer a genuinely useful
+// slot and, when the salon enables it, let a stylist take another client
+// during the processing gap.
+// ---------------------------------------------------------------------------
+
+enum PriceModel {
+  FIXED
+  FROM
+  QUOTE_ONLY
+}
+
+enum PhaseKind {
+  ACTIVE
+  PROCESSING
+  RINSE
+  CONSULT
+}
+
+enum DepositMode {
+  NONE
+  FLAT
+  PERCENT
+  TIERED
+}
+
+enum ModifierFactor {
+  HAIR_LENGTH
+  DENSITY
+  TEXTURE
+  CURL_PATTERN
+  GREY_PERCENT
+  EXTENSION_ROWS
+}
+
+enum ModifierTarget {
+  DURATION
+  PRICE
+  BOTH
+}
+
+model ServiceCategory {
+  id        String  @id @default(cuid())
+  salonId   String
+  salon     Salon   @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  name      String
+  slug      String
+  colorHex  String  @default("#C9A227")
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  services  Service[]
+  modifiers ServiceModifier[]
+
+  @@unique([salonId, slug])
+  @@index([salonId, isActive])
+}
+
+model Service {
+  id         String          @id @default(cuid())
+  salonId    String
+  salon      Salon           @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  categoryId String
+  category   ServiceCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  name        String
+  slug        String
+  description String? @db.Text
+
+  /// Drives the rules engine: chemical services carry patch-test, allergy and
+  /// history rules that a dry cut never does.
+  isChemical       Boolean @default(false)
+  isLightening     Boolean @default(false)
+  containsDye      Boolean @default(false)
+  isExtensionInstall Boolean @default(false)
+
+  requiresConsultation Boolean @default(false)
+  consultationTemplateKey String?
+  requiresPatchTest    Boolean @default(false)
+  patchTestLeadHours   Int     @default(48)
+
+  basePriceCents Int        @default(0)
+  priceModel     PriceModel @default(FIXED)
+  baseComplexity Int        @default(0)
+
+  bufferBeforeMin Int?
+  bufferAfterMin  Int?
+
+  requiredSkillCode  String?
+  requiredSkillLevel Int?
+
+  /// Whether another client may be scheduled into this service's processing
+  /// gaps. Salon-level `interleaveEnabled` still has to be on.
+  allowInterleaveDuringProcessing Boolean @default(true)
+
+  depositPolicyId String?
+  depositPolicy   DepositPolicy? @relation(fields: [depositPolicyId], references: [id], onDelete: SetNull)
+
+  isBookableOnline Boolean @default(true)
+  isActive         Boolean @default(true)
+  sortOrder        Int     @default(0)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(3)
+
+  phases              ServicePhase[]
+  variants            ServiceVariant[]
+  stylistServices     StylistService[]
+  modifiers           ServiceModifier[]
+  appointmentServices AppointmentService[]
+  planSessionServices ServicePlanSessionService[]
+  calibrations        StylistCalibration[]
+  packages            PackageDefinition[]
+
+  @@unique([salonId, slug])
+  @@index([salonId, categoryId, isActive])
+  @@index([salonId, isBookableOnline])
+}
+
+/// One link in a service's phase chain. `requiresStylist=false` on a
+/// PROCESSING phase is what frees the stylist for another client; the
+/// availability solver reads exactly this.
+model ServicePhase {
+  id        String    @id @default(cuid())
+  salonId   String
+  serviceId String
+  service   Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  sequence  Int
+  kind      PhaseKind
+  label     String
+  durationMin Int
+  requiresStylist Boolean @default(true)
+  requiresResourceType ResourceType?
+  /// Whether hair-length/density modifiers scale this phase. Processing time
+  /// is chemistry, not hair volume, so it usually should not.
+  isScalable Boolean @default(true)
+
+  @@unique([serviceId, sequence])
+  @@index([salonId, serviceId])
+}
+
+model ServiceVariant {
+  id        String  @id @default(cuid())
+  salonId   String
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  key       String
+  label     String
+  durationDeltaMin Int @default(0)
+  priceDeltaCents  Int @default(0)
+  sortOrder        Int @default(0)
+  isActive         Boolean @default(true)
+
+  appointmentServices AppointmentService[]
+  planSessionServices ServicePlanSessionService[]
+
+  @@unique([serviceId, key])
+  @@index([salonId, serviceId])
+}
+
+/// Capability plus per-stylist overrides. A senior colourist may be 15%
+/// faster at balayage and charge more for it; both live here.
+model StylistService {
+  id               String         @id @default(cuid())
+  salonId          String
+  stylistProfileId String
+  stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
+  serviceId        String
+  service          Service        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  isEnabled          Boolean @default(true)
+  durationMultiplier Decimal? @db.Decimal(4, 3)
+  durationOverrideMin Int?
+  priceOverrideCents  Int?
+  notes              String?
+
+  @@unique([stylistProfileId, serviceId])
+  @@index([salonId, serviceId, isEnabled])
+}
+
+/// Data-driven duration/price adjustments by hair factor. Deliberately a
+/// table rather than code, so a salon can tune "long hair adds 25 minutes"
+/// without a deploy — while the *rules* stay in versioned TypeScript.
+model ServiceModifier {
+  id          String          @id @default(cuid())
+  salonId     String
+  salon       Salon           @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  serviceId   String?
+  service     Service?        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  categoryId  String?
+  category    ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  factorKey   ModifierFactor
+  factorValue String
+  deltaMin        Int     @default(0)
+  deltaPercentBps Int     @default(0)
+  deltaPriceCents Int     @default(0)
+  appliesTo       ModifierTarget @default(DURATION)
+
+  @@index([salonId, factorKey, factorValue])
+  @@index([salonId, serviceId])
+}
+
+model DepositPolicy {
+  id      String      @id @default(cuid())
+  salonId String
+  salon   Salon       @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  name    String
+  mode    DepositMode @default(PERCENT)
+  flatCents  Int?
+  percentBps Int?
+  minCents   Int      @default(0)
+  maxCents   Int?
+  /// Band -> {percentBps, minCents, refundableUntilHours} for TIERED mode.
+  /// The rules engine returns a band; this table turns it into money.
+  tiersJson  Json?
+  refundableUntilHours Int @default(48)
+  isDefault  Boolean  @default(false)
+
+  services     Service[]
+  servicePlans ServicePlan[]
+
+  @@index([salonId, isDefault])
+}

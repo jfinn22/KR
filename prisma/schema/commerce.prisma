@@ -1,0 +1,388 @@
+// ---------------------------------------------------------------------------
+// Commerce
+//
+// Money is integer cents everywhere. Payment state is never inferred from UI
+// optimism — the provider is the source of truth, reconciled through webhooks.
+// ---------------------------------------------------------------------------
+
+enum DepositStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  APPLIED
+  REFUNDED
+  FORFEITED
+  FAILED
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  PARTIALLY_PAID
+  VOID
+  REFUNDED
+}
+
+enum InvoiceLineKind {
+  SERVICE
+  RETAIL
+  FEE
+  DISCOUNT
+  DEPOSIT_APPLIED
+  PACKAGE_REDEMPTION
+  GIFT_CARD
+  TIP
+}
+
+enum PaymentMethod {
+  CARD
+  TERMINAL
+  CASH
+  ACCOUNT_CREDIT
+  GIFT_CARD
+  OTHER
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum FeeStatus {
+  PENDING
+  CHARGED
+  WAIVED
+  FAILED
+}
+
+enum ClientMembershipStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  PAUSED
+}
+
+enum ProductRecStatus {
+  RECOMMENDED
+  PURCHASED
+  DECLINED
+}
+
+model Deposit {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  servicePlanId String?
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+
+  amountCents Int
+  status      DepositStatus @default(PENDING)
+  providerIntentId String?
+  authorizationExpiresAt DateTime? @db.Timestamptz(3)
+  appliedToPaymentId     String?
+  /// The deposit policy as it stood when the client agreed to it.
+  policySnapshotJson Json?
+  refundableUntil DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+
+  @@index([salonId, status])
+  @@index([salonId, clientProfileId])
+}
+
+model Invoice {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  appointmentId String? @unique
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+
+  number        String
+  status        InvoiceStatus @default(DRAFT)
+  subtotalCents Int           @default(0)
+  discountCents Int           @default(0)
+  taxCents      Int           @default(0)
+  tipCents      Int           @default(0)
+  totalCents    Int           @default(0)
+  paidCents     Int           @default(0)
+  issuedAt      DateTime?     @db.Timestamptz(3)
+  paidAt        DateTime?     @db.Timestamptz(3)
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+
+  lines    InvoiceLine[]
+  payments Payment[]
+
+  @@unique([salonId, number])
+  @@index([salonId, status, issuedAt])
+}
+
+model InvoiceLine {
+  id        String          @id @default(cuid())
+  salonId   String
+  invoiceId String
+  invoice   Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  kind      InvoiceLineKind
+  refType   String?
+  refId     String?
+  description String
+  quantity    Int  @default(1)
+  unitPriceCents Int
+  totalCents     Int
+  taxRateBps     Int @default(0)
+  sequence       Int @default(0)
+
+  @@index([salonId, invoiceId])
+}
+
+model Payment {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+
+  amountCents Int
+  tipCents    Int           @default(0)
+  method      PaymentMethod @default(CARD)
+  status      PaymentStatus @default(PENDING)
+  providerRef String?
+  /// Guards against the double-tap that dominates real-world duplicate charges.
+  idempotencyKey String? @unique
+  failureCode    String?
+  capturedAt     DateTime? @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+
+  refunds Refund[]
+
+  @@index([salonId, status, createdAt])
+  @@index([salonId, clientProfileId])
+}
+
+model Refund {
+  id        String @id @default(cuid())
+  salonId   String
+  paymentId String
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  amountCents Int
+  reason      String?
+  status      PaymentStatus @default(PENDING)
+  providerRef String?
+  issuedByUserId String?
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, paymentId])
+}
+
+model CancellationFee {
+  id            String      @id @default(cuid())
+  salonId       String
+  appointmentId String      @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  policySnapshotJson Json
+  computedCents  Int
+  chargedCents   Int       @default(0)
+  status         FeeStatus @default(PENDING)
+  waivedByUserId String?
+  waiveReason    String?   @db.Text
+  paymentId      String?
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, status])
+}
+
+model LoyaltyAccount {
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId String        @unique
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  pointsBalance   Int           @default(0)
+  tier            String        @default("STANDARD")
+  lifetimeSpendCents Int        @default(0)
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
+
+  transactions LoyaltyTransaction[]
+
+  @@index([salonId])
+}
+
+model LoyaltyTransaction {
+  id        String         @id @default(cuid())
+  salonId   String
+  accountId String
+  account   LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  delta     Int
+  reason    String
+  refType   String?
+  refId     String?
+  expiresAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, accountId, createdAt])
+}
+
+model ClientMembershipPlan {
+  id       String @id @default(cuid())
+  salonId  String
+  salon    Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  name     String
+  descriptionText String?
+  priceCents Int
+  interval   String  @default("MONTH")
+  includedJson Json?
+  stripePriceId String?
+  isActive   Boolean @default(true)
+
+  memberships ClientMembership[]
+
+  @@index([salonId, isActive])
+}
+
+model ClientMembership {
+  id              String        @id @default(cuid())
+  salonId         String
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  planId          String
+  plan            ClientMembershipPlan @relation(fields: [planId], references: [id])
+  status          ClientMembershipStatus @default(ACTIVE)
+  startedAt       DateTime  @default(now()) @db.Timestamptz(3)
+  renewsAt        DateTime? @db.Timestamptz(3)
+  cancelledAt     DateTime? @db.Timestamptz(3)
+  creditsRemaining Int      @default(0)
+  stripeSubscriptionId String?
+
+  @@index([salonId, status])
+}
+
+model PackageDefinition {
+  id        String  @id @default(cuid())
+  salonId   String
+  salon     Salon   @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  name      String
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  sessionsIncluded Int
+  priceCents       Int
+  expiresInDays    Int     @default(365)
+  isActive         Boolean @default(true)
+
+  purchases PackagePurchase[]
+
+  @@index([salonId, isActive])
+}
+
+model PackagePurchase {
+  id                  String        @id @default(cuid())
+  salonId             String
+  clientProfileId     String
+  clientProfile       ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  packageDefinitionId String
+  packageDefinition   PackageDefinition @relation(fields: [packageDefinitionId], references: [id])
+  sessionsRemaining   Int
+  purchasedAt         DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt           DateTime  @db.Timestamptz(3)
+  invoiceId           String?
+
+  redemptions PackageRedemption[]
+
+  @@index([salonId, clientProfileId])
+}
+
+model PackageRedemption {
+  id                String          @id @default(cuid())
+  salonId           String
+  packagePurchaseId String
+  packagePurchase   PackagePurchase @relation(fields: [packagePurchaseId], references: [id], onDelete: Cascade)
+  appointmentId     String
+  appointment       Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  redeemedAt        DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, packagePurchaseId])
+}
+
+model RetailProduct {
+  id       String  @id @default(cuid())
+  salonId  String
+  salon    Salon   @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  sku      String
+  name     String
+  brand    String?
+  category String?
+  priceCents Int
+  costCents  Int    @default(0)
+  stockQty   Int    @default(0)
+  reorderLevel Int  @default(0)
+  attributesJson Json?
+  isActive   Boolean @default(true)
+
+  sales           RetailSale[]
+  usage           ProductUsage[]
+  recommendations ProductRecommendation[]
+
+  @@unique([salonId, sku])
+  @@index([salonId, isActive])
+}
+
+model RetailSale {
+  id            String        @id @default(cuid())
+  salonId       String
+  productId     String
+  product       RetailProduct @relation(fields: [productId], references: [id])
+  appointmentId String?
+  appointment   Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  invoiceLineId String?
+  quantity      Int      @default(1)
+  priceCents    Int
+  soldAt        DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, soldAt])
+}
+
+/// Back-bar consumption. `wasteGrams` is what drives the product-waste KPI —
+/// the difference between mixed and used is real money.
+model ProductUsage {
+  id            String        @id @default(cuid())
+  salonId       String
+  appointmentId String
+  appointment   Appointment   @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  productId     String?
+  product       RetailProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName   String?
+  grams         Decimal  @db.Decimal(7, 1)
+  wasteGrams    Decimal  @default(0) @db.Decimal(7, 1)
+  costCents     Int      @default(0)
+  recordedAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, appointmentId])
+}
+
+model ProductRecommendation {
+  id              String        @id @default(cuid())
+  salonId         String
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  appointmentId   String?
+  appointment     Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  retailProductId String
+  retailProduct   RetailProduct @relation(fields: [retailProductId], references: [id], onDelete: Cascade)
+  recommendedByUserId String?
+  reason          String?          @db.Text
+  status          ProductRecStatus @default(RECOMMENDED)
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, clientProfileId, status])
+}

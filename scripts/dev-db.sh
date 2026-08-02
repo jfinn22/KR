@@ -75,8 +75,9 @@ for db in "$DEV_DB" "$TEST_DB"; do
     $PSQL -d postgres -c "CREATE DATABASE \"${db}\"" >/dev/null
     say "database '${db}' created"
   fi
-  # btree_gist backs the exclusion constraints that make double-booking impossible.
-  $PSQL -d "$db" -c "CREATE EXTENSION IF NOT EXISTS btree_gist" >/dev/null
+  # NOTE: btree_gist is NOT created here. It is declared in the Prisma
+  # datasource `extensions` list, so Prisma owns it and creates it in the
+  # initial migration. Creating it out-of-band makes `migrate dev` see drift.
 done
 
 echo "▸ Ready"

@@ -1,0 +1,330 @@
+// ---------------------------------------------------------------------------
+// The hair record
+//
+// HairHistoryEvent is append-only. Corrections are a new event pointing at the
+// one they supersede, never an UPDATE — a hair record whose past can be
+// rewritten is worthless as a clinical trail. HairProfile is a projection of
+// current state, always rebuildable from the event stream.
+// ---------------------------------------------------------------------------
+
+enum Texture {
+  FINE
+  MEDIUM
+  COARSE
+}
+
+enum Density {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum Porosity {
+  LOW
+  NORMAL
+  HIGH
+}
+
+enum Elasticity {
+  POOR
+  FAIR
+  GOOD
+}
+
+enum LengthCategory {
+  PIXIE
+  CHIN
+  SHOULDER
+  COLLARBONE
+  MID_BACK
+  WAIST
+  HIP
+}
+
+enum ScalpCondition {
+  NORMAL
+  DRY
+  OILY
+  FLAKY
+  IRRITATED
+  PSORIASIS
+  ECZEMA
+}
+
+enum Sensitivity {
+  NONE
+  MILD
+  MODERATE
+  SEVERE
+}
+
+enum HairEventType {
+  SELF_REPORTED_HISTORY
+  CONSULTATION
+  SERVICE
+  FORMULA
+  CONDITION_ASSESSMENT
+  PHOTO
+  AT_HOME_TREATMENT
+  INCIDENT
+  NOTE
+  PLAN_APPROVED
+}
+
+enum EventSource {
+  CLIENT
+  STYLIST
+  SYSTEM
+  AI_ACCEPTED
+}
+
+enum HairCondition {
+  IMPROVING
+  STABLE
+  OVERPROCESSED
+  DRY
+  FRAGILE
+  RECOVERING
+}
+
+enum FormulaPurpose {
+  GLOBAL_COLOR
+  ROOT_TOUCH_UP
+  LIGHTENER
+  TONER
+  GLOSS
+  LOWLIGHT
+  TREATMENT
+  PERM
+  RELAXER
+  SMOOTHING
+}
+
+enum FormulaRole {
+  BASE
+  TONE
+  ADDITIVE
+  BOND_BUILDER
+  DEVELOPER
+  CLEAR
+}
+
+enum AppointmentPhotoKind {
+  BEFORE
+  PROGRESS
+  AFTER
+  STRAND_TEST
+  PATCH_TEST
+}
+
+/// Current-state projection. This is what the rules engine reads.
+model HairProfile {
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId String        @unique
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+
+  naturalLevel      Int?
+  currentLevelRoots Int?
+  currentLevelMids  Int?
+  currentLevelEnds  Int?
+  toneRoots String?
+  toneMids  String?
+  toneEnds  String?
+  undertone String?
+
+  texture        Texture?
+  density        Density?
+  curlPattern    String?
+  porosity       Porosity?
+  elasticity     Elasticity?
+  integrityScore Int?
+  lengthCategory LengthCategory?
+  greyPercent    Int?
+  greyResistant  Boolean?
+
+  scalpCondition   ScalpCondition @default(NORMAL)
+  scalpSensitivity Sensitivity    @default(NONE)
+
+  // Chemical history flags. Dates matter as much as the booleans — "box dye,
+  // four months ago, on the ends" is a completely different service to "box
+  // dye, three years ago, grown out".
+  hasBoxDye     Boolean   @default(false)
+  boxDyeLastAt  DateTime? @db.Date
+  boxDyeDarkOrBlack Boolean @default(false)
+  hasHenna      Boolean   @default(false)
+  hennaLastAt   DateTime? @db.Date
+  hennaProductKnown Boolean @default(false)
+  hasBleach     Boolean   @default(false)
+  bleachSessions12mo Int   @default(0)
+  bleachMaxLevelAchieved Int?
+  hasKeratin    Boolean   @default(false)
+  keratinLastAt DateTime? @db.Date
+  hasRelaxer    Boolean   @default(false)
+  relaxerLastAt DateTime? @db.Date
+  hasPerm       Boolean   @default(false)
+  permLastAt    DateTime? @db.Date
+  hasExtensions Boolean   @default(false)
+  extensionMethod String?
+  lastChemicalServiceAt DateTime? @db.Date
+
+  breakageReported Boolean @default(false)
+  gumminessReported Boolean @default(false)
+  sheddingReported Boolean @default(false)
+  splitEnds        String  @default("none")
+
+  allergiesJson   Json?
+  medicationsJson Json?
+  priorReactionToColor Boolean @default(false)
+  isPregnantOrNursing  Boolean?
+
+  swimsChlorinatedWeekly Boolean @default(false)
+  hardWater        Boolean @default(false)
+  heatStylingPerWeek Int   @default(0)
+  washesPerWeek    Int     @default(3)
+  usesPurpleShampoo Boolean @default(false)
+  maintenanceAppetite String @default("MEDIUM")
+  homeCareJson     Json?
+
+  updatedFromConsultationId String?
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@index([salonId])
+}
+
+/// Append-only timeline. Every visit, every self-report, every assessment.
+model HairHistoryEvent {
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+
+  occurredAt DateTime      @db.Timestamptz(3)
+  type       HairEventType
+  title      String
+  summary    String?       @db.Text
+  payloadJson Json?
+
+  appointmentId  String?
+  appointment    Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  consultationId String?
+  consultation   Consultation? @relation(fields: [consultationId], references: [id], onDelete: SetNull)
+  formulaId      String?
+  formula        Formula?      @relation(fields: [formulaId], references: [id], onDelete: SetNull)
+  photoAssetIds  String[]
+
+  source          EventSource @default(STYLIST)
+  createdByUserId String?
+  /// Corrections point back rather than overwrite.
+  supersedesEventId String?
+  isClientVisible Boolean  @default(true)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, clientProfileId, occurredAt])
+  @@index([salonId, type])
+}
+
+/// What was actually mixed. Over time this becomes the most valuable data in
+/// the system: a record of exactly what works on this client's hair.
+model Formula {
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  appointmentId   String?
+  appointment     Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  stylistProfileId String
+  stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id])
+
+  name            String?
+  purpose         FormulaPurpose
+  developerVolume Int?
+  ratio           String?
+  processingTimeMin Int?
+  heatUsed        Boolean @default(false)
+  sectioning      String? @db.Text
+  technique       String?
+  applicationNotes String? @db.Text
+
+  resultRating Int?
+  resultNotes  String? @db.Text
+  outcome      String?
+
+  isTemplate         Boolean @default(false)
+  supersedesFormulaId String?
+  aiSuggestionId     String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  components   FormulaComponent[]
+  hairHistory  HairHistoryEvent[]
+  strandTests  StrandTest[]
+
+  @@index([salonId, clientProfileId, createdAt])
+  @@index([salonId, stylistProfileId])
+}
+
+model FormulaComponent {
+  id        String  @id @default(cuid())
+  salonId   String
+  formulaId String
+  formula   Formula @relation(fields: [formulaId], references: [id], onDelete: Cascade)
+  sequence  Int
+
+  retailProductId String?
+  brand       String?
+  productName String?
+  shadeCode   String?
+  level       Decimal? @db.Decimal(4, 2)
+  tone        String?
+  parts       Decimal? @db.Decimal(5, 2)
+  grams       Decimal? @db.Decimal(6, 1)
+  developerVolume Int?
+  role        FormulaRole @default(BASE)
+
+  @@index([salonId, formulaId])
+}
+
+/// Measurable progress. "Your hair is improving" beats "your hair looks better".
+model HairConditionAssessment {
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  appointmentId   String?
+  appointment     Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  consultationId  String?
+  consultation    Consultation? @relation(fields: [consultationId], references: [id], onDelete: SetNull)
+
+  assessedByUserId String
+  assessedAt       DateTime      @default(now()) @db.Timestamptz(3)
+  condition        HairCondition
+  porosity         Porosity?
+  elasticity       Elasticity?
+  integrityScore   Int?
+  breakageObserved Boolean       @default(false)
+  bandingObserved  Boolean       @default(false)
+  scalpScore       Int?
+  notes            String?       @db.Text
+  photoAssetIds    String[]
+
+  @@index([salonId, clientProfileId, assessedAt])
+}
+
+model AppointmentPhoto {
+  id            String               @id @default(cuid())
+  salonId       String
+  appointmentId String
+  appointment   Appointment          @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  photoAssetId  String
+  photoAsset    PhotoAsset           @relation(fields: [photoAssetId], references: [id], onDelete: Cascade)
+  kind          AppointmentPhotoKind
+  view          PhotoView?
+  sequence      Int                  @default(0)
+
+  @@index([salonId, appointmentId, kind])
+}
