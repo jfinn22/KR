@@ -1,0 +1,168 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/**
+ * Salon Intelligence Platform — design tokens.
+ *
+ * This is the ONLY place colour values are declared. Components reference
+ * Tailwind token names (bg-canvas, text-ink, border-line …) which map here.
+ *
+ * Values are space-separated RGB channels rather than hex so Tailwind's alpha
+ * modifiers work — `bg-blue-900/5`, `border-gold-500/40` and so on all resolve
+ * through `rgb(var(--token) / <alpha-value>)` in tailwind.config.ts.
+ *
+ * `tests/unit/design/palette.test.ts` parses this file and asserts WCAG AA
+ * contrast on every text/background pair, so the palette cannot silently rot.
+ */
+
+@layer base {
+  :root {
+    /* --- Ink: all body copy is black. Blue and gold never carry body text. --- */
+    --ink: 11 11 12; /* #0B0B0C */
+    --ink-muted: 85 85 92; /* #55555C */
+    --ink-subtle: 119 119 127; /* #77777F */
+    --ink-inverse: 255 255 255; /* #FFFFFF */
+
+    /* --- Surfaces --- */
+    --canvas: 255 255 255; /* #FFFFFF */
+    --surface: 250 250 251; /* #FAFAFB */
+    --surface-alt: 244 245 247; /* #F4F5F7 */
+
+    /* --- Hairlines. 1px only, never heavier. --- */
+    --line: 230 231 235; /* #E6E7EB */
+    --line-strong: 211 213 219; /* #D3D5DB */
+
+    /* --- Blue: structure and action. Nav, primary buttons, links. --- */
+    --blue-900: 15 42 74; /* #0F2A4A */
+    --blue-700: 27 76 126; /* #1B4C7E */
+    --blue-500: 46 111 168; /* #2E6FA8 */
+    --blue-300: 123 167 205; /* #7BA7CD */
+    --blue-100: 232 240 248; /* #E8F0F8 */
+    --blue-50: 244 248 252; /* #F4F8FC */
+
+    /* --- Gold: distinction and status. A garnish, never a surface fill.
+           Exactly one rung carries text: gold-700. gold-600 is for borders and
+           icons (3:1); 500/300/100 are fills. Enforced by the palette test. --- */
+    --gold-700: 138 108 31; /* #8A6C1F */
+    --gold-600: 168 132 44; /* #A8842C */
+    --gold-500: 201 162 39; /* #C9A227 */
+    --gold-300: 226 199 102; /* #E2C766 */
+    --gold-100: 251 245 227; /* #FBF5E3 */
+
+    /* --- Semantic. Each clears 4.5:1 on white AND on its own soft background.
+           Use gold-500 when you want a bright amber *fill* rather than text. --- */
+    --success: 47 107 79; /* #2F6B4F */
+    --success-soft: 238 245 241; /* #EEF5F1 */
+    --warn: 138 97 8; /* #8A6108 */
+    --warn-soft: 253 244 229; /* #FDF4E5 */
+    --danger: 163 46 46; /* #A32E2E */
+    --danger-soft: 251 239 239; /* #FBEFEF */
+
+    --radius: 10px;
+
+    --font-display: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+    --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  }
+
+  * {
+    @apply border-line;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-ink;
+    font-family: var(--font-sans);
+    font-size: 1rem;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply text-ink;
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1.2;
+  }
+
+  /* Focus is always visible — never removed, only restyled. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--blue-500));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: rgb(var(--gold-100));
+    color: rgb(var(--ink));
+  }
+
+  /* Tabular numerals wherever figures are compared vertically. */
+  table,
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+@layer components {
+  /* Uppercase micro-label used above fields, table headers and stat tiles. */
+  .label-caps {
+    @apply text-label font-medium uppercase tracking-[0.08em] text-ink-muted;
+  }
+
+  /* The thin gold rule that separates major sections. Gold as a garnish. */
+  .rule-gold {
+    @apply h-px w-full border-0 bg-gold-500/40;
+  }
+
+  /* Featured card treatment: a 2px gold top-rule and nothing else loud. */
+  .card-featured {
+    @apply relative overflow-hidden;
+  }
+  .card-featured::before {
+    content: '';
+    @apply absolute inset-x-0 top-0 h-0.5 bg-gold-500;
+  }
+
+  /* Consultation progress rail — slim, gold, never a chunky progress bar. */
+  .progress-rail {
+    @apply h-0.5 w-full overflow-hidden rounded-pill bg-surface-alt;
+  }
+  .progress-rail > span {
+    @apply block h-full bg-gold-500 transition-[width] duration-300 ease-out;
+  }
+
+  /* Every AI-produced element wears this so it can never read as fact. */
+  .ai-suggestion {
+    @apply rounded-lg border border-dashed border-blue-300 bg-blue-50 p-4;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .text-pretty {
+    text-wrap: pretty;
+  }
+}

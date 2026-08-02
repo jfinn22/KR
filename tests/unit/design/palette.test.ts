@@ -1,0 +1,157 @@
+import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+/**
+ * The palette is a product decision, so it gets a test.
+ *
+ * This parses the real tokens out of globals.css — not a duplicated copy — and
+ * asserts WCAG AA contrast on every pair the design system actually uses. If
+ * someone nudges a blue or a gold to "look nicer", this fails before it ships.
+ */
+
+const CSS = readFileSync(resolve(process.cwd(), 'src/app/globals.css'), 'utf8')
+
+type Rgb = readonly [number, number, number]
+
+/** Read a `--token: R G B;` channel triplet straight out of globals.css. */
+function token(name: string): Rgb {
+  const match = CSS.match(new RegExp(`--${name}:\\s*(\\d{1,3})\\s+(\\d{1,3})\\s+(\\d{1,3})\\s*;`))
+  if (!match) throw new Error(`Token --${name} not found (or not an RGB triplet) in globals.css`)
+  return [Number(match[1]), Number(match[2]), Number(match[3])] as const
+}
+
+function srgbToLinear(channel: number): number {
+  const c = channel / 255
+  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+}
+
+function relativeLuminance([r, g, b]: Rgb): number {
+  return 0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b)
+}
+
+export function contrastRatio(a: Rgb, b: Rgb): number {
+  const la = relativeLuminance(a)
+  const lb = relativeLuminance(b)
+  const [hi, lo] = la > lb ? [la, lb] : [lb, la]
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+const AA_NORMAL = 4.5
+const AA_LARGE = 3.0
+const AA_UI = 3.0
+
+describe('palette tokens', () => {
+  it('defines every token the Tailwind theme references', () => {
+    const required = [
+      'ink',
+      'ink-muted',
+      'ink-subtle',
+      'ink-inverse',
+      'canvas',
+      'surface',
+      'surface-alt',
+      'line',
+      'line-strong',
+      'blue-900',
+      'blue-700',
+      'blue-500',
+      'blue-300',
+      'blue-100',
+      'blue-50',
+      'gold-700',
+      'gold-600',
+      'gold-500',
+      'gold-300',
+      'gold-100',
+      'success',
+      'success-soft',
+      'warn',
+      'warn-soft',
+      'danger',
+      'danger-soft',
+    ]
+    for (const t of required) expect(() => token(t), `--${t}`).not.toThrow()
+  })
+})
+
+describe('body text contrast (WCAG AA, 4.5:1)', () => {
+  const backgrounds = ['canvas', 'surface', 'surface-alt', 'blue-50', 'blue-100', 'gold-100']
+
+  it.each(backgrounds)('ink on %s', (bg) => {
+    expect(contrastRatio(token('ink'), token(bg))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it.each(backgrounds)('ink-muted on %s', (bg) => {
+    expect(contrastRatio(token('ink-muted'), token(bg))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it('white text on the primary navy button', () => {
+    expect(contrastRatio(token('ink-inverse'), token('blue-900'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it('white text on the blue-700 hover state', () => {
+    expect(contrastRatio(token('ink-inverse'), token('blue-700'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it('white text on the danger button', () => {
+    expect(contrastRatio(token('ink-inverse'), token('danger'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+})
+
+describe('accent text contrast', () => {
+  // The gold ladder has exactly one text-safe rung. gold-700 carries type;
+  // gold-600 is for borders and icons; gold-500/300/100 are fills only.
+  // These assertions are what enforce that, rather than a comment nobody reads.
+  it('gold-700 is the text-safe gold on white', () => {
+    expect(contrastRatio(token('gold-700'), token('canvas'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it('gold-700 is readable on the gold wash', () => {
+    expect(contrastRatio(token('gold-700'), token('gold-100'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it('gold-600 is a border/icon colour — it clears 3:1 but NOT the text bar', () => {
+    const onWhite = contrastRatio(token('gold-600'), token('canvas'))
+    expect(onWhite).toBeGreaterThanOrEqual(AA_UI)
+    expect(onWhite).toBeLessThan(AA_NORMAL)
+  })
+
+  it('gold-500 is a fill only — it must fail the text bar', () => {
+    expect(contrastRatio(token('gold-500'), token('canvas'))).toBeLessThan(AA_NORMAL)
+  })
+
+  it('link blue is readable on white', () => {
+    expect(contrastRatio(token('blue-500'), token('canvas'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it('blue-900 badge text is readable on the blue wash', () => {
+    expect(contrastRatio(token('blue-900'), token('blue-100'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it.each([
+    ['success', 'success-soft'],
+    ['warn', 'warn-soft'],
+    ['danger', 'danger-soft'],
+  ])('%s text on %s', (fg, bg) => {
+    expect(contrastRatio(token(fg), token(bg))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+
+  it.each([['success'], ['warn'], ['danger']])('%s text on white', (fg) => {
+    expect(contrastRatio(token(fg), token('canvas'))).toBeGreaterThanOrEqual(AA_NORMAL)
+  })
+})
+
+describe('non-text contrast (WCAG AA, 3:1)', () => {
+  it('the focus ring is visible against every surface', () => {
+    for (const bg of ['canvas', 'surface', 'surface-alt']) {
+      expect(contrastRatio(token('blue-500'), token(bg)), bg).toBeGreaterThanOrEqual(AA_UI)
+    }
+  })
+
+  it('display headings clear the large-text bar on every surface', () => {
+    for (const bg of ['canvas', 'surface', 'surface-alt', 'gold-100']) {
+      expect(contrastRatio(token('ink'), token(bg)), bg).toBeGreaterThanOrEqual(AA_LARGE)
+    }
+  })
+})
