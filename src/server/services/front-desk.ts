@@ -31,6 +31,8 @@ export interface DeskAppointment {
   chairEndedAt: Date | null
   hasOpenFlags: boolean
   runningLateMin: number | null
+  /** Money still outstanding, so the desk can jump straight to the till. */
+  needsPayment: boolean
 }
 
 export interface DeskDay {
@@ -82,6 +84,7 @@ export async function deskDay(
       primaryStylist: { select: { id: true, displayName: true } },
       services: { include: { service: { select: { name: true } } } },
       deposits: { select: { status: true, amountCents: true } },
+      invoice: { select: { status: true, totalCents: true, paidCents: true } },
     },
   })
 
@@ -137,6 +140,10 @@ export async function deskDay(
       chairStartedAt: appointment.chairStartedAt,
       chairEndedAt: appointment.chairEndedAt,
       hasOpenFlags: appointment.consultationId !== null && flagged.has(appointment.consultationId),
+      // No invoice yet on a finished appointment still means money is owed.
+      needsPayment: appointment.invoice
+        ? appointment.invoice.status !== 'PAID'
+        : appointment.estimatedTotalCents > 0,
       runningLateMin: runningLateMin && runningLateMin > 0 ? runningLateMin : null,
     }
   })
@@ -199,6 +206,67 @@ export async function findClients(salonId: string, query: string, limit = 20) {
       lastVisitAt: true,
     },
   })
+}
+
+/**
+ * What the till needs to settle one appointment.
+ *
+ * Prices come from what was agreed on the appointment rather than from the
+ * catalog — the client agreed to a figure and that figure is what they pay,
+ * even if the service was repriced since. Returns null for an appointment that
+ * has not happened, so the screen cannot be opened on a booking nobody has
+ * sat down for.
+ */
+export async function checkoutView(salonId: string, appointmentId: string) {
+  const appointment = await unsafeDb.appointment.findFirst({
+    where: { id: appointmentId, salonId },
+    include: {
+      clientProfile: { select: { firstName: true, lastName: true } },
+      primaryStylist: { select: { displayName: true } },
+      services: { include: { service: { select: { name: true } } } },
+      deposits: true,
+      invoice: {
+        include: {
+          lines: { orderBy: { sequence: 'asc' } },
+          payments: { select: { id: true, amountCents: true, method: true, status: true } },
+        },
+      },
+    },
+  })
+  if (!appointment) return null
+
+  const settled = ['IN_CHAIR', 'PROCESSING', 'COMPLETED']
+  if (!settled.includes(appointment.status)) return null
+
+  const depositHeldCents = appointment.deposits
+    .filter((d) => d.status === 'AUTHORIZED' || d.status === 'CAPTURED')
+    .reduce((sum, d) => sum + d.amountCents, 0)
+
+  return {
+    clientName:
+      `${appointment.clientProfile.firstName} ${appointment.clientProfile.lastName ?? ''}`.trim(),
+    stylistName: appointment.primaryStylist.displayName,
+    serviceNames: appointment.services.map((s) => s.service.name),
+    lines: appointment.services.map((row) => ({
+      description: row.service.name,
+      priceCents: row.priceCents,
+    })),
+    agreedTotalCents: appointment.estimatedTotalCents,
+    depositHeldCents,
+    invoice: appointment.invoice
+      ? {
+          id: appointment.invoice.id,
+          number: appointment.invoice.number,
+          status: appointment.invoice.status,
+          totalCents: appointment.invoice.totalCents,
+          paidCents: appointment.invoice.paidCents,
+          taxCents: appointment.invoice.taxCents,
+          discountCents: appointment.invoice.discountCents,
+          tipCents: appointment.invoice.tipCents,
+          payments: appointment.invoice.payments,
+        }
+      : null,
+  }
 }
 
 /**

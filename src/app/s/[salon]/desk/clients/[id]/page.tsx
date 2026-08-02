@@ -3,7 +3,9 @@ import { notFound } from 'next/navigation'
 import { pageContextFor } from '@/server/auth/page'
 import { clientAppointments, hairTimeline } from '@/server/services/client-portal'
 import { clientRecord } from '@/server/services/front-desk'
+import { consentState } from '@/server/services/compliance'
 import { HairTimeline } from '@/components/salon/hair-timeline'
+import { ConsentPanel } from './consent-panel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionHeading, Stat } from '@/components/ui/data'
@@ -32,9 +34,10 @@ export default async function ClientRecordPage({
 
   const { client, accuracy, overrunCount, averageOverrunMin } = record
 
-  const [{ upcoming, past }, timeline] = await Promise.all([
+  const [{ upcoming, past }, timeline, consent] = await Promise.all([
     clientAppointments(ctx.salonId, client.id),
     hairTimeline(ctx.salonId, client.id),
+    consentState(ctx.salonId, client.id),
   ])
 
   return (
@@ -110,6 +113,29 @@ export default async function ClientRecordPage({
           </ul>
         </section>
       )}
+
+      <section>
+        <SectionHeading
+          title="Consent and safety"
+          description="Recorded with a date, so the salon can always say when permission started and stopped."
+        />
+        <div className="mt-6">
+          <ConsentPanel
+            salonSlug={salon}
+            clientProfileId={client.id}
+            granted={consent.grants
+              .filter((grant) => grant.status === 'GRANTED')
+              .map((grant) => grant.kind)}
+            patchTests={consent.patchTests.map((test) => ({
+              id: test.id,
+              appliedAt: test.appliedAt.toISOString(),
+              result: test.result,
+              validUntil: test.validUntil.toISOString(),
+              isCurrent: test.isCurrent,
+            }))}
+          />
+        </div>
+      </section>
 
       <section>
         <SectionHeading

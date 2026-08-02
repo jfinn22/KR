@@ -192,7 +192,12 @@ function Group({
               </p>
             </div>
 
-            <LifecycleButtons salonSlug={salon} appointmentId={row.id} status={row.status} />
+            <LifecycleButtons
+              salonSlug={salon}
+              appointmentId={row.id}
+              status={row.status}
+              needsPayment={row.needsPayment}
+            />
           </li>
         ))}
       </ul>

@@ -1,6 +1,7 @@
 'use client'
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,10 +28,12 @@ export function LifecycleButtons({
   salonSlug,
   appointmentId,
   status,
+  needsPayment,
 }: {
   salonSlug: string
   appointmentId: string
   status: string
+  needsPayment?: boolean
 }) {
   const router = useRouter()
   const [busy, setBusy] = React.useState(false)
@@ -154,7 +157,14 @@ export function LifecycleButtons({
           </Button>
         )}
 
-        {status === 'COMPLETED' && (
+        {(status === 'IN_CHAIR' || status === 'PROCESSING' || status === 'COMPLETED') &&
+          needsPayment && (
+            <Button size="sm" variant={status === 'COMPLETED' ? 'primary' : 'secondary'} asChild>
+              <Link href={`/s/${salonSlug}/desk/checkout/${appointmentId}`}>Take payment</Link>
+            </Button>
+          )}
+
+        {status === 'COMPLETED' && !needsPayment && (
           <Button
             variant="secondary"
             size="sm"

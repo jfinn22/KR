@@ -6,6 +6,8 @@ import { withAuthz, DomainError } from './guard'
 import { reviewConsultation, type ReviewDecision } from '@/server/services/service-plan'
 import { claimForReview, resolveFlag } from '@/server/services/review-queue'
 import { evaluateConsultation } from '@/server/services/consultation'
+import { acceptSuggestion, rejectSuggestion, summariseConsultation } from '@/server/services/ai'
+import { reviewDetail } from '@/server/services/review-queue'
 import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
@@ -181,5 +183,75 @@ export const reevaluateAction = withAuthz(
     })
     revalidatePath(`/s/${ctx.salonSlug}/review/${input.consultationId}`)
     return { evaluation }
+  },
+)
+
+/**
+ * Ask for a summary of a consultation.
+ *
+ * On demand rather than on page load: a stylist who reads the answers
+ * themselves should not have been charged for a summary they never opened, and
+ * the queue would otherwise generate one for every consultation nobody looks
+ * at. Returns null when AI is off or the model failed — the screen works
+ * without it, which is the whole point of it being advisory.
+ */
+export const summariseAction = withAuthz(
+  {
+    action: 'consultation.review',
+    schema: z.object({ consultationId: cuid }),
+    resource: (input, ctx) => consultationResource(input.consultationId, ctx),
+  },
+  async (input, ctx) => {
+    const detail = await reviewDetail(ctx.salonId, input.consultationId)
+    if (!detail.evaluation) {
+      throw new DomainError('CONFLICT', 'This consultation has not been evaluated yet.')
+    }
+
+    const result = await summariseConsultation({
+      salonId: ctx.salonId,
+      consultationId: input.consultationId,
+      evaluation: detail.evaluation,
+      answers: Object.fromEntries(
+        detail.answered.filter((a) => a.wasAnswered).map((a) => [a.key, a.answer]),
+      ),
+      serviceNames: detail.services.map((service) => service.name),
+    })
+
+    return { summary: result.value, suggestionId: result.suggestionId }
+  },
+)
+
+/**
+ * A person takes responsibility for what the model said.
+ *
+ * Nothing an AI produces is used until this runs, and the edited copy is
+ * stored beside the original so a salon can see the difference — which is both
+ * the audit trail and the only honest measure of how good the suggestions are.
+ */
+export const judgeSuggestionAction = withAuthz(
+  {
+    action: 'aiSuggestion.accept',
+    schema: z.object({
+      suggestionId: cuid,
+      accept: z.boolean(),
+      edited: z.unknown().optional(),
+    }),
+    auditAs: (input) => ({ entityType: 'AiSuggestion', entityId: input.suggestionId }),
+  },
+  async (input, ctx) => {
+    const userId = ctx.principal.kind === 'system' ? 'system' : ctx.principal.userId
+
+    if (input.accept) {
+      await acceptSuggestion({
+        salonId: ctx.salonId,
+        suggestionId: input.suggestionId,
+        userId,
+        edited: input.edited,
+      })
+    } else {
+      await rejectSuggestion({ salonId: ctx.salonId, suggestionId: input.suggestionId, userId })
+    }
+
+    return { accepted: input.accept }
   },
 )

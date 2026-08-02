@@ -8,6 +8,7 @@ import { SectionHeading } from '@/components/ui/data'
 import { formatDayHeading, formatMinutes, formatMoney } from '@/lib/format'
 import { ReviewFlags } from './review-flags'
 import { DecisionPanel } from './decision-panel'
+import { AiSummaryCard } from './ai-summary'
 
 export const dynamic = 'force-dynamic'
 
@@ -84,6 +85,9 @@ export default async function ReviewDetailPage({
           </dl>
         )}
       </header>
+
+      {/* Advisory, generated on request, never on load. */}
+      <AiSummaryCard salonSlug={salon} consultationId={id} />
 
       {/* --- What the engine found ------------------------------------------ */}
       {flags.length > 0 && (
