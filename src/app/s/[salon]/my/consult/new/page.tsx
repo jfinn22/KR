@@ -1,4 +1,4 @@
-import { requireContext } from '@/server/auth/context'
+import { pageContext } from '@/server/auth/page'
 import { listCatalog } from '@/server/services/catalog'
 import { EmptyState } from '@/components/ui/feedback'
 import { ServicePicker } from './service-picker'
@@ -20,7 +20,7 @@ export default async function NewConsultationPage({
   searchParams: Promise<{ services?: string }>
 }) {
   const [{ salon }, query] = await Promise.all([params, searchParams])
-  const ctx = await requireContext(salon)
+  const ctx = await pageContext(salon)
 
   const categories = await listCatalog(ctx.salonId, { onlineOnly: true })
   const withServices = categories.filter((category) => category.services.length > 0)

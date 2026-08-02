@@ -29,7 +29,8 @@
     "test:contrast": "vitest run --project unit tests/unit/design",
     "verify:adapters": "vitest run --project unit tests/unit/ports",
     "test:e2e": "playwright test",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test:unit && pnpm test:integration"
+    "verify": "pnpm typecheck && pnpm lint && pnpm check:boundary && pnpm test:unit && pnpm test:integration",
+    "check:boundary": "node scripts/check-client-boundary.mjs"
   },
   "prisma": {
     "schema": "prisma/schema",

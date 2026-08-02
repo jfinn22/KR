@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/feedback'
+import { formatDayHeading, formatDuration, formatTime } from '@/lib/format'
 
 /**
  * Choosing a time.
@@ -174,34 +175,4 @@ function groupByDay(slots: readonly OfferedSlot[]): [string, OfferedSlot[]][] {
   }
   for (const list of days.values()) list.sort((a, b) => a.startsAt.localeCompare(b.startsAt))
   return [...days.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-}
-
-export function formatTime(iso: string, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-GB', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZone,
-  })
-    .format(new Date(iso))
-    .replace(/\s?([ap])m/i, (_, meridiem: string) => meridiem.toLowerCase() + 'm')
-}
-
-export function formatDayHeading(localDate: string, timeZone: string): string {
-  // Midday, so the date cannot slip across a boundary when it is re-zoned.
-  const date = new Date(`${localDate}T12:00:00Z`)
-  return new Intl.DateTimeFormat('en-GB', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    timeZone,
-  }).format(date)
-}
-
-export function formatDuration(minutes: number): string {
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  if (hours === 0) return `${mins} minutes`
-  if (mins === 0) return `${hours} hour${hours === 1 ? '' : 's'}`
-  return `${hours}h ${mins}m`
 }

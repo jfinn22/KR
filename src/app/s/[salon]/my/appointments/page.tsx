@@ -1,11 +1,11 @@
 import Link from 'next/link'
-import { requireContext } from '@/server/auth/context'
+import { pageContext } from '@/server/auth/page'
 import { clientAppointments } from '@/server/services/client-portal'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/feedback'
 import { SectionHeading } from '@/components/ui/data'
-import { formatDayHeading, formatTime } from '@/components/salon/slot-picker'
+import { formatDayHeading, formatTime, localDateIn } from '@/lib/format'
 import { CancelButton } from './cancel-button'
 
 export const dynamic = 'force-dynamic'
@@ -27,7 +27,7 @@ export default async function AppointmentsPage({
   searchParams: Promise<{ booked?: string }>
 }) {
   const [{ salon }, query] = await Promise.all([params, searchParams])
-  const ctx = await requireContext(salon)
+  const ctx = await pageContext(salon)
 
   if (ctx.principal.kind !== 'client') {
     return <EmptyState title="This is the client view" description="Your diary lives elsewhere." />
@@ -77,7 +77,7 @@ export default async function AppointmentsPage({
                       <div className="flex flex-wrap items-center gap-3">
                         <p className="font-display text-display-sm text-ink">
                           {formatDayHeading(
-                            localDateOf(appointment.startsAt, ctx.timezone),
+                            localDateIn(ctx.timezone, appointment.startsAt),
                             ctx.timezone,
                           )}
                         </p>
@@ -123,7 +123,7 @@ export default async function AppointmentsPage({
                     </p>
                     <p className="tabular text-secondary text-ink-subtle">
                       {formatDayHeading(
-                        localDateOf(appointment.startsAt, ctx.timezone),
+                        localDateIn(ctx.timezone, appointment.startsAt),
                         ctx.timezone,
                       )}{' '}
                       · {appointment.primaryStylist.displayName}
@@ -138,13 +138,4 @@ export default async function AppointmentsPage({
       )}
     </div>
   )
-}
-
-function localDateOf(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone,
-  }).format(date)
 }

@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation'
-import { requireContext } from '@/server/auth/context'
+import { pageContext } from '@/server/auth/page'
 import { loadConsultation } from '@/server/services/consultation'
 import { consultationContext } from '@/server/services/client-portal'
 import { GuidedFlow, type FlowQuestion } from './guided-flow'
@@ -20,7 +20,7 @@ export default async function ConsultationPage({
   params: Promise<{ salon: string; id: string }>
 }) {
   const { salon, id } = await params
-  const ctx = await requireContext(salon)
+  const ctx = await pageContext(salon)
 
   const [view, context] = await Promise.all([
     loadConsultation(ctx.salonId, id),

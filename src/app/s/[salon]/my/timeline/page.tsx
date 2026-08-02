@@ -1,4 +1,4 @@
-import { requireContext } from '@/server/auth/context'
+import { pageContext } from '@/server/auth/page'
 import { hairTimeline } from '@/server/services/client-portal'
 import { HairTimeline } from '@/components/salon/hair-timeline'
 import { EmptyState } from '@/components/ui/feedback'
@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic'
  */
 export default async function TimelinePage({ params }: { params: Promise<{ salon: string }> }) {
   const { salon } = await params
-  const ctx = await requireContext(salon)
+  const ctx = await pageContext(salon)
 
   if (ctx.principal.kind !== 'client') {
     return (

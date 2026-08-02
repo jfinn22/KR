@@ -1,4 +1,4 @@
-import { requireContext } from '@/server/auth/context'
+import { pageContext } from '@/server/auth/page'
 import { inspirationPhotos } from '@/server/services/photos'
 import { InspirationBoard } from './inspiration-board'
 
@@ -18,7 +18,7 @@ export default async function InspirationPage({
   params: Promise<{ salon: string; id: string }>
 }) {
   const { salon, id } = await params
-  const ctx = await requireContext(salon)
+  const ctx = await pageContext(salon)
   const photos = await inspirationPhotos(ctx.salonId, id)
 
   return <InspirationBoard salonSlug={salon} consultationId={id} initialPhotos={photos} />

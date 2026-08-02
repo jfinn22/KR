@@ -6,8 +6,7 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { startConsultationAction } from '@/server/actions/consultation'
-import { formatMoney } from '@/components/salon/plan-summary'
-import { formatDuration } from '@/components/salon/slot-picker'
+import { formatDuration, formatMoney } from '@/lib/format'
 
 /**
  * Multi-select service picker.

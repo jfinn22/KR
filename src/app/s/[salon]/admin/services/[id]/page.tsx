@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { authorize, requireContext } from '@/server/auth/context'
+import { pageContextFor } from '@/server/auth/page'
 import { getService } from '@/server/services/catalog'
 import { Button } from '@/components/ui/button'
 import { ServiceEditor } from './service-editor'
@@ -20,8 +20,7 @@ export default async function ServiceEditorPage({
   params: Promise<{ salon: string; id: string }>
 }) {
   const { salon, id } = await params
-  const ctx = await requireContext(salon)
-  authorize(ctx, 'service.manage')
+  const ctx = await pageContextFor(salon, 'service.manage')
 
   const service = await getService(ctx.salonId, id)
 

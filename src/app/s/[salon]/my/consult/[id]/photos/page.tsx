@@ -1,4 +1,4 @@
-import { requireContext } from '@/server/auth/context'
+import { pageContext } from '@/server/auth/page'
 import { loadConsultation } from '@/server/services/consultation'
 import { consultationPhotos } from '@/server/services/photos'
 import { PhotoStep } from './photo-step'
@@ -18,7 +18,7 @@ export default async function PhotosPage({
   params: Promise<{ salon: string; id: string }>
 }) {
   const { salon, id } = await params
-  const ctx = await requireContext(salon)
+  const ctx = await pageContext(salon)
 
   const [view, photos] = await Promise.all([
     loadConsultation(ctx.salonId, id),

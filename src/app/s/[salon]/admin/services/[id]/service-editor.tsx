@@ -3,7 +3,8 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { PhaseEditor, blankPhase, type PhaseDraft } from '@/components/salon/phase-editor'
+import { PhaseEditor } from '@/components/salon/phase-editor'
+import { blankPhase, type PhaseDraft } from '@/domain/scheduling/chain-stats'
 import { savePhasesAction } from '@/server/actions/catalog'
 
 /**

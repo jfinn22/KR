@@ -2,7 +2,7 @@ import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
 import { buildChain, chainDuration } from '@/domain/scheduling/chain'
 import type { EvaluationResult } from '@/domain/consultation/types'
-import { getServices, toChainSpec } from './catalog'
+import { capableStylists, getServices, toChainSpec } from './catalog'
 
 /**
  * Turning an approved consultation into a bookable plan.
@@ -108,9 +108,24 @@ export async function reviewConsultation(
     return { status, servicePlanId: null }
   }
 
-  const stylistId = input.overrides?.stylistProfileId ?? consultation.requestedStylistId
+  /*
+   * A plan is always attached to a stylist, but the client is not required to
+   * have chosen one — "anyone who can do it" is the normal way to book online,
+   * and refusing to approve without a name would block the entire self-serve
+   * path. Where nobody was requested, assign someone capable of every service
+   * in the basket; the booking screen still lets the client widen back out to
+   * anyone, so this is a starting point rather than a commitment.
+   */
+  const stylistId =
+    input.overrides?.stylistProfileId ??
+    consultation.requestedStylistId ??
+    (await assignCapableStylist(input.salonId, consultation.requestedServiceIds))
+
   if (!stylistId) {
-    throw new DomainError('INVALID_INPUT', 'A plan needs a stylist assigned before approval.')
+    throw new DomainError(
+      'CONFLICT',
+      'Nobody on the team is currently set up to do all of these services together.',
+    )
   }
 
   const [services, settings] = await Promise.all([
@@ -350,4 +365,24 @@ export async function sessionBookability(
   }
 
   return { bookable: true, earliestDate: null, reason: null }
+}
+
+/**
+ * Somebody who can do all of it.
+ *
+ * Prefers a stylist who accepts new clients, then falls back to any capable
+ * one — a returning client of a fully-booked colourist should still get a plan
+ * rather than a dead end. Returns null only when nobody on the team is signed
+ * off for every service in the basket, which is a real answer and worth saying
+ * out loud rather than papering over.
+ */
+async function assignCapableStylist(
+  salonId: string,
+  serviceIds: readonly string[],
+): Promise<string | null> {
+  const [openToNew, anyone] = await Promise.all([
+    capableStylists(salonId, serviceIds, { forNewClient: true }),
+    capableStylists(salonId, serviceIds),
+  ])
+  return (openToNew[0] ?? anyone[0])?.id ?? null
 }

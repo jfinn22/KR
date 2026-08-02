@@ -65,6 +65,16 @@ export const startConsultationAction = withAuthz(
       stylistProfileId: cuid.nullish(),
       clientProfileId: cuid.nullish(),
     }),
+    /*
+     * A create has no row to point at yet, so the resource is the client the
+     * consultation will belong to. Without this the policy sees an unowned
+     * resource and — correctly — refuses: a client may only ever act on their
+     * own records, and "no owner" is not their own.
+     */
+    resource: (input, ctx) => ({
+      salonId: ctx.salonId,
+      clientProfileId: actingClientProfileId(ctx, input.clientProfileId),
+    }),
     auditAs: (_input, result) => ({
       entityType: 'Consultation',
       entityId: (result as { consultationId: string }).consultationId,

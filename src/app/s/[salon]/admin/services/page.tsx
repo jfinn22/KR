@@ -1,10 +1,10 @@
 import Link from 'next/link'
-import { authorize, requireContext } from '@/server/auth/context'
+import { pageContextFor } from '@/server/auth/page'
 import { listCatalog } from '@/server/services/catalog'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/feedback'
-import { chainStats, formatMinutes } from '@/components/salon/phase-editor'
-import { formatMoney } from '@/components/salon/plan-summary'
+import { chainStats } from '@/domain/scheduling/chain-stats'
+import { formatMinutes, formatMoney } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,8 +18,7 @@ export const dynamic = 'force-dynamic'
  */
 export default async function ServicesPage({ params }: { params: Promise<{ salon: string }> }) {
   const { salon } = await params
-  const ctx = await requireContext(salon)
-  authorize(ctx, 'service.manage')
+  const ctx = await pageContextFor(salon, 'service.manage')
 
   const categories = await listCatalog(ctx.salonId)
 

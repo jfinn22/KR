@@ -1,13 +1,13 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { requireContext } from '@/server/auth/context'
+import { pageContext } from '@/server/auth/page'
 import { clientHome } from '@/server/services/client-portal'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/feedback'
 import { SectionHeading } from '@/components/ui/data'
-import { formatDayHeading, formatTime } from '@/components/salon/slot-picker'
+import { formatDayHeading, formatTime, localDateIn } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +28,7 @@ const CONSULT_STATUS = {
 
 export default async function ClientHomePage({ params }: { params: Promise<{ salon: string }> }) {
   const { salon } = await params
-  const ctx = await requireContext(salon)
+  const ctx = await pageContext(salon)
 
   // Staff land here too; they belong in the staff workspace, not this page.
   if (ctx.principal.kind !== 'client') {
@@ -64,7 +64,7 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
               <div>
                 <p className="label-caps mb-1">Your next appointment</p>
                 <p className="font-display text-display-md text-ink">
-                  {formatDayHeading(localDateOf(next.startsAt, tz), tz)}
+                  {formatDayHeading(localDateIn(tz, next.startsAt), tz)}
                 </p>
                 <p className="tabular mt-1 text-body text-ink">
                   {formatTime(next.startsAt.toISOString(), tz)} –{' '}
@@ -187,15 +187,6 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
       </section>
     </div>
   )
-}
-
-function localDateOf(date: Date, timeZone: string): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone,
-  }).format(date)
 }
 
 function formatRelative(date: Date): string {

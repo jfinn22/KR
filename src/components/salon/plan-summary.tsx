@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { RiskFlagCard } from '@/components/ui/feedback'
 import type { EvaluationResult, ResolvedRiskFlag } from '@/domain/consultation/types'
+import { formatDuration, formatMoney } from '@/lib/format'
 
 /**
  * What the engine concluded, told to the client.
@@ -176,23 +177,6 @@ const SEVERITY_ORDER = { BLOCKER: 0, HIGH: 1, CAUTION: 2, INFO: 3 } as const
 
 function bySeverity(a: ResolvedRiskFlag, b: ResolvedRiskFlag): number {
   return (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9)
-}
-
-export function formatMoney(cents: number, currency: string): string {
-  return new Intl.NumberFormat('en-GB', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(cents / 100)
-}
-
-export function formatDuration(minutes: number): string {
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  if (hours === 0) return `${mins} min`
-  if (mins === 0) return `${hours} hour${hours === 1 ? '' : 's'}`
-  return `${hours}h ${mins}m`
 }
 
 function formatGap(days: number): string {

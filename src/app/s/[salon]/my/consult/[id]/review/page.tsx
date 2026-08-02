@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { requireContext } from '@/server/auth/context'
+import { pageContext } from '@/server/auth/page'
 import { consultationContext } from '@/server/services/client-portal'
 import { PlanSummary } from '@/components/salon/plan-summary'
 import { Badge } from '@/components/ui/badge'
@@ -26,7 +26,7 @@ export default async function ReviewPage({
   params: Promise<{ salon: string; id: string }>
 }) {
   const { salon, id } = await params
-  const ctx = await requireContext(salon)
+  const ctx = await pageContext(salon)
 
   const { consultation, evaluation, serviceNames, servicePlanId } = await consultationContext(
     ctx.salonId,

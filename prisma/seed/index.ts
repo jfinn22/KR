@@ -37,9 +37,12 @@ const pick = <T>(seed: string, options: readonly T[]): T =>
 async function main() {
   console.log('▸ Seeding Aurora Hair Studio…')
 
-  // Wipe only what this seed owns, so it is safe to re-run.
+  // Wipe only what this seed owns, so it is safe to re-run. Matching on the
+  // domain rather than '@aurora.test' matters: the second salon's owner is
+  // owner@bloom.aurora.test, which the stricter pattern misses — leaving a
+  // user behind that the next run collides with on the unique email.
   await db.salon.deleteMany({ where: { slug: { in: ['aurora', 'bloom', 'solo'] } } })
-  await db.user.deleteMany({ where: { email: { endsWith: '@aurora.test' } } })
+  await db.user.deleteMany({ where: { email: { endsWith: 'aurora.test' } } })
 
   // --- Plans ---------------------------------------------------------------
   const plans = [
@@ -84,6 +87,11 @@ async function main() {
           // and a salon should turn it on deliberately.
           interleaveEnabled: false,
           consultationSlaHours: 24,
+          // On, so the demo shows the complete self-serve loop: a cut consults,
+          // approves and books with nobody in the middle, while anything the
+          // engine flags still waits for a stylist. Both halves matter — a demo
+          // where everything queues for review hides the point of the rules.
+          autoApproveSimple: true,
         },
       },
       subscription: {

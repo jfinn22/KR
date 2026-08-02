@@ -31,6 +31,10 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm format:check
+      # A server component calling a helper exported from a 'use client' module
+      # typechecks, lints and builds, then throws an opaque 500 at render time.
+      # Nothing else in the pipeline catches it.
+      - run: pnpm check:boundary
       # Unit tier covers the domain layer and design tokens — no database, and
       # it must stay fast enough that people actually run it locally.
       - run: pnpm test:unit

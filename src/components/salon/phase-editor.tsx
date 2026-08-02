@@ -5,6 +5,17 @@ import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input, Label, Select } from '@/components/ui/field'
+import {
+  INTERLEAVE_MIN,
+  applyKindDefaults,
+  blankPhase,
+  chainStats,
+  type ChainStats,
+  type PhaseDraft,
+  type PhaseKind,
+  type ResourceType,
+} from '@/domain/scheduling/chain-stats'
+import { formatMinutes } from '@/lib/format'
 
 /**
  * The phase editor.
@@ -18,18 +29,6 @@ import { Input, Label, Select } from '@/components/ui/field'
  * So the editor shows the consequence continuously: total length, how much of
  * it actually holds the stylist, and which gaps are long enough to interleave.
  */
-
-export type PhaseKind = 'ACTIVE' | 'PROCESSING' | 'RINSE' | 'CONSULT'
-export type ResourceType = 'CHAIR' | 'BASIN' | 'PROCESSING_SEAT' | 'ROOM' | 'DRYER'
-
-export interface PhaseDraft {
-  kind: PhaseKind
-  label: string
-  durationMin: number
-  requiresStylist: boolean
-  requiresResourceType: ResourceType | null
-  isScalable: boolean
-}
 
 const KIND_COPY: Record<PhaseKind, { label: string; hint: string }> = {
   ACTIVE: { label: 'Active work', hint: 'Stylist is hands-on' },
@@ -47,9 +46,6 @@ const RESOURCES: { value: ResourceType | ''; label: string }[] = [
   { value: 'DRYER', label: 'Dryer' },
 ]
 
-/** Below this a gap is not worth handing to another client. */
-const INTERLEAVE_MIN = 20
-
 export interface PhaseEditorProps {
   phases: readonly PhaseDraft[]
   onChange: (phases: PhaseDraft[]) => void
@@ -60,7 +56,7 @@ export function PhaseEditor({ phases, onChange, disabled }: PhaseEditorProps) {
   const stats = chainStats(phases)
 
   const update = (index: number, patch: Partial<PhaseDraft>) => {
-    onChange(phases.map((phase, i) => (i === index ? applyPatch(phase, patch) : phase)))
+    onChange(phases.map((phase, i) => (i === index ? applyKindDefaults(phase, patch) : phase)))
   }
 
   const move = (index: number, delta: number) => {
@@ -337,85 +333,4 @@ function Toggle({
       </span>
     </label>
   )
-}
-
-// --- Pure helpers -----------------------------------------------------------
-
-export interface ChainStats {
-  totalMin: number
-  stylistMin: number
-  /** Contiguous non-blocking runs long enough to be worth offering. */
-  interleavableMin: number
-}
-
-export function chainStats(phases: readonly PhaseDraft[]): ChainStats {
-  let totalMin = 0
-  let stylistMin = 0
-  let interleavableMin = 0
-  let run = 0
-
-  for (const phase of phases) {
-    const minutes = Math.max(0, phase.durationMin)
-    totalMin += minutes
-
-    if (phase.requiresStylist) {
-      stylistMin += minutes
-      // A run only counts once it ends — mid-appointment gaps are the ones
-      // another client can actually be slotted into.
-      if (run >= INTERLEAVE_MIN) interleavableMin += run
-      run = 0
-    } else {
-      run += minutes
-    }
-  }
-
-  // A trailing free run still counts: the stylist is released before the end.
-  if (run >= INTERLEAVE_MIN) interleavableMin += run
-
-  return { totalMin, stylistMin, interleavableMin }
-}
-
-export function blankPhase(): PhaseDraft {
-  return {
-    kind: 'ACTIVE',
-    label: '',
-    durationMin: 30,
-    requiresStylist: true,
-    requiresResourceType: 'CHAIR',
-    isScalable: true,
-  }
-}
-
-/**
- * Keep the flags coherent with the kind.
- *
- * Processing that "requires the stylist" is the single most expensive mistake
- * available on this screen — it silently switches off interleaving for every
- * future booking — so switching to PROCESSING sets the sane defaults rather
- * than leaving a stale flag behind.
- */
-function applyPatch(phase: PhaseDraft, patch: Partial<PhaseDraft>): PhaseDraft {
-  const next = { ...phase, ...patch }
-  if (patch.kind && patch.kind !== phase.kind) {
-    if (patch.kind === 'PROCESSING') {
-      next.requiresStylist = false
-      next.isScalable = false
-      next.requiresResourceType = next.requiresResourceType ?? 'PROCESSING_SEAT'
-    } else if (patch.kind === 'RINSE') {
-      next.requiresStylist = true
-      next.requiresResourceType = 'BASIN'
-    } else {
-      next.requiresStylist = true
-    }
-  }
-  return next
-}
-
-export function formatMinutes(minutes: number): string {
-  if (minutes <= 0) return '—'
-  const hours = Math.floor(minutes / 60)
-  const mins = minutes % 60
-  if (hours === 0) return `${mins}m`
-  if (mins === 0) return `${hours}h`
-  return `${hours}h ${mins}m`
 }
