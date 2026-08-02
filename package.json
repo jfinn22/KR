@@ -29,6 +29,7 @@
     "test:contrast": "vitest run --project unit tests/unit/design",
     "verify:adapters": "vitest run --project unit tests/unit/ports",
     "test:e2e": "playwright test",
+    "shots": "tsx scripts/dev/screenshots.ts",
     "verify": "pnpm typecheck && pnpm lint && pnpm check:boundary && pnpm test:unit && pnpm test:integration",
     "check:boundary": "node scripts/check-client-boundary.mjs"
   },

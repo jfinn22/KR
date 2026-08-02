@@ -67,6 +67,18 @@ pnpm build
 
 `pnpm verify` runs everything except e2e.
 
+### Looking at it without clicking through it
+
+```bash
+pnpm build && pnpm start -p 3100   # in one shell
+SHOT_OUT=screenshots pnpm shots    # in another
+```
+
+Signs in as the seeded client and owner and captures every screen — desktop and
+phone — against the production build. Useful for reviewing the product's
+presentation in one pass; three real defects were found this way that no
+assertion had covered.
+
 ---
 
 ## How it is put together

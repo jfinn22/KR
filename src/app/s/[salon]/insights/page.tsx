@@ -176,11 +176,25 @@ export default async function InsightsPage({
           }
         />
 
+        {funnel.photos.needed > 0 && (
+          <p className="mt-3 max-w-prose text-secondary text-ink-muted">
+            {funnel.photos.provided} of {funnel.photos.needed} added photos. They are optional for a
+            cut, so this is not a step people fail — but a chemical consultation without them is an
+            estimate rather than a quote.
+          </p>
+        )}
+
         <ul className="mt-5 flex flex-col gap-2">
           {funnel.steps.map((step) => {
-            const width = funnel.steps[0]?.count
-              ? Math.max(2, (step.count / funnel.steps[0].count) * 100)
-              : 0
+            /*
+             * A zero-count stage draws nothing. The minimum width is there so
+             * a small-but-real number stays visible; applying it to zero draws
+             * a bar for people who do not exist.
+             */
+            const width =
+              step.count > 0 && funnel.steps[0]?.count
+                ? Math.max(2, (step.count / funnel.steps[0].count) * 100)
+                : 0
 
             return (
               <li key={step.key} className="flex items-center gap-4">

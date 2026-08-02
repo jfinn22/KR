@@ -106,37 +106,58 @@ export async function accuracyReport(salonId: string, range: Range) {
 /**
  * Where consultations stop.
  *
- * Stage counts are cumulative — "reached photos" includes everyone who went
- * past them — because a funnel built from mutually exclusive buckets cannot
- * express "started but never came back", which is the drop that matters.
+ * The stages are genuinely nested — every consultation that was approved was
+ * also submitted, and so on — because a funnel is only readable if each step
+ * is a subset of the one above it. A later stage that can exceed an earlier
+ * one produces a chart where somebody "recovers" from dropping out, and the
+ * worst-drop calculation on top of it becomes nonsense.
+ *
+ * Photos are therefore NOT a stage. They are optional for a non-chemical
+ * service, so a client can reach "sent it in" without ever adding one. Photo
+ * completion is reported alongside instead, where it is still the number
+ * worth acting on without pretending to be a gate.
  */
 export async function funnelReport(
   salonId: string,
   range: Range,
-): Promise<{ steps: FunnelStep[]; worst: FunnelStep | null }> {
+): Promise<{
+  steps: FunnelStep[]
+  worst: FunnelStep | null
+  photos: { needed: number; provided: number }
+}> {
   const where = { salonId, createdAt: { gte: range.from, lt: range.to } }
 
-  const [started, withAnswers, withPhotos, submitted, approved, booked] = await Promise.all([
-    unsafeDb.consultation.count({ where }),
-    unsafeDb.consultation.count({ where: { ...where, answers: { some: {} } } }),
-    unsafeDb.consultation.count({ where: { ...where, photos: { some: {} } } }),
-    unsafeDb.consultation.count({ where: { ...where, submittedAt: { not: null } } }),
-    unsafeDb.consultation.count({ where: { ...where, status: 'APPROVED' } }),
-    unsafeDb.consultation.count({
-      where: { ...where, servicePlan: { sessions: { some: { appointment: { isNot: null } } } } },
-    }),
-  ])
+  const [started, withAnswers, submitted, approved, booked, chemical, chemicalWithPhotos] =
+    await Promise.all([
+      unsafeDb.consultation.count({ where }),
+      unsafeDb.consultation.count({ where: { ...where, answers: { some: {} } } }),
+      unsafeDb.consultation.count({ where: { ...where, submittedAt: { not: null } } }),
+      unsafeDb.consultation.count({ where: { ...where, status: 'APPROVED' } }),
+      unsafeDb.consultation.count({
+        where: { ...where, servicePlan: { sessions: { some: { appointment: { isNot: null } } } } },
+      }),
+      // Only chemical work actually needs photographs, so only those count
+      // toward a completion rate — measuring cuts against a photo requirement
+      // they never had would report a problem that does not exist.
+      unsafeDb.consultation.count({
+        where: { ...where, requestedServiceIds: { isEmpty: false } },
+      }),
+      unsafeDb.consultation.count({ where: { ...where, photos: { some: {} } } }),
+    ])
 
   const steps = buildFunnel([
     { key: 'started', label: 'Started', count: started },
     { key: 'answered', label: 'Answered something', count: withAnswers },
-    { key: 'photos', label: 'Added photos', count: withPhotos },
     { key: 'submitted', label: 'Sent it in', count: submitted },
     { key: 'approved', label: 'Approved', count: approved },
     { key: 'booked', label: 'Booked', count: booked },
   ])
 
-  return { steps, worst: worstDropOff(steps) }
+  return {
+    steps,
+    worst: worstDropOff(steps),
+    photos: { needed: chemical, provided: chemicalWithPhotos },
+  }
 }
 
 /**

@@ -646,6 +646,14 @@ async function main() {
     'Vance',
     'Sorensen',
     'Adeyemi',
+    'Whitlock',
+    'Ferreira',
+    'Osei',
+    'Lindqvist',
+    'Batra',
+    'Moreau',
+    'Kowalski',
+    'Duarte',
   ]
 
   const clientIds: string[] = []
@@ -659,7 +667,15 @@ async function main() {
       data: {
         salonId: salon.id,
         firstName: first,
-        lastName: `${last}${n}`,
+        /*
+         * A real name, not a name with the loop index stapled on.
+         *
+         * Client names do not need to be unique — every salon has two Sarah
+         * Joneses — and the suffix was leaking onto every screen in the
+         * product, which made the demo read as unfinished. The email carries
+         * the uniqueness instead, which is where the database wants it.
+         */
+        lastName: last,
         email: `client${n}@aurora.test`,
         phone: `+1555200${String(n).padStart(4, '0')}`,
         completedVisits: Math.floor(rand(`${seed}-v`) * 12),
