@@ -66,8 +66,13 @@ jobs:
       - run: pnpm exec prisma migrate deploy
       - run: pnpm test:integration
 
+  # The end-to-end job is wired and correct but has nothing to run yet: the
+  # demo seed (W17) and the Playwright specs do not exist. It is gated off
+  # rather than deleted so it switches on with a one-line change once they land.
+  # See docs/STATUS.md.
   e2e:
     name: End-to-end
+    if: false
     runs-on: ubuntu-latest
     services:
       postgres:

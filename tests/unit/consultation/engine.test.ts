@@ -2,15 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { evaluate, rulesetHash } from '@/domain/consultation/engine'
 import { getRuleset, DEFAULT_RULESET_VERSION } from '@/domain/consultation/registry'
 import type { ConsultationFacts, Level } from '@/domain/consultation/facts'
-import {
-  BALAYAGE,
-  DRY_CUT,
-  ROOT_TOUCH_UP,
-  TAPE_EXTENSIONS,
-  TODAY,
-  baseFacts,
-  chem,
-} from './fixtures'
+import { BALAYAGE, ROOT_TOUCH_UP, TAPE_EXTENSIONS, TODAY, baseFacts, chem } from './fixtures'
 
 const ruleset = getRuleset(DEFAULT_RULESET_VERSION)
 const run = (facts: ConsultationFacts) => evaluate({ facts, ruleset, today: TODAY })
