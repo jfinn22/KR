@@ -239,8 +239,6 @@ export function normalizeFacts(input: NormalizeInput): ConsultationFacts {
     (view) => !input.photos.providedViews.includes(view),
   )
 
-  const bleachEntry = history.find((h) => h.kind === 'BLEACH')
-
   return {
     factsVersion: 1,
     clientRef: input.client.ref,
