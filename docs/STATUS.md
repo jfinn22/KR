@@ -1,7 +1,8 @@
 # Build status
 
-An honest account of what exists and what does not. The plan is 17
-workstreams; this records where the line sits.
+An honest account of what exists and what does not. All 18 workstreams are
+built; this records what that means in practice and what a salon would still
+want before running on it.
 
 ## CI
 
@@ -13,11 +14,13 @@ All three jobs green:
 | `integration` | migrations + tenant isolation + booking race, against real Postgres |
 | `e2e`         | seed + Playwright against a production build on mock adapters       |
 
-The e2e job was previously gated `if: false` because it had nothing to run, and
-`verify:adapters` pointed at a directory that did not exist. Both are fixed by
-the workstreams below rather than by weakening the checks.
+`static` also runs `check:boundary`, which fails the build if a server
+component imports a plain helper from a `'use client'` module. That mistake
+typechecks, lints and builds, then throws an opaque 500 with a digest and no
+stack at render time — nothing else in the pipeline catches it, and it cost
+real debugging time before the check existed.
 
-Counts: **296 unit**, **36 integration**, **14 end-to-end**.
+Counts: **419 unit**, **83 integration**, **48 end-to-end**.
 
 ---
 
@@ -50,32 +53,47 @@ Every account uses password `salon1234`:
 
 ---
 
-## Not built
+## What each workstream ended up being
 
-The schema, permission actions, plan features and domain logic for these exist.
-What is missing is the **user interface** and the services that sit behind it.
+| Workstream            | What it covers                                                                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **W4** Catalog        | `catalog.ts` as the single mapping from a stored service to the scheduler's chain spec and the engine's fact spec; the phase editor, which shows what each chain frees up      |
+| **W7** Client portal  | Guided consultation (one section per screen, client-side branching, autosave), photo capture scaled to the basket, inspiration tagging, plan review, slot picker, booking      |
+| **W8** Stylist review | Queue ordered by urgency rather than arrival; review screen with the stylist-facing detail; flag acknowledge/resolve/override with a mandatory reason; decision with overrides |
+| **W9** Front desk     | The day grouped by what needs doing, with "running late" computed rather than stored; client search; the diary drawing processing gaps as free time; the till                  |
+| **W10** Commerce      | Deposits, invoices, payments, refunds and cancellation fees — all money math pure and in one place, all policies snapshotted, all provider calls idempotent                    |
+| **W11** Compliance    | Patch tests with a 48-hour read gate, forms hashed at signing and verifiable afterwards, dated consent grants, export, and erasure that keeps the books                        |
+| **W13** AI            | Eight call sites, all advisory, all redacted, all recorded, none used until a named person accepts them; photo analysis behind a second opt-in                                 |
+| **W14** Day-of        | A state machine over four separate timestamps, because chair time is the only honest input to calibration                                                                      |
+| **W15** Analytics     | Quote accuracy first, per stylist; funnel that names the biggest drop; utilisation against days actually worked; which rules people override                                   |
+| **W16** Integrations  | Per-stylist subscribable calendar feed (hashed token, shown once, initials only), two-way sync and webhooks off the job queue                                                  |
 
-| Workstream           | State                                                                                                                      |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| W4 Service catalog   | Schema, phase chains and modifiers exist and are used by the solver. No admin UI.                                          |
-| W7 Client portal     | Not built. The consultation engine, availability solver and booking transaction it would call are all complete and tested. |
-| W8 Stylist dashboard | Not built. Review/approve logic is expressible today via `withAuthz` + `evaluate()`.                                       |
-| W9 Front desk        | Not built. Holds, waitlist matching and cancellation are implemented server-side.                                          |
-| W10 Commerce         | Payments port, deposits and the schema exist. Invoicing, refunds and subscription billing services are not written.        |
-| W11 Compliance       | Schema, form placeholders and the e-sign port exist. Signing flows are not built.                                          |
-| W13 AI layer         | Port, prompts, mock and Anthropic adapters exist. The eight call sites are not wired to services.                          |
-| W14 Day-of workflow  | `checkInToken` and the schema exist. Check-in and in-chair screens are not built.                                          |
-| W15 Owner analytics  | Calibration is implemented and tested. Dashboards are not built.                                                           |
-| W16 Integrations     | Calendar port and ICS builder exist. OAuth flows and export are not built.                                                 |
+---
 
-### Suggested order to continue
+## What a salon would still want
 
-1. **W4 catalog UI** — the phase editor is where a salon declares that balayage
-   is 90 active / 40 processing / 45 active, which everything downstream reads.
-2. **W7 client portal** then **W8 review workspace** — closes the
-   consult → approve → book loop end to end, at which point the product is
-   demonstrable to a salon.
-3. Everything after that is conventional salon software.
+Everything below is real work that was out of scope rather than half-finished.
+Nothing here is a stub pretending to be a feature.
 
-The differentiated core — the rules engine and the availability solver — is
-done, tested, and proven against a real database.
+| Area                      | State                                                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| OAuth flows               | The calendar port and connection model are built and the feed works. Actually authorising a Google account needs the consent screen dance. |
+| Subscription billing      | The plan catalogue, feature gates and Stripe adapter exist. Nobody charges the salon yet.                                                  |
+| Loyalty, packages, retail | Schema and relations exist and are enforced. No services or screens.                                                                       |
+| Messaging inbox           | Threads, templates and the send path work. There is no two-way conversation view.                                                          |
+| Waitlist offers           | Matching runs as a job. Offering a freed slot to a client is not surfaced.                                                                 |
+| Legal copy                | Every shipped form is marked `isLegalPlaceholder` and the UI says so. They need an actual lawyer.                                          |
+
+## Known limits worth stating
+
+- **RLS is inert in development and CI.** Postgres superusers bypass row-level
+  security, and the local and CI databases both connect as one. The policies
+  are real and applied; they simply cannot be proven by the test suite as it
+  stands. The tenancy tests exercise the application layer, which is what
+  actually runs in production too.
+- **Utilisation is approximate.** It divides chair time by days each stylist
+  had any segment at all, at eight hours a day. The exact answer needs working
+  hours minus time off, which is a heavier query than the screen justifies.
+- **Photo quality is mechanical.** Resolution and compression, from the file
+  header. Whether the lighting is any good is the AI port's job, and it is off
+  by default.

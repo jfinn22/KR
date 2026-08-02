@@ -23,26 +23,49 @@ pnpm install
 pnpm db:up                  # starts the local PostgreSQL 16 cluster, creates the databases
 cp .env.example .env        # mock adapters, no credentials needed
 pnpm exec prisma migrate deploy
+pnpm seed                   # Aurora Hair Studio, with a live day and a review queue
 pnpm dev                    # http://localhost:3000
 ```
 
-Useful routes while developing:
+Sign in at `/login` — every seeded account uses password `salon1234`.
 
-| Route            | What it is                                   |
-| ---------------- | -------------------------------------------- |
-| `/`              | Marketing landing page                       |
-| `/design-system` | Living reference for the salon design system |
-| `/login`         | Sign in                                      |
+**As `client@aurora.test`:**
+
+| Route                      | What it is                                                |
+| -------------------------- | --------------------------------------------------------- |
+| `/s/aurora/my`             | Next appointment, plans ready to book, open consultations |
+| `/s/aurora/my/consult/new` | Pick services and start a consultation                    |
+| `/s/aurora/my/timeline`    | Every chemical event on their hair, in order              |
+
+A cut consults, auto-approves and books with nobody in the middle. A balayage
+with box dye and a level-9 goal raises flags, plans two visits, and waits for
+a stylist — which is the whole product in two journeys.
+
+**As `owner@aurora.test`:**
+
+| Route                          | What it is                                                      |
+| ------------------------------ | --------------------------------------------------------------- |
+| `/s/aurora/desk`               | Today, grouped by what needs doing. Running late comes first    |
+| `/s/aurora/desk/calendar`      | The diary by stylist, with processing gaps drawn in gold        |
+| `/s/aurora/review`             | Consultations to review, ordered by urgency rather than arrival |
+| `/s/aurora/insights`           | Whether the quotes were true, per stylist                       |
+| `/s/aurora/admin/services`     | The phase editor — where a service's real shape is declared     |
+| `/s/aurora/admin/integrations` | Calendar feeds and connected accounts                           |
+| `/design-system`               | Living reference for the salon design system                    |
 
 ### Checks
 
 ```bash
 pnpm typecheck
 pnpm lint
+pnpm check:boundary     # server components must not call client-module helpers
 pnpm test:unit          # domain logic + design tokens. No database.
-pnpm test:integration   # repositories, tenant isolation, booking races.
+pnpm test:integration   # repositories, tenant isolation, booking races, money.
+pnpm test:e2e           # Playwright against a production build on mock adapters
 pnpm build
 ```
+
+`pnpm verify` runs everything except e2e.
 
 ---
 
