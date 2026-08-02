@@ -10,6 +10,7 @@ import {
   submitConsultation,
 } from '@/server/services/consultation'
 import { maybeAutoApprove } from '@/server/services/service-plan'
+import { removeConsultationPhoto, tagInspiration } from '@/server/services/photos'
 import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
@@ -137,6 +138,64 @@ export const loadConsultationAction = withAuthz(
  * not on a "we will get back to you" screen that a stylist has to clear by
  * hand. Anything flagged still waits for a person.
  */
+/**
+ * Say what you like about a reference photo.
+ *
+ * "I like this" is not a brief. Without attributes the stylist is guessing
+ * whether the client means the tone, the brightness or the cut — and guessing
+ * wrong is what produces a client unhappy with technically correct work.
+ */
+export const tagInspirationAction = withAuthz(
+  {
+    action: 'consultation.create',
+    schema: z.object({
+      consultationId: cuid,
+      inspirationPhotoId: cuid,
+      attributes: z
+        .array(
+          z.object({
+            key: z.enum([
+              'TARGET_LEVEL',
+              'TARGET_TONE',
+              'TECHNIQUE',
+              'ROOT_SHADOW',
+              'CONTRAST',
+              'DIMENSION',
+              'BRIGHTNESS',
+              'CURLS',
+            ]),
+            value: z.string().min(1).max(120),
+          }),
+        )
+        .max(12),
+    }),
+    resource: (input, ctx) => consultationResource(input.consultationId, ctx),
+  },
+  async (input, ctx) => {
+    await tagInspiration({
+      salonId: ctx.salonId,
+      inspirationPhotoId: input.inspirationPhotoId,
+      attributes: input.attributes,
+      source: ctx.principal.kind === 'client' ? 'CLIENT' : 'STYLIST',
+      acceptedByUserId: ctx.principal.kind === 'system' ? null : ctx.principal.userId,
+    })
+    return { tagged: true }
+  },
+)
+
+/** Remove a photo a client no longer wants attached. */
+export const removePhotoAction = withAuthz(
+  {
+    action: 'consultation.create',
+    schema: z.object({ consultationId: cuid, consultationPhotoId: cuid }),
+    resource: (input, ctx) => consultationResource(input.consultationId, ctx),
+  },
+  async (input, ctx) => {
+    await removeConsultationPhoto(ctx.salonId, input.consultationPhotoId)
+    return { removed: true }
+  },
+)
+
 export const submitConsultationAction = withAuthz(
   {
     action: 'consultation.submit',

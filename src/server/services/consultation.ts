@@ -20,9 +20,30 @@ import type { ServiceFactSpec } from '@/domain/consultation/facts'
  * attached to exactly the inputs and outputs they saw.
  */
 
+export interface ConsultationQuestionView {
+  key: string
+  section: string
+  sortOrder: number
+  isRequired: boolean
+  visibleWhenJson: unknown
+  prompt: string
+  helpText: string | null
+  inputType: string
+  optionsJson: unknown
+}
+
 export interface ConsultationView {
   id: string
   status: string
+  /**
+   * The full question set, including ones currently hidden by a condition.
+   *
+   * The guided flow re-derives visibility as the client answers, so it needs
+   * every question rather than the subset visible at page load — otherwise
+   * ticking "yes, box dye" would require a round trip before the follow-up
+   * could appear.
+   */
+  questions: ConsultationQuestionView[]
   steps: ReturnType<typeof buildSteps>
   answers: Record<string, unknown>
   completion: number
@@ -163,7 +184,7 @@ export async function loadConsultation(
   const answers: Record<string, unknown> = {}
   for (const answer of consultation.answers) answers[answer.questionKey] = answer.valueJson
 
-  const questions = consultation.template.questions.map((q) => ({
+  const questions: ConsultationQuestionView[] = consultation.template.questions.map((q) => ({
     key: q.key,
     section: q.section,
     sortOrder: q.sortOrder,
@@ -197,6 +218,7 @@ export async function loadConsultation(
   return {
     id: consultation.id,
     status: consultation.status,
+    questions,
     steps: buildSteps(questions, answers),
     answers,
     completion: completionRatio(questions, answers),
