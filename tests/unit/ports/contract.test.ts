@@ -5,7 +5,13 @@ import { InMemoryMessageSink, AdapterError, AdapterNotConfiguredError, mockId } 
 import { MockSmsAdapter, TwilioSmsAdapter, countSegments } from '@/ports/sms'
 import { MockEmailAdapter, ResendEmailAdapter, htmlToText } from '@/ports/email'
 import { MockPaymentsAdapter, StripePaymentsAdapter } from '@/ports/payments'
-import { MockStorageAdapter, S3StorageAdapter, stripJpegMetadata } from '@/ports/storage'
+import {
+  MockStorageAdapter,
+  S3StorageAdapter,
+  localSignature,
+  stripJpegMetadata,
+  verifyLocalSignature,
+} from '@/ports/storage'
 import { MockAiAdapter, DisabledAiAdapter, AnthropicAiAdapter, assertRedacted } from '@/ports/ai'
 import { MockCalendarAdapter, GoogleCalendarAdapter, buildIcsFeed } from '@/ports/calendar'
 import { LocalEsignAdapter, hashDocument } from '@/ports/esign'
@@ -293,6 +299,56 @@ describe('storage port', () => {
     const url = await storage.signedUrl('test/c.jpg', 60)
     expect(url).toMatch(/expires=\d+/)
     expect(url).toMatch(/sig=[a-f0-9]{32}/)
+  })
+
+  /*
+   * The route that serves these is the only thing standing between a signed URL
+   * and somebody else's client photographs, so the verifier gets the same
+   * scrutiny as the signer.
+   */
+  describe('signed URL verification', () => {
+    const key = 'salons/s1/clients/c1/photo'
+    const soon = 2_000_000_000
+
+    it('accepts a signature it just produced', () => {
+      expect(verifyLocalSignature(key, String(soon), localSignature(key, soon), soon - 10)).toBe(
+        true,
+      )
+    })
+
+    it('rejects an expired URL even though the signature is genuine', () => {
+      expect(verifyLocalSignature(key, String(soon), localSignature(key, soon), soon + 1)).toBe(
+        false,
+      )
+    })
+
+    // Without this, a valid signature for one photo would open every photo.
+    it('rejects a signature issued for a different key', () => {
+      expect(
+        verifyLocalSignature(key, String(soon), localSignature('other/key', soon), soon - 10),
+      ).toBe(false)
+    })
+
+    it('rejects a tampered expiry', () => {
+      expect(
+        verifyLocalSignature(key, String(soon + 99_999), localSignature(key, soon), soon - 10),
+      ).toBe(false)
+    })
+
+    it('rejects missing, empty, truncated and over-long signatures', () => {
+      const good = localSignature(key, soon)
+      for (const sig of [null, '', good.slice(0, 31), `${good}a`]) {
+        expect(verifyLocalSignature(key, String(soon), sig, soon - 10), String(sig)).toBe(false)
+      }
+      expect(verifyLocalSignature(key, null, good, soon - 10)).toBe(false)
+    })
+
+    it('rejects a non-numeric expiry rather than coercing it', () => {
+      const good = localSignature(key, soon)
+      for (const expires of ['not-a-number', 'Infinity', '1e999', '']) {
+        expect(verifyLocalSignature(key, expires, good, soon - 10), expires).toBe(false)
+      }
+    })
   })
 
   it('the real adapter refuses to run without credentials', async () => {

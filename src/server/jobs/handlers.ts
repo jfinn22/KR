@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { unsafeDb } from '@/server/db/client'
-import { emailPort, smsPort } from '@/ports/registry'
+import { emailPort, smsPort, storagePort } from '@/ports/registry'
+import { assessPhoto } from '@/domain/hair/photo-quality'
 import { installOutboxSink } from '@/server/outbox-sink'
 import { enqueue } from './queue'
 
@@ -311,6 +312,45 @@ const expireStale = define({
 })
 
 /**
+ * Score an uploaded photo.
+ *
+ * Off the request path deliberately: a client should never wait behind image
+ * analysis to see their next question, and the estimate is usable without a
+ * score. The result feeds the rules engine's DATA_QUALITY flag, which is what
+ * turns "this photo is too small to judge tone" into a specific ask rather
+ * than a vague apology at the end.
+ */
+const photoAssess = define({
+  schema: z.object({ consultationPhotoId: z.string() }),
+  timeoutMs: 30_000,
+  maxAttempts: 3,
+  handler: async ({ consultationPhotoId }) => {
+    const photo = await unsafeDb.consultationPhoto.findUnique({
+      where: { id: consultationPhotoId },
+      include: { photoAsset: { select: { storageKey: true } } },
+    })
+    if (!photo) return
+
+    const bytes = await storagePort().get(photo.photoAsset.storageKey)
+    if (!bytes) return
+
+    const quality = assessPhoto(bytes)
+
+    await unsafeDb.consultationPhoto.update({
+      where: { id: photo.id },
+      data: { qualityScore: quality.score, qualityIssues: [...quality.issues] },
+    })
+
+    if (quality.dimensions) {
+      await unsafeDb.photoAsset.update({
+        where: { id: photo.photoAssetId },
+        data: { width: quality.dimensions.width, height: quality.dimensions.height },
+      })
+    }
+  },
+})
+
+/**
  * Capture estimated-versus-actual once an appointment is done.
  *
  * Uses CHAIR time rather than booked time. Booked time expands to fill the slot,
@@ -439,6 +479,7 @@ export const JOB_REGISTRY: Record<string, AnyJobDefinition> = {
   'waitlist.match': waitlistMatch,
   'consultation.stale.nudge': consultationStaleNudge,
   'expire.stale': expireStale,
+  'photo.assess': photoAssess,
   'quoteaccuracy.capture': quoteAccuracyCapture,
   'calibration.recompute': calibrationRecompute,
   'system.reap': systemReap,

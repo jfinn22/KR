@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto'
+import { createHash, timingSafeEqual } from 'node:crypto'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -111,6 +111,35 @@ function applyStrip(input: PutObjectInput): { body: Buffer; stripped: boolean } 
 
 // ---------------------------------------------------------------------------
 
+/**
+ * The signature the local adapter puts on a URL, and the only way to check one.
+ *
+ * Signing and verifying live together on purpose: a route that re-derived the
+ * scheme by hand would be free to drift from it, and a drifted verifier that
+ * still returns 200 is indistinguishable from a working one until the day it
+ * serves somebody else's client photos.
+ */
+export function localSignature(key: string, expiresAtEpochSeconds: number): string {
+  return createHash('sha256').update(`${key}:${expiresAtEpochSeconds}`).digest('hex').slice(0, 32)
+}
+
+export function verifyLocalSignature(
+  key: string,
+  expires: string | null,
+  signature: string | null,
+  nowEpochSeconds = Math.floor(Date.now() / 1000),
+): boolean {
+  if (!expires || !signature) return false
+  const expiresAt = Number(expires)
+  if (!Number.isSafeInteger(expiresAt) || expiresAt < nowEpochSeconds) return false
+
+  const expected = Buffer.from(localSignature(key, expiresAt))
+  const given = Buffer.from(signature)
+  // Constant-time: a length check first, because timingSafeEqual throws on a
+  // mismatch and that throw would itself be a timing signal.
+  return expected.length === given.length && timingSafeEqual(expected, given)
+}
+
 export class MockStorageAdapter implements StoragePort {
   readonly name = 'storage:mock'
 
@@ -157,8 +186,7 @@ export class MockStorageAdapter implements StoragePort {
     // Mirrors the shape of a real signed URL so callers cannot come to depend
     // on a permanent path that would break when they switch to S3.
     const expires = Math.floor(Date.now() / 1000) + expiresInSeconds
-    const sig = createHash('sha256').update(`${key}:${expires}`).digest('hex').slice(0, 32)
-    return `/api/uploads/${encodeURIComponent(key)}?expires=${expires}&sig=${sig}`
+    return `/api/uploads/${encodeURIComponent(key)}?expires=${expires}&sig=${localSignature(key, expires)}`
   }
 
   async delete(key: string): Promise<void> {
