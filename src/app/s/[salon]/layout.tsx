@@ -48,7 +48,7 @@ export default async function SalonLayout({
   const nav = isStaff ? STAFF_NAV.filter((item) => permitted(ctx, item.action)) : CLIENT_NAV
 
   return (
-    <div className="flex min-h-screen flex-col bg-surface">
+    <div className="app-wash flex min-h-screen flex-col">
       {/* The gilt edge: one hairline of gold across the top of every screen. */}
       <div aria-hidden="true" className="edge-gilt" />
 

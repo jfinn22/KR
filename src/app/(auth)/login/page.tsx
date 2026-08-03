@@ -31,7 +31,7 @@ export default async function LoginPage({
   const { error, next = '/' } = await searchParams
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-surface px-6 py-16">
+    <main className="app-wash flex min-h-screen items-center justify-center px-6 py-16">
       <div className="w-full max-w-md">
         <div className="mb-8 text-center">
           <Link href="/" className="font-display text-display-md text-ink">

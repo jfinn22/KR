@@ -63,8 +63,8 @@ export default async function InsightsPage({
               className={cn(
                 'rounded-md px-3 py-2 text-secondary transition-colors',
                 days === range.days
-                  ? 'bg-blue-900 text-ink-inverse'
-                  : 'text-ink-muted hover:bg-surface-alt hover:text-ink',
+                  ? 'bg-blue-500 text-ink-inverse shadow-raised'
+                  : 'text-ink-muted hover:bg-blue-50 hover:text-blue-700',
               )}
             >
               {range.label}

@@ -35,11 +35,14 @@
 
     /* --- Blue: structure and action. Nav, primary buttons, links.
            Lighter and cleaner than a corporate navy — a button has to look
-           tappable across a salon, and near-black blue reads as disabled. Every
-           rung here still carries white text at AA or better. --- */
+           tappable across a salon, and near-black blue reads as disabled. The
+           lit rung (500) is the ONLY fill an interactive element wears; 900 is
+           for text on light blue, never a button. Every filled rung carries
+           white text at AA — asserted by the palette test, so "make it pop"
+           cannot walk it below contrast. --- */
     --blue-900: 19 52 88; /* #133458 */
     --blue-700: 26 85 141; /* #1A558D */
-    --blue-500: 42 110 176; /* #2A6EB0 */
+    --blue-500: 46 115 181; /* #2E73B5 */
     --blue-300: 133 179 219; /* #85B3DB */
     --blue-100: 226 238 250; /* #E2EEFA */
     --blue-50: 242 248 254; /* #F2F8FE */
@@ -219,6 +222,24 @@
       radial-gradient(80rem 32rem at 12% -10%, rgb(var(--blue-100) / 0.9), transparent 60%),
       radial-gradient(60rem 28rem at 92% 0%, rgb(var(--gold-100)), transparent 62%),
       radial-gradient(48rem 26rem at 60% 110%, rgb(var(--rose-100) / 0.8), transparent 60%);
+  }
+
+  /*
+   * The app's own backdrop: the brand colours as weather, not wallpaper.
+   *
+   * Blue rolls in from the top left, gold from the top right, rose rises from
+   * the bottom — the same corners on every screen, so it reads as one place
+   * rather than a different decoration per page. Fixed attachment keeps the
+   * colour on screen however long the page is; every card sits on white, so
+   * content contrast is untouched and the wash never sits behind body text.
+   */
+  .app-wash {
+    background-color: rgb(var(--surface));
+    background-image:
+      radial-gradient(100rem 48rem at 0% -10%, rgb(var(--blue-100) / 0.95), transparent 58%),
+      radial-gradient(75rem 40rem at 100% -5%, rgb(var(--gold-100)), transparent 55%),
+      radial-gradient(90rem 48rem at 50% 115%, rgb(var(--rose-100) / 0.9), transparent 60%);
+    background-attachment: fixed;
   }
 
   /*

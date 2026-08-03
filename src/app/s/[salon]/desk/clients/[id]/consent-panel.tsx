@@ -102,7 +102,7 @@ export function ConsentPanel({
                 className={cn(
                   'h-8 w-14 shrink-0 rounded-pill border transition-colors',
                   on.has(consent.kind)
-                    ? 'border-blue-900 bg-blue-900'
+                    ? 'border-blue-500 bg-blue-500'
                     : 'border-line-strong bg-surface-alt',
                   busy === consent.kind && 'opacity-50',
                 )}

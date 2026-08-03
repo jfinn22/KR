@@ -90,8 +90,8 @@ export function SlotPicker({
                   className={cn(
                     'group flex min-w-32 flex-col items-start gap-0.5 rounded-lg border px-4 py-3 text-left transition-colors',
                     isSelected
-                      ? 'border-blue-900 bg-blue-900 text-ink-inverse'
-                      : 'border-line bg-canvas text-ink hover:border-line-strong hover:bg-surface-alt',
+                      ? 'border-blue-500 bg-blue-500 text-ink-inverse shadow-raised'
+                      : 'border-blue-300/50 bg-canvas text-ink hover:border-blue-500 hover:bg-blue-50',
                     busy && 'pointer-events-none opacity-50',
                   )}
                 >

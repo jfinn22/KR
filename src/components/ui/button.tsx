@@ -13,8 +13,8 @@ import { cn } from '@/lib/utils'
  *
  *  - Primary is a lit blue with white text, carrying a soft shadow so it stands
  *    off the card rather than sitting flush in it.
- *  - Secondary is bordered in blue rather than grey, with blue text — clearly a
- *    button, clearly the quieter of the two.
+ *  - Secondary is a light-blue fill with deep blue text — unmistakably a
+ *    button, clearly the quieter of the two, and never white-on-white.
  *  - Gold is a solid fill with black type. It is the most visible thing on any
  *    screen it appears on, so it is reserved for the one moment that matters:
  *    booking, paying, approving.
@@ -31,7 +31,7 @@ const buttonVariants = cva(
         primary:
           'bg-blue-500 text-ink-inverse shadow-raised hover:bg-blue-700 hover:shadow-overlay active:bg-blue-900',
         secondary:
-          'border-2 border-blue-500/35 bg-canvas text-blue-700 hover:border-blue-500 hover:bg-blue-50',
+          'border border-blue-300/60 bg-blue-100 text-blue-900 hover:border-blue-500/60 hover:bg-blue-300/40',
         gold: 'bg-gold-500 text-ink shadow-raised hover:bg-gold-300 hover:shadow-overlay',
         ghost: 'text-blue-700 hover:bg-blue-50',
         link: 'text-blue-500 underline-offset-4 hover:underline',

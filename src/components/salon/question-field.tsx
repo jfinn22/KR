@@ -256,8 +256,8 @@ function YesNo({
           className={cn(
             'h-12 min-w-28 flex-1 rounded-lg border text-body font-medium transition-colors sm:flex-none',
             current === option.v
-              ? 'border-blue-900 bg-blue-900 text-ink-inverse'
-              : 'border-line bg-canvas text-ink hover:border-line-strong hover:bg-surface-alt',
+              ? 'border-blue-500 bg-blue-500 text-ink-inverse shadow-raised'
+              : 'border-blue-300/50 bg-canvas text-ink hover:border-blue-500 hover:bg-blue-50',
             disabled && 'pointer-events-none opacity-45',
           )}
         >
@@ -501,8 +501,8 @@ function Scale({
             className={cn(
               'tabular h-12 flex-1 rounded-lg border text-body font-medium transition-colors',
               current === n
-                ? 'border-blue-900 bg-blue-900 text-ink-inverse'
-                : 'border-line bg-canvas text-ink hover:bg-surface-alt',
+                ? 'border-blue-500 bg-blue-500 text-ink-inverse shadow-raised'
+                : 'border-blue-300/50 bg-canvas text-ink hover:border-blue-500 hover:bg-blue-50',
               disabled && 'pointer-events-none opacity-45',
             )}
           >

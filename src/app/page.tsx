@@ -24,8 +24,8 @@ const DIFFERENTIATORS = [
 
 export default function LandingPage() {
   return (
-    <main>
-      <header className="border-b border-line">
+    <main className="app-wash">
+      <header className="border-b border-line bg-canvas">
         <nav className="mx-auto flex max-w-shell items-center justify-between px-6 py-5 lg:px-10">
           <span className="font-display text-display-sm text-ink">Salon Intelligence</span>
           <div className="flex items-center gap-3">

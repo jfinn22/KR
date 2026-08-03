@@ -242,8 +242,8 @@ export function Till({
                 className={cn(
                   'h-11 min-w-24 rounded-lg border px-4 text-secondary font-medium transition-colors',
                   method === entry.key
-                    ? 'border-blue-900 bg-blue-900 text-ink-inverse'
-                    : 'border-line bg-canvas text-ink hover:bg-surface-alt',
+                    ? 'border-blue-500 bg-blue-500 text-ink-inverse shadow-raised'
+                    : 'border-blue-300/50 bg-canvas text-ink hover:border-blue-500 hover:bg-blue-50',
                 )}
               >
                 {entry.label}
