@@ -120,6 +120,13 @@ const MATRIX: Record<Action, RoleRow> = {
   'timeOff.approve': row(A, A, N, N, N),
 
   // Catalog & configuration
+  /*
+   * How the salon itself is configured — interleaving, branding, and the
+   * settings the later phases add. Manager-and-above, like every other
+   * `.manage`: front desk moves the day around, it does not change the rules
+   * the day is scheduled by.
+   */
+  'settings.manage': row(A, A, N, N, N),
   'service.manage': row(A, A, N, N, N),
   'consultTemplate.manage': row(A, A, N, N, N),
   'ruleset.configure': row(AR, AR, N, N, N),

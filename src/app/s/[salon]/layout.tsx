@@ -7,6 +7,7 @@ import {
   requireContext,
 } from '@/server/auth/context'
 import type { Action } from '@/domain/authz/actions'
+import { brandingForSlug } from '@/server/services/branding'
 
 /**
  * Salon shell.
@@ -47,15 +48,36 @@ export default async function SalonLayout({
    */
   const nav = isStaff ? STAFF_NAV.filter((item) => permitted(ctx, item.action)) : CLIENT_NAV
 
+  /*
+   * The salon's own accent, as inline custom properties on the shell.
+   *
+   * Every blue in the theme resolves through `rgb(var(--blue-500) / <alpha>)`,
+   * so overriding the variables re-skins buttons, links, focus rings and
+   * washes at once — no component knows this happened. Gold and rose are
+   * deliberately untouched: their meaning (money, and the hair itself) is the
+   * same at every salon and is not the salon's to change.
+   */
+  const branding = await brandingForSlug(salon)
+  const brandStyle = branding?.cssVariables ?? {}
+
   return (
-    <div className="app-wash flex min-h-screen flex-col">
+    <div className="app-wash flex min-h-screen flex-col" style={brandStyle as React.CSSProperties}>
       {/* The gilt edge: one hairline of gold across the top of every screen. */}
       <div aria-hidden="true" className="edge-gilt" />
 
       <header className="border-b border-line bg-canvas">
         <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-6 px-5">
           <Link href={`/s/${salon}/my`} className="flex items-baseline gap-2.5">
-            <span className="font-display text-display-sm text-ink">{ctx.salonName}</span>
+            {branding?.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={branding.logoUrl}
+                alt={ctx.salonName}
+                className="max-h-8 w-auto self-center object-contain"
+              />
+            ) : (
+              <span className="font-display text-display-sm text-ink">{ctx.salonName}</span>
+            )}
             <span aria-hidden="true" className="h-4 w-px bg-gold-500" />
             <span className="label-caps hidden sm:inline">
               {isStaff ? 'Salon' : 'Your account'}
@@ -103,4 +125,5 @@ const STAFF_NAV: { href: string; label: string; action: Action }[] = [
   { href: '/admin/services', label: 'Services', action: 'service.manage' },
   { href: '/insights', label: 'Insights', action: 'report.viewSalon' },
   { href: '/admin/integrations', label: 'Integrations', action: 'integration.manage' },
+  { href: '/admin/settings', label: 'Settings', action: 'settings.manage' },
 ]

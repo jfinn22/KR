@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { AA_LARGE, AA_NORMAL, AA_UI, contrastRatio, type Rgb } from '@/domain/branding/contrast'
 
 /**
  * The palette is a product decision, so it gets a test.
@@ -8,11 +9,14 @@ import { resolve } from 'node:path'
  * This parses the real tokens out of globals.css — not a duplicated copy — and
  * asserts WCAG AA contrast on every pair the design system actually uses. If
  * someone nudges a blue or a gold to "look nicer", this fails before it ships.
+ *
+ * `contrastRatio` is imported rather than defined here on purpose. A salon can
+ * now supply its own accent at runtime, which this file cannot see — it reads a
+ * shipped CSS file. Sharing one implementation with `deriveAccentLadder` is
+ * what keeps the two halves of the guarantee honest about the same arithmetic.
  */
 
 const CSS = readFileSync(resolve(process.cwd(), 'src/app/globals.css'), 'utf8')
-
-type Rgb = readonly [number, number, number]
 
 /** Read a `--token: R G B;` channel triplet straight out of globals.css. */
 function token(name: string): Rgb {
@@ -20,26 +24,6 @@ function token(name: string): Rgb {
   if (!match) throw new Error(`Token --${name} not found (or not an RGB triplet) in globals.css`)
   return [Number(match[1]), Number(match[2]), Number(match[3])] as const
 }
-
-function srgbToLinear(channel: number): number {
-  const c = channel / 255
-  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
-}
-
-function relativeLuminance([r, g, b]: Rgb): number {
-  return 0.2126 * srgbToLinear(r) + 0.7152 * srgbToLinear(g) + 0.0722 * srgbToLinear(b)
-}
-
-export function contrastRatio(a: Rgb, b: Rgb): number {
-  const la = relativeLuminance(a)
-  const lb = relativeLuminance(b)
-  const [hi, lo] = la > lb ? [la, lb] : [lb, la]
-  return (hi + 0.05) / (lo + 0.05)
-}
-
-const AA_NORMAL = 4.5
-const AA_LARGE = 3.0
-const AA_UI = 3.0
 
 describe('palette tokens', () => {
   it('defines every token the Tailwind theme references', () => {

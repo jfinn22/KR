@@ -70,6 +70,7 @@ export const ACTIONS = [
   'timeOff.approve',
 
   // --- Catalog & configuration -------------------------------------------
+  'settings.manage',
   'service.manage',
   'consultTemplate.manage',
   'ruleset.configure',
