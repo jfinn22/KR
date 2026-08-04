@@ -37,7 +37,7 @@ export default async function IntegrationsPage({ params }: { params: Promise<{ s
   return (
     <div className="flex flex-col gap-12">
       <header>
-        <h1 className="font-display text-display-lg text-ink">Integrations</h1>
+        <h1 className="heading-flourish font-display text-display-lg text-ink">Integrations</h1>
         <p className="mt-2 max-w-prose text-body text-ink-muted">
           Nothing here can stop a booking. A provider being down delays a calendar entry or a
           message; it never blocks the diary or the till.

@@ -10,7 +10,11 @@ import {
   submitConsultation,
 } from '@/server/services/consultation'
 import { maybeAutoApprove } from '@/server/services/service-plan'
-import { removeConsultationPhoto, tagInspiration } from '@/server/services/photos'
+import {
+  removeConsultationPhoto,
+  removeInspirationPhoto,
+  tagInspiration,
+} from '@/server/services/photos'
 import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
@@ -202,6 +206,24 @@ export const removePhotoAction = withAuthz(
   },
   async (input, ctx) => {
     await removeConsultationPhoto(ctx.salonId, input.consultationPhotoId)
+    return { removed: true }
+  },
+)
+
+/**
+ * Remove a reference picture.
+ *
+ * A misfired upload used to be permanent for the life of the consultation, and
+ * it went straight through to the stylist's review screen.
+ */
+export const removeInspirationAction = withAuthz(
+  {
+    action: 'consultation.create',
+    schema: z.object({ consultationId: cuid, inspirationPhotoId: cuid }),
+    resource: (input, ctx) => consultationResource(input.consultationId, ctx),
+  },
+  async (input, ctx) => {
+    await removeInspirationPhoto(ctx.salonId, input.inspirationPhotoId)
     return { removed: true }
   },
 )

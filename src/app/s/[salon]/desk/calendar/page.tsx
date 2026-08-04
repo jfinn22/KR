@@ -4,7 +4,7 @@ import { daySchedule } from '@/server/services/front-desk'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/feedback'
 import { cn } from '@/lib/utils'
-import { addDays, formatDayHeading, formatTime, localDateIn } from '@/lib/format'
+import { addDays, formatDayHeading, formatMinuteOfDay, formatTime, localDateIn } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,7 +48,7 @@ export default async function CalendarPage({
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-display-lg text-ink">The day</h1>
+          <h1 className="heading-flourish font-display text-display-lg text-ink">The day</h1>
           <p className="mt-1 text-body text-ink-muted">
             {formatDayHeading(localDate, ctx.timezone)}
           </p>
@@ -90,7 +90,7 @@ export default async function CalendarPage({
                     position: 'relative',
                   }}
                 >
-                  {String(Math.floor(minute / 60)).padStart(2, '0')}:00
+                  {formatMinuteOfDay(minute)}
                 </div>
               ))}
             </div>

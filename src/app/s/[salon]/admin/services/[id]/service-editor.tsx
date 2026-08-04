@@ -4,7 +4,11 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { PhaseEditor } from '@/components/salon/phase-editor'
-import { blankPhase, type PhaseDraft } from '@/domain/scheduling/chain-stats'
+import {
+  blankPhase,
+  type InterleaveSettings,
+  type PhaseDraft,
+} from '@/domain/scheduling/chain-stats'
 import { savePhasesAction } from '@/server/actions/catalog'
 
 /**
@@ -18,10 +22,12 @@ export function ServiceEditor({
   salonSlug,
   serviceId,
   initialPhases,
+  interleave,
 }: {
   salonSlug: string
   serviceId: string
   initialPhases: PhaseDraft[]
+  interleave: InterleaveSettings
 }) {
   const router = useRouter()
 
@@ -66,6 +72,7 @@ export function ServiceEditor({
   return (
     <div className="flex flex-col gap-6">
       <PhaseEditor
+        interleave={interleave}
         phases={phases}
         onChange={(next) => {
           setPhases(next)

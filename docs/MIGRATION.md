@@ -16,7 +16,7 @@ handled separately because they fail differently:
 Checked before designing this, because "how do competitors solve it" bounds
 what is realistic:
 
-- **Vagaro ships importers *from* Phorest and Fresha *into* Vagaro** — the
+- **Vagaro ships importers _from_ Phorest and Fresha _into_ Vagaro** — the
   receiving platform does the parsing work, not the sending one. That is the
   right model and this spec follows it: never depend on the old platform's
   cooperation.
@@ -25,8 +25,8 @@ what is realistic:
   category has actually shipped self-serve import for the harder platforms —
   they have shipped "email us your CSV and we'll deal with it."
 - **The standard cutover pattern is a parallel run**, not a cutover event: set
-  up the new system, start taking *new* bookings there, let the old system's
-  *existing* appointments play out, only fully retire it once trusted with a
+  up the new system, start taking _new_ bookings there, let the old system's
+  _existing_ appointments play out, only fully retire it once trusted with a
   live Saturday. The one failure mode every guide calls unacceptable is a
   client tapping a booking link and hitting a dead page.
 
@@ -49,11 +49,11 @@ chair.
 
 So the pipeline has two speeds on purpose:
 
-| Maps automatically | Needs one human decision |
-| --- | --- |
-| Client name, phone, email, tags | Service name → this platform's service + phase chain |
+| Maps automatically                     | Needs one human decision                               |
+| -------------------------------------- | ------------------------------------------------------ |
+| Client name, phone, email, tags        | Service name → this platform's service + phase chain   |
 | Past appointment date, duration, price | Free-text colour notes → structured level/tone/formula |
-| Staff names (as placeholders) | Stylist skill/capability assignment |
+| Staff names (as placeholders)          | Stylist skill/capability assignment                    |
 
 The right unit for the review step is **distinct service names, not import
 rows.** A salon with 4,000 historical appointments typically has 30–50
@@ -83,7 +83,7 @@ best-effort script.
 **3. Map.** High-confidence fields apply automatically. Service names surface
 a suggested match (fuzzy string match against the salon's real catalog,
 already built in W4) for the owner to confirm, create-new, or split. Free-text
-formula notes go through the AI port as an *advisory* parse — "looks like 6N +
+formula notes go through the AI port as an _advisory_ parse — "looks like 6N +
 20 vol, 45 min" — surfaced to the stylist at the client's first post-cutover
 visit rather than blocking import, which keeps intact the existing rule that
 nothing the AI layer produces commits without a named person accepting it.
@@ -153,7 +153,7 @@ field-mapping accuracy.
 future go-live date. Between import and go-live, the old system stays the
 system of record and staff can poke at the new one risk-free. This has one
 concrete design consequence: **past appointments import as plain historical
-rows, but *future* appointments pulled from the old platform must go through
+rows, but _future_ appointments pulled from the old platform must go through
 the real booking/hold path**, not a raw insert — otherwise both systems
 believe a chair is free at 2pm Tuesday and the parallel run is the thing that
 causes the double-booking it was meant to prevent.
@@ -193,12 +193,12 @@ routes a colour-correction to someone who does not do colour corrections.
 
 ## Suggested sequencing
 
-| Phase | Scope | Why this order |
-| --- | --- | --- |
-| **1** | Generic CSV import — clients, appointment history, service-mapping review screen | Removes the single biggest reason an owner delays switching, without needing any source-specific parser |
-| **2** | Vagaro, Square, Fresha, Booksy parsers | Covers the largest share of the installed base; skips the CSV-cleanup step for most incoming salons |
-| **3** | Go-live checklist, parallel-run-aware future-appointment import, booking-link claim | Makes the *switch itself* safe, not just the data |
-| **4** | AI-assisted formula/note parsing into structured shade data | Highest polish, lowest urgency — nice on day one, not required for day one |
+| Phase | Scope                                                                               | Why this order                                                                                          |
+| ----- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **1** | Generic CSV import — clients, appointment history, service-mapping review screen    | Removes the single biggest reason an owner delays switching, without needing any source-specific parser |
+| **2** | Vagaro, Square, Fresha, Booksy parsers                                              | Covers the largest share of the installed base; skips the CSV-cleanup step for most incoming salons     |
+| **3** | Go-live checklist, parallel-run-aware future-appointment import, booking-link claim | Makes the _switch itself_ safe, not just the data                                                       |
+| **4** | AI-assisted formula/note parsing into structured shade data                         | Highest polish, lowest urgency — nice on day one, not required for day one                              |
 
 Phase 1 alone is the thing worth building first: it is the same "ship what
 changes Tuesday before the dazzling thing" logic from the earlier roadmap.

@@ -48,6 +48,25 @@ export function formatTime(iso: string, timeZone: string): string {
     .replace(/\s?([ap])m/i, (_, meridiem: string) => `${meridiem.toLowerCase()}m`)
 }
 
+/**
+ * A clock label from minutes since the salon's own midnight.
+ *
+ * The diary's time gutter has a local minute-of-day, not an instant, so it
+ * cannot use `formatTime` — there is no date to zone. Whole hours drop the
+ * `:00` because that is how the time is said out loud, and because the gutter
+ * is four rem wide and "12:00pm" does not fit in it.
+ */
+export function formatMinuteOfDay(minuteOfDay: number): string {
+  const wrapped = ((minuteOfDay % 1440) + 1440) % 1440
+  const hour24 = Math.floor(wrapped / 60)
+  const minute = wrapped % 60
+  const meridiem = hour24 < 12 ? 'am' : 'pm'
+  const hour12 = hour24 % 12 === 0 ? 12 : hour24 % 12
+  return minute === 0
+    ? `${hour12}${meridiem}`
+    : `${hour12}:${String(minute).padStart(2, '0')}${meridiem}`
+}
+
 export function formatDayHeading(localDate: string, timeZone: string): string {
   // Midday, so re-zoning cannot slip the date across a boundary.
   const date = new Date(`${localDate}T12:00:00Z`)

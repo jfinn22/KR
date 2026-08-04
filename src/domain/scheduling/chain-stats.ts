@@ -19,17 +19,45 @@ export interface PhaseDraft {
   isScalable: boolean
 }
 
-/** Below this, a gap is not worth handing to another client. */
-export const INTERLEAVE_MIN = 20
+/**
+ * The salon's own interleaving policy.
+ *
+ * These are `SalonSettings.interleaveEnabled` and `minInterleaveMin`, and they
+ * have to be passed in rather than assumed. This module used to carry its own
+ * `INTERLEAVE_MIN = 20` while the solver used the salon's setting, default 25 —
+ * so the phase editor advertised gaps in gold that `applyInterleavePolicy`
+ * then re-blocked at booking time. The editor promised capacity the product
+ * would not sell.
+ */
+export interface InterleaveSettings {
+  interleaveEnabled: boolean
+  minInterleaveMin: number
+}
 
 export interface ChainStats {
   totalMin: number
   stylistMin: number
-  /** Contiguous non-blocking runs long enough to be worth offering. */
+  /** Contiguous time the solver will genuinely release the stylist for. */
   interleavableMin: number
 }
 
-export function chainStats(phases: readonly PhaseDraft[]): ChainStats {
+/**
+ * Whether the solver will actually leave this phase off the stylist's clock.
+ *
+ * Mirrors `applyInterleavePolicy` in `chain.ts` exactly: only PROCESSING is
+ * gated on the opt-in and the minimum, and a phase that fails the gate is held
+ * against the stylist rather than silently dropped.
+ */
+export function releasesStylist(phase: PhaseDraft, settings: InterleaveSettings): boolean {
+  if (phase.requiresStylist) return false
+  if (phase.kind !== 'PROCESSING') return true
+  return settings.interleaveEnabled && phase.durationMin >= settings.minInterleaveMin
+}
+
+export function chainStats(
+  phases: readonly PhaseDraft[],
+  settings: InterleaveSettings,
+): ChainStats {
   let totalMin = 0
   let stylistMin = 0
   let interleavableMin = 0
@@ -39,19 +67,19 @@ export function chainStats(phases: readonly PhaseDraft[]): ChainStats {
     const minutes = Math.max(0, phase.durationMin)
     totalMin += minutes
 
-    if (phase.requiresStylist) {
-      stylistMin += minutes
-      // A run only counts once it ends — mid-appointment gaps are the ones
-      // another client can actually be slotted into.
-      if (run >= INTERLEAVE_MIN) interleavableMin += run
-      run = 0
-    } else {
+    if (releasesStylist(phase, settings)) {
+      // Adjacent freed phases combine: two that each cleared the gate are one
+      // continuous stretch somebody else can be sat in.
       run += minutes
+    } else {
+      stylistMin += minutes
+      interleavableMin += run
+      run = 0
     }
   }
 
   // A trailing free run still counts: the stylist is released before the end.
-  if (run >= INTERLEAVE_MIN) interleavableMin += run
+  interleavableMin += run
 
   return { totalMin, stylistMin, interleavableMin }
 }

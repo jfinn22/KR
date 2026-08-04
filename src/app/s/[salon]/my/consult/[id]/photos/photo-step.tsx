@@ -11,6 +11,7 @@ import {
 } from '@/components/salon/photo-capture-grid'
 import { Button } from '@/components/ui/button'
 import { ProgressRail } from '@/components/ui/feedback'
+import { removePhotoAction } from '@/server/actions/consultation'
 
 /**
  * The photo step.
@@ -80,6 +81,21 @@ export function PhotoStep({
     }
   }
 
+  async function remove(photoId: string) {
+    const previous = photos
+    setPhotos((current) => current.filter((photo) => photo.id !== photoId))
+    setError(null)
+
+    const result = await removePhotoAction(salonSlug, {
+      consultationId,
+      consultationPhotoId: photoId,
+    })
+    if (!result.ok) {
+      setPhotos(previous)
+      setError(result.error)
+    }
+  }
+
   function goToReferences() {
     setSubmitting(true)
     router.push(`/s/${salonSlug}/my/consult/${consultationId}/inspiration`)
@@ -111,6 +127,7 @@ export function PhotoStep({
         suggestedViews={suggestedViews}
         photos={photos}
         onCapture={upload}
+        onRemove={remove}
         busyView={busyView}
         disabled={submitting}
       />

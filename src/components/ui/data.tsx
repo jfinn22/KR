@@ -52,6 +52,12 @@ export function Tr({ className, ...props }: React.HTMLAttributes<HTMLTableRowEle
 /**
  * KPI tile. The figure is the loudest thing on it; the label is a whisper.
  * `delta` is rendered in semantic colour but never as a coloured background.
+ *
+ * `tone` tints the tile by what the number is ABOUT, following the palette's
+ * own division of labour — gold for money and status, rose for the hair
+ * itself, blue for the salon's own working information. It is not decoration:
+ * a row of tiles where the takings are gold and the head-count is not lets
+ * somebody find the figure they want without reading any of them.
  */
 export function Stat({
   label,
@@ -59,6 +65,7 @@ export function Stat({
   hint,
   delta,
   deltaDirection,
+  tone = 'plain',
   className,
 }: {
   label: string
@@ -66,8 +73,17 @@ export function Stat({
   hint?: string
   delta?: string
   deltaDirection?: 'up-good' | 'up-bad' | 'flat'
+  tone?: 'plain' | 'money' | 'hair' | 'salon'
   className?: string
 }) {
+  const toneStyles =
+    tone === 'money'
+      ? 'wash-gold'
+      : tone === 'hair'
+        ? 'wash-rose'
+        : tone === 'salon'
+          ? 'wash-blue'
+          : 'border-line bg-canvas'
   const deltaTone =
     deltaDirection === 'up-good'
       ? 'text-success'
@@ -76,7 +92,7 @@ export function Stat({
         : 'text-ink-muted'
 
   return (
-    <div className={cn('rounded-lg border border-line bg-canvas p-5 shadow-card', className)}>
+    <div className={cn('rounded-lg border p-5 shadow-card', toneStyles, className)}>
       <p className="label-caps">{label}</p>
       <p className="tabular mt-2 font-display text-display-lg text-ink">{value}</p>
       <div className="mt-1 flex items-baseline gap-2">

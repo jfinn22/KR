@@ -193,13 +193,24 @@ export function GuidedFlow({
 
       <div className="flex flex-col gap-5 border-t border-line pt-6">
         <div className="flex items-center justify-between gap-4">
-          <Button
-            variant="ghost"
-            disabled={safeIndex === 0 || submitting}
-            onClick={() => setStepIndex(safeIndex - 1)}
-          >
-            Back
-          </Button>
+          {/*
+           * On step one, Back leaves the consultation rather than doing
+           * nothing. It used to be disabled here, which stranded a client who
+           * had picked the wrong service with no way to change it.
+           */}
+          {safeIndex === 0 ? (
+            <Button variant="ghost" disabled={submitting} asChild>
+              <Link href={`/s/${salonSlug}/my/consult/new`}>Back</Link>
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              disabled={submitting}
+              onClick={() => setStepIndex(safeIndex - 1)}
+            >
+              Back
+            </Button>
+          )}
 
           <div className="flex items-center gap-4">
             <span aria-live="polite" className="text-label text-ink-subtle">

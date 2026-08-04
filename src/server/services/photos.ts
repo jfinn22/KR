@@ -322,6 +322,41 @@ export async function inspirationPhotos(salonId: string, consultationId: string)
   )
 }
 
+/**
+ * Remove a reference picture a client no longer wants attached.
+ *
+ * Mirrors `removeConsultationPhoto`, with one difference that matters: an
+ * inspiration photo's asset is nullable, because a reference can be a link
+ * rather than an upload. Only an uploaded one has anything to soft-delete.
+ */
+export async function removeInspirationPhoto(
+  salonId: string,
+  inspirationPhotoId: string,
+): Promise<void> {
+  const photo = await unsafeDb.inspirationPhoto.findFirst({
+    where: { id: inspirationPhotoId, salonId },
+    select: { id: true, photoAssetId: true, consultation: { select: { status: true } } },
+  })
+  if (!photo) throw new DomainError('NOT_FOUND', 'That picture no longer exists.')
+  if (photo.consultation.status === 'APPROVED') {
+    throw new DomainError(
+      'CONFLICT',
+      'This consultation is closed — pictures can no longer change.',
+    )
+  }
+
+  // The attributes go with it: a tag describing a picture nobody can see is
+  // worse than no tag, because the stylist reads it as being about something.
+  await unsafeDb.inspirationPhoto.delete({ where: { id: photo.id } })
+
+  if (photo.photoAssetId) {
+    await unsafeDb.photoAsset.update({
+      where: { id: photo.photoAssetId },
+      data: { deletedAt: new Date() },
+    })
+  }
+}
+
 /** Remove a photo a client no longer wants attached. */
 export async function removeConsultationPhoto(
   salonId: string,

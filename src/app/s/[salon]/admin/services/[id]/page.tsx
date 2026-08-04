@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { pageContextFor } from '@/server/auth/page'
 import { getService } from '@/server/services/catalog'
 import { Button } from '@/components/ui/button'
+import { interleaveSettings } from '@/server/services/settings'
 import { ServiceEditor } from './service-editor'
 
 export const dynamic = 'force-dynamic'
@@ -22,7 +23,10 @@ export default async function ServiceEditorPage({
   const { salon, id } = await params
   const ctx = await pageContextFor(salon, 'service.manage')
 
-  const service = await getService(ctx.salonId, id)
+  const [service, interleave] = await Promise.all([
+    getService(ctx.salonId, id),
+    interleaveSettings(ctx.salonId),
+  ])
 
   return (
     <div className="flex flex-col gap-8">
@@ -33,7 +37,7 @@ export default async function ServiceEditorPage({
       </div>
 
       <header>
-        <h1 className="font-display text-display-lg text-ink">{service.name}</h1>
+        <h1 className="heading-flourish font-display text-display-lg text-ink">{service.name}</h1>
         <p className="mt-2 max-w-prose text-body text-ink-muted">
           A service is a sequence of phases, not a block of minutes. Describing it accurately is
           what lets the diary hand the processing gap to another client.
@@ -51,6 +55,7 @@ export default async function ServiceEditorPage({
           requiresResourceType: phase.requiresResourceType as 'CHAIR' | null,
           isScalable: phase.isScalable,
         }))}
+        interleave={interleave}
       />
     </div>
   )

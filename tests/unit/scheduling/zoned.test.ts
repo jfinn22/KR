@@ -3,7 +3,6 @@ import {
   addDays,
   daysBetween,
   eachLocalDate,
-  formatLocalTime,
   fromEpochMinutes,
   hasOffsetChange,
   localDateOfEpochMinutes,
@@ -179,14 +178,5 @@ describe('calendar arithmetic', () => {
 
   it('returns nothing for an inverted range', () => {
     expect(eachLocalDate('2026-06-18', '2026-06-15')).toEqual([])
-  })
-})
-
-describe('display formatting', () => {
-  it('renders local time in the salon zone', () => {
-    const twoPmNy = localTimeToEpochMinutes('2026-06-15', 14 * 60, NY)
-    expect(formatLocalTime(twoPmNy, NY)).toBe('2:00 pm')
-    // The same instant is a different wall clock in London.
-    expect(formatLocalTime(twoPmNy, LONDON)).toBe('7:00 pm')
   })
 })

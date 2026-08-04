@@ -107,9 +107,17 @@ export default async function ReviewPage({
                   ? 'Book the first visit now — we will sort the rest once we see how your hair takes it.'
                   : 'Pick a time that suits you.'}
               </p>
-              <div>
+              <div className="flex flex-wrap gap-3">
                 <Button asChild>
                   <Link href={`/s/${salon}/my/book/${servicePlanId}?session=1`}>Pick a time</Link>
+                </Button>
+                {/*
+                 * The approved branch was the only one of the three with no way
+                 * out, so a client who wanted to look at something else first
+                 * had to book or use the browser's back button.
+                 */}
+                <Button variant="secondary" asChild>
+                  <Link href={`/s/${salon}/my`}>Back to my account</Link>
                 </Button>
               </div>
             </>

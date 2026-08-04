@@ -51,7 +51,9 @@ export default async function InsightsPage({
     <div className="flex flex-col gap-12">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-display-lg text-ink">How the salon is doing</h1>
+          <h1 className="heading-flourish font-display text-display-lg text-ink">
+            How the salon is doing
+          </h1>
           <p className="mt-2 text-body text-ink-muted">Last {days} days.</p>
         </div>
 

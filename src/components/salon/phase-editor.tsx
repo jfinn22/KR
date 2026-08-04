@@ -6,11 +6,12 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input, Label, Select } from '@/components/ui/field'
 import {
-  INTERLEAVE_MIN,
   applyKindDefaults,
   blankPhase,
   chainStats,
+  releasesStylist,
   type ChainStats,
+  type InterleaveSettings,
   type PhaseDraft,
   type PhaseKind,
   type ResourceType,
@@ -49,11 +50,13 @@ const RESOURCES: { value: ResourceType | ''; label: string }[] = [
 export interface PhaseEditorProps {
   phases: readonly PhaseDraft[]
   onChange: (phases: PhaseDraft[]) => void
+  /** The salon's own interleaving policy, so the readout matches the solver. */
+  interleave: InterleaveSettings
   disabled?: boolean
 }
 
-export function PhaseEditor({ phases, onChange, disabled }: PhaseEditorProps) {
-  const stats = chainStats(phases)
+export function PhaseEditor({ phases, onChange, interleave, disabled }: PhaseEditorProps) {
+  const stats = chainStats(phases, interleave)
 
   const update = (index: number, patch: Partial<PhaseDraft>) => {
     onChange(phases.map((phase, i) => (i === index ? applyKindDefaults(phase, patch) : phase)))
@@ -217,7 +220,7 @@ export function PhaseEditor({ phases, onChange, disabled }: PhaseEditorProps) {
         </Button>
       </div>
 
-      <ChainReadout phases={phases} stats={stats} />
+      <ChainReadout phases={phases} stats={stats} interleave={interleave} />
     </div>
   )
 }
@@ -228,7 +231,25 @@ export function PhaseEditor({ phases, onChange, disabled }: PhaseEditorProps) {
  * Without this the editor is a form. With it, a salon can see that splitting
  * out the processing gap is what turns one client per morning into two.
  */
-function ChainReadout({ phases, stats }: { phases: readonly PhaseDraft[]; stats: ChainStats }) {
+function ChainReadout({
+  phases,
+  stats,
+  interleave,
+}: {
+  phases: readonly PhaseDraft[]
+  stats: ChainStats
+  interleave: InterleaveSettings
+}) {
+  // Processing time the salon has described but the calendar will not sell,
+  // because interleaving is switched off or the gap is under the minimum.
+  const withheldMin = phases.reduce(
+    (sum, phase) =>
+      !phase.requiresStylist && !releasesStylist(phase, interleave)
+        ? sum + Math.max(0, phase.durationMin)
+        : sum,
+    0,
+  )
+
   return (
     <section className="rounded-lg border border-line bg-surface p-5">
       <div className="flex flex-wrap gap-x-10 gap-y-4">
@@ -237,7 +258,7 @@ function ChainReadout({ phases, stats }: { phases: readonly PhaseDraft[]; stats:
         <Figure
           label="Free to hand on"
           value={formatMinutes(stats.interleavableMin)}
-          tone={stats.interleavableMin >= INTERLEAVE_MIN ? 'gold' : 'muted'}
+          tone={stats.interleavableMin > 0 ? 'gold' : 'muted'}
         />
       </div>
 
@@ -249,7 +270,7 @@ function ChainReadout({ phases, stats }: { phases: readonly PhaseDraft[]; stats:
                 key={index}
                 title={`${phase.label || KIND_COPY[phase.kind].label} — ${phase.durationMin} min`}
                 className={cn(
-                  phase.requiresStylist ? 'bg-blue-500' : 'bg-gold-300',
+                  releasesStylist(phase, interleave) ? 'bg-gold-300' : 'bg-blue-500',
                   index > 0 && 'border-l border-canvas',
                 )}
                 style={{
@@ -264,12 +285,22 @@ function ChainReadout({ phases, stats }: { phases: readonly PhaseDraft[]; stats:
         </div>
       )}
 
+      {/*
+       * This copy has to describe what the CALENDAR will do, not what the
+       * phases say. It used to promise a gold gap from the phase split alone,
+       * while the solver quietly re-blocked it — so a salon with interleaving
+       * switched off was told it had capacity it could never sell.
+       */}
       <p className="mt-4 max-w-prose text-secondary text-ink">
-        {stats.interleavableMin >= INTERLEAVE_MIN
+        {stats.interleavableMin > 0
           ? `A ${formatMinutes(stats.interleavableMin)} gap is long enough to start someone else — this service pays for itself twice over on a busy day.`
           : stats.totalMin === 0
             ? 'Add a phase to see how this service will sit in the calendar.'
-            : 'Every minute of this service holds the stylist. If any of it is really waiting time, split it out as a processing phase.'}
+            : withheldMin > 0 && !interleave.interleaveEnabled
+              ? `You have described ${formatMinutes(withheldMin)} of processing, but interleaving is switched off for this salon — so the calendar still holds the stylist for all of it. Turn it on in settings to sell that time.`
+              : withheldMin > 0
+                ? `The ${formatMinutes(withheldMin)} of processing here is under this salon's ${formatMinutes(interleave.minInterleaveMin)} minimum, so the calendar keeps the stylist on it. A shorter gap costs more to hand over than it returns.`
+                : 'Every minute of this service holds the stylist. If any of it is really waiting time, split it out as a processing phase.'}
       </p>
     </section>
   )

@@ -6,6 +6,7 @@ import { clientRecord } from '@/server/services/front-desk'
 import { consentState } from '@/server/services/compliance'
 import { HairTimeline } from '@/components/salon/hair-timeline'
 import { ConsentPanel } from './consent-panel'
+import { NotesPanel } from './notes-panel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionHeading, Stat } from '@/components/ui/data'
@@ -79,6 +80,7 @@ export default async function ClientRecordPage({
         />
         <Stat
           label="Natural level"
+          tone="hair"
           value={client.hairProfile?.naturalLevel ?? '—'}
           hint={
             client.hairProfile?.currentLevelMids
@@ -87,6 +89,24 @@ export default async function ClientRecordPage({
           }
         />
       </div>
+
+      {/*
+       * High on the page, above "Coming up", because it is the thing a stylist
+       * taking somebody else's client wants before they read anything else.
+       */}
+      <section>
+        <SectionHeading
+          title="Notes"
+          description="What the salon has learned about this client. Carried across every visit."
+        />
+        <div className="mt-6">
+          <NotesPanel
+            salonSlug={salon}
+            clientProfileId={client.id}
+            initialNotes={client.internalNotes}
+          />
+        </div>
+      </section>
 
       {upcoming.length > 0 && (
         <section>

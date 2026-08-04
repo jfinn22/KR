@@ -61,7 +61,9 @@ export default async function ReviewQueuePage({
     <div className="flex flex-col gap-8">
       <header className="flex flex-col gap-6">
         <div>
-          <h1 className="font-display text-display-lg text-ink">Consultations to review</h1>
+          <h1 className="heading-flourish font-display text-display-lg text-ink">
+            Consultations to review
+          </h1>
           <p className="mt-2 max-w-prose text-body text-ink-muted">
             The engine has already worked out what it thinks. Your job is to agree, correct it, or
             ask for what is missing.

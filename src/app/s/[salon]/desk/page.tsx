@@ -70,10 +70,12 @@ export default async function DeskPage({
           <Stat label="Arrived" value={day.stats.arrived} hint={`of ${day.stats.booked}`} />
           <Stat
             label="Expected takings"
+            tone="money"
             value={formatMoney(day.stats.expectedCents, ctx.currency)}
           />
           <Stat
             label="Deposits outstanding"
+            tone="money"
             value={day.stats.unpaidDeposits}
             hint={day.stats.unpaidDeposits > 0 ? 'Take these on arrival' : 'All settled'}
           />

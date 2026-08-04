@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { pageContextFor } from '@/server/auth/page'
 import { listCatalog } from '@/server/services/catalog'
+import { interleaveSettings } from '@/server/services/settings'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/feedback'
 import { chainStats } from '@/domain/scheduling/chain-stats'
@@ -20,7 +21,10 @@ export default async function ServicesPage({ params }: { params: Promise<{ salon
   const { salon } = await params
   const ctx = await pageContextFor(salon, 'service.manage')
 
-  const categories = await listCatalog(ctx.salonId)
+  const [categories, interleave] = await Promise.all([
+    listCatalog(ctx.salonId),
+    interleaveSettings(ctx.salonId),
+  ])
 
   if (categories.length === 0) {
     return (
@@ -34,7 +38,7 @@ export default async function ServicesPage({ params }: { params: Promise<{ salon
   return (
     <div className="flex flex-col gap-10">
       <header>
-        <h1 className="font-display text-display-lg text-ink">Services</h1>
+        <h1 className="heading-flourish font-display text-display-lg text-ink">Services</h1>
         <p className="mt-2 max-w-prose text-body text-ink-muted">
           What each service is made of decides how it sits in the diary. A service with a real
           processing gap frees the chair for somebody else; one long block does not.
@@ -59,6 +63,7 @@ export default async function ServicesPage({ params }: { params: Promise<{ salon
                     requiresResourceType: null,
                     isScalable: phase.isScalable,
                   })),
+                  interleave,
                 )
 
                 return (

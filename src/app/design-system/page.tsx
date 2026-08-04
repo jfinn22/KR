@@ -332,6 +332,91 @@ export default function DesignSystemPage() {
             action={<Button variant="secondary">View all clients</Button>}
           />
         </section>
+
+        {/*
+         * These were all in globals.css and in use across the product, and none
+         * of them were on this page — so the one place a reviewer checks a new
+         * screen against the system could not show them what the system was.
+         */}
+        <section className="mb-14">
+          <SectionHeading
+            title="Washes"
+            description="A tinted panel instead of another white box. The tint says what the panel is about: blue for the salon's own information, gold for money and status, rose for the hair itself."
+          />
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <div className="wash-blue rounded-lg p-5">
+              <p className="label-caps">wash-blue</p>
+              <p className="mt-2 text-secondary text-ink">
+                Bookings, availability, the diary — anything the salon runs on.
+              </p>
+            </div>
+            <div className="wash-gold rounded-lg p-5">
+              <p className="label-caps">wash-gold</p>
+              <p className="mt-2 text-secondary text-ink">
+                Takings, deposits, plan tiers, anything with a figure attached.
+              </p>
+            </div>
+            <div className="wash-rose rounded-lg p-5">
+              <p className="label-caps">wash-rose</p>
+              <p className="mt-2 text-secondary text-ink">
+                The shade chart, reference pictures, the hair timeline.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <Stat label="Booked in" value={18} tone="salon" />
+            <Stat label="Expected takings" value="£2,140" tone="money" />
+            <Stat label="Natural level" value={5} hint="now 7" tone="hair" />
+          </div>
+        </section>
+
+        <section className="mb-14">
+          <SectionHeading
+            title="Gilt and flourish"
+            description="The finishing touches a salon's own signage has and a dashboard does not."
+          />
+          <div className="mt-6 flex flex-col gap-8">
+            <div>
+              <p className="label-caps mb-2">edge-gilt</p>
+              <div aria-hidden="true" className="edge-gilt" />
+              <p className="mt-2 text-secondary text-ink-muted">
+                One hairline of gold across the top of every screen, fading at both ends.
+              </p>
+            </div>
+
+            <div>
+              <p className="label-caps mb-2">heading-flourish</p>
+              <h3 className="heading-flourish font-display text-display-md text-ink">
+                Consultations to review
+              </h3>
+              <p className="mt-2 text-secondary text-ink-muted">
+                A short gold rule on the baseline instead of a plain underline. Every page heading
+                wears it.
+              </p>
+            </div>
+
+            <div>
+              <p className="label-caps mb-2">rule-gold</p>
+              <hr className="rule-gold" />
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-14">
+          <SectionHeading
+            title="Backdrops"
+            description="app-wash sits behind every screen; hero-wash is the warmer version used behind marketing copy. Both put blue at the top left, gold at the top right and rose rising from the bottom, so the whole product reads as one place."
+          />
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className="app-wash rounded-lg border border-line p-8">
+              <p className="label-caps">app-wash</p>
+            </div>
+            <div className="hero-wash rounded-lg border border-line p-8">
+              <p className="label-caps">hero-wash</p>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   )

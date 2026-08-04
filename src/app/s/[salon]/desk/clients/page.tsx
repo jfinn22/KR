@@ -33,7 +33,7 @@ export default async function ClientSearchPage({
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
       <header>
-        <h1 className="font-display text-display-lg text-ink">Find a client</h1>
+        <h1 className="heading-flourish font-display text-display-lg text-ink">Find a client</h1>
         <p className="mt-2 text-body text-ink-muted">
           Name, email or phone — whichever they gave you.
         </p>

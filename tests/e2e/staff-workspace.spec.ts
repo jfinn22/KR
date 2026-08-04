@@ -209,3 +209,70 @@ test.describe('staff boundaries', () => {
     await expect(page).toHaveURL(/\/desk/, { timeout: 15_000 })
   })
 })
+
+/**
+ * The Phase 0 fixes.
+ *
+ * Each of these was a real defect rather than a missing feature: a clock that
+ * spoke two dialects on one screen, a client record that loaded a note it never
+ * showed, and a phase editor that advertised capacity the solver would refuse.
+ */
+test.describe('the clock reads the same everywhere', () => {
+  test('the diary gutter is a 12-hour clock, like every block inside it', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk/calendar`)
+
+    const gutter = page.locator('div.w-16')
+    await expect(gutter).toContainText('7am')
+    await expect(gutter).toContainText('12pm')
+    await expect(gutter).toContainText('9pm')
+    // The old hardcoded rendering. If this comes back, the diary is bilingual
+    // again — 07:00 in the gutter beside 2:15pm in the blocks.
+    await expect(gutter).not.toContainText('07:00')
+    await expect(gutter).not.toContainText('21:00')
+  })
+})
+
+test.describe('client notes', () => {
+  test('a note can be written and survives a reload', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk/clients?q=Ada`)
+    await page
+      .getByRole('link', { name: /^open$/i })
+      .first()
+      .click()
+    await expect(page).toHaveURL(/\/desk\/clients\/[a-z0-9]+/, { timeout: 15_000 })
+
+    const note = `Prefers the radio off — noted ${Date.now()}`
+    const box = page.getByLabel('Notes about this client')
+    await box.fill(note)
+    await page.getByRole('button', { name: /save note/i }).click()
+    await expect(page.getByText('Saved', { exact: true })).toBeVisible()
+
+    await page.reload()
+    await expect(page.getByLabel('Notes about this client')).toHaveValue(note)
+  })
+})
+
+test.describe('the phase editor tells the truth about capacity', () => {
+  test('it does not promise a gap the solver would re-block', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/admin/services`)
+    await page
+      .getByRole('link', { name: /balayage/i })
+      .first()
+      .click()
+    await expect(page).toHaveURL(/\/admin\/services\/[a-z0-9]+/)
+
+    const readout = page.locator('section', { hasText: 'Free to hand on' }).first()
+    await expect(readout).toBeVisible()
+
+    /*
+     * The seeded salon has interleaving OFF, which is the default. The editor
+     * used to show a gold "40m free" for the balayage processing phase anyway,
+     * because it read its own hardcoded threshold and never looked at the
+     * salon's setting. It must now say the time is held and say why.
+     */
+    await expect(readout).toContainText(/interleaving is switched off/i)
+  })
+})

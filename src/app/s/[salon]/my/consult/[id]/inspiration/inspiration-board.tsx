@@ -5,7 +5,11 @@ import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { submitConsultationAction, tagInspirationAction } from '@/server/actions/consultation'
+import {
+  removeInspirationAction,
+  submitConsultationAction,
+  tagInspirationAction,
+} from '@/server/actions/consultation'
 
 /**
  * Reference pictures: the last step of every consultation.
@@ -27,7 +31,7 @@ const ATTRIBUTES = [
   { key: 'BRIGHTNESS', label: 'How light it is' },
   { key: 'CONTRAST', label: 'The contrast', help: 'Bold or blended' },
   { key: 'DIMENSION', label: 'The dimension' },
-  { key: 'ROOT_SHADOW', label: 'The rooty bit' },
+  { key: 'ROOT_SHADOW', label: 'Roots' },
   { key: 'TECHNIQUE', label: 'The technique' },
   { key: 'CURLS', label: 'The texture' },
   { key: 'TARGET_LEVEL', label: 'The overall level' },
@@ -112,6 +116,23 @@ export function InspirationBoard({
     }
   }
 
+  async function remove(photoId: string) {
+    const previous = photos
+    // Optimistic, because the picture disappearing is the whole feedback. If
+    // the server disagrees we put it back and say so.
+    setPhotos((current) => current.filter((photo) => photo.id !== photoId))
+    setError(null)
+
+    const result = await removeInspirationAction(salonSlug, {
+      consultationId,
+      inspirationPhotoId: photoId,
+    })
+    if (!result.ok) {
+      setPhotos(previous)
+      setError(result.error)
+    }
+  }
+
   async function setTags(photoId: string, keys: AttributeKey[]) {
     setPhotos((current) =>
       current.map((photo) =>
@@ -173,7 +194,7 @@ export function InspirationBoard({
       {photos.length > 0 && (
         <div className="grid gap-5 sm:grid-cols-2">
           {photos.map((photo) => (
-            <InspirationCard key={photo.id} photo={photo} onTags={setTags} />
+            <InspirationCard key={photo.id} photo={photo} onTags={setTags} onRemove={remove} />
           ))}
         </div>
       )}
@@ -198,15 +219,26 @@ export function InspirationBoard({
 
       <div className="flex flex-wrap items-center justify-between gap-4 border-t border-line pt-6">
         {/*
+         * `back()` rather than a fixed link, because this screen is reached two
+         * ways — forward from the photo step, and straight from the client home
+         * — and a hardcoded destination is wrong for one of them.
+         */}
+        <Button variant="ghost" onClick={() => router.back()} disabled={submitting}>
+          Back
+        </Button>
+
+        {/*
          * Skippable in one tap. A client with nothing saved should not be stuck
          * on the last screen of a consultation they have otherwise finished.
          */}
-        <span className="text-secondary text-ink-muted">
-          {photos.length === 0 ? 'No picture? You can send it without one.' : null}
-        </span>
-        <Button variant="gold" onClick={submit} disabled={submitting || uploading}>
-          {submitting ? 'Working…' : 'See my plan'}
-        </Button>
+        <div className="flex flex-wrap items-center gap-4">
+          <span className="text-secondary text-ink-muted">
+            {photos.length === 0 ? 'No picture? You can send it without one.' : null}
+          </span>
+          <Button variant="gold" onClick={submit} disabled={submitting || uploading}>
+            {submitting ? 'Working…' : 'See my plan'}
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -215,9 +247,11 @@ export function InspirationBoard({
 function InspirationCard({
   photo,
   onTags,
+  onRemove,
 }: {
   photo: InspirationPhotoView
   onTags: (photoId: string, keys: AttributeKey[]) => void
+  onRemove: (photoId: string) => void
 }) {
   const selected = new Set(photo.attributes.map((a) => a.key as AttributeKey))
 
@@ -236,7 +270,21 @@ function InspirationCard({
       )}
 
       <div className="p-4">
-        <p className="label-caps mb-3">What do you like about it?</p>
+        <div className="mb-3 flex items-baseline justify-between gap-3">
+          <p className="label-caps">What do you like about it?</p>
+          {/*
+           * Plain and quiet rather than a destructive-red control. Taking back
+           * a picture you did not mean to send is an ordinary correction, not
+           * a dangerous one, and nothing here is recoverable-by-undo anyway.
+           */}
+          <button
+            type="button"
+            onClick={() => onRemove(photo.id)}
+            className="shrink-0 text-label text-blue-500 underline-offset-2 hover:underline"
+          >
+            Remove
+          </button>
+        </div>
 
         <div className="flex flex-wrap gap-2">
           {ATTRIBUTES.map((attribute) => {

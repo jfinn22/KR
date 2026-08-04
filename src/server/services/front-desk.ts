@@ -369,3 +369,35 @@ export async function daySchedule(
     })),
   }
 }
+
+/**
+ * Standing notes about a client.
+ *
+ * An empty box means no note, not an empty note — a stylist who clears the
+ * field is saying "there is nothing to know here", and a zero-length string
+ * would render as a note that exists and says nothing.
+ */
+export async function saveClientNotes(
+  salonId: string,
+  clientProfileId: string,
+  internalNotes: string | null,
+): Promise<void> {
+  const trimmed = internalNotes?.trim()
+  await unsafeDb.clientProfile.updateMany({
+    where: { id: clientProfileId, salonId },
+    data: { internalNotes: trimmed && trimmed.length > 0 ? trimmed : null },
+  })
+}
+
+/** A note about one visit rather than about the person. */
+export async function saveAppointmentNote(
+  salonId: string,
+  appointmentId: string,
+  internalNote: string | null,
+): Promise<void> {
+  const trimmed = internalNote?.trim()
+  await unsafeDb.appointment.updateMany({
+    where: { id: appointmentId, salonId },
+    data: { internalNote: trimmed && trimmed.length > 0 ? trimmed : null },
+  })
+}

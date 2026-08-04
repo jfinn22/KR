@@ -154,6 +154,21 @@ export function BookingFlow({
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-8">
       <header>
+        {/*
+         * There was no way off this screen except booking or the browser's
+         * back button. `back()` rather than a fixed link because the slot
+         * picker is reached both from the plan and from the client home.
+         */}
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-ml-3.5 mb-2"
+          onClick={() => router.back()}
+          disabled={busy}
+        >
+          ← Back
+        </Button>
+
         {totalSessions > 1 && (
           <Badge tone="gold" className="mb-3">
             Visit {sequence} of {totalSessions}

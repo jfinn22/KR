@@ -17,14 +17,14 @@ $80M in the bank is a losing trade.
 The core bet is that consultation, not booking, is the unsolved problem. The
 market data supports that more strongly than expected.
 
-| Finding | Why it matters here |
-| --- | --- |
-| **Only 7% of salon clients say they receive a proper consultation** | The problem is real, universal, and nobody has automated it |
-| **96% of unhappy clients never complain; 91% never come back** | The damage is invisible to the salon — they cannot fix what they cannot see |
-| **Salons have the highest no-show rate of any appointment business, ~30%** | On $400k revenue that is $60–80k/year, and mis-set expectations are a cause |
-| **Colour correction runs $150–$1,200** | The cost of getting the consultation wrong is enormous and lands on the salon |
-| **Colour clients retain at 75–85%, the best of any service** | Roots grow. The recurring revenue is already there; it is under-systematised |
-| **67% of Gen Z have abandoned a salon over clunky booking** | A better consultation only wins if the flow around it is faster, not slower |
+| Finding                                                                    | Why it matters here                                                           |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **Only 7% of salon clients say they receive a proper consultation**        | The problem is real, universal, and nobody has automated it                   |
+| **96% of unhappy clients never complain; 91% never come back**             | The damage is invisible to the salon — they cannot fix what they cannot see   |
+| **Salons have the highest no-show rate of any appointment business, ~30%** | On $400k revenue that is $60–80k/year, and mis-set expectations are a cause   |
+| **Colour correction runs $150–$1,200**                                     | The cost of getting the consultation wrong is enormous and lands on the salon |
+| **Colour clients retain at 75–85%, the best of any service**               | Roots grow. The recurring revenue is already there; it is under-systematised  |
+| **67% of Gen Z have abandoned a salon over clunky booking**                | A better consultation only wins if the flow around it is faster, not slower   |
 
 The unusual thing about this position: **the consultation engine is a genuine
 technical moat.** A deterministic, versioned, order-independent ruleset with
@@ -61,12 +61,12 @@ inversion is the whole product in one screen.
 It attacks the exact failure the research identifies: clients bring reference
 photos of a level 10 on a level 7 base, the stylist delivers a correct level 6,
 and the client is quietly disappointed and never returns. Showing the honest
-level-6 result *before* they book converts that from a silent loss into a
+level-6 result _before_ they book converts that from a silent loss into a
 managed expectation.
 
 Build notes: goes through the AI port as an advisory, visibly-labelled render —
 consistent with the existing boundary that AI cannot create or suppress a risk
-flag. The *levels* come from the deterministic engine; only the pixels come
+flag. The _levels_ come from the deterministic engine; only the pixels come
 from the model.
 
 ### 2. Reference-picture analysis at upload time
@@ -160,7 +160,7 @@ consultation visible at the moment it matters. Cheap to build, disproportionate
 effect on whether stylists trust the system.
 
 **Capture coaching.** Photo quality is currently assessed mechanically after
-upload. Coach the retake *at* capture — "step towards the window, we cannot
+upload. Coach the retake _at_ capture — "step towards the window, we cannot
 read your tone in this light" — because a bad photo produces a bad plan and
 nobody re-uploads voluntarily.
 
@@ -273,13 +273,13 @@ reason to switch.
 
 Discipline here matters more than the roadmap.
 
-| Do not build | Why |
-| --- | --- |
-| **Full POS, payroll, tax** | Vagaro and Zenoti own this. Enormous surface area, low margin, and losing on it does not lose the deal |
-| **A consumer marketplace** | Fresha and Booksy own discovery. Brutal economics and it puts you in competition with your own customers |
-| **Generic marketing automation** | Phorest's entire identity. Winning here requires out-executing a company that does nothing else |
-| **Full inventory management** | Track colour because it feeds the engine. Do not track towels |
-| **A generic AI chatbot** | A dozen vendors ship this. Only worth doing if it runs the consultation |
+| Do not build                     | Why                                                                                                      |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **Full POS, payroll, tax**       | Vagaro and Zenoti own this. Enormous surface area, low margin, and losing on it does not lose the deal   |
+| **A consumer marketplace**       | Fresha and Booksy own discovery. Brutal economics and it puts you in competition with your own customers |
+| **Generic marketing automation** | Phorest's entire identity. Winning here requires out-executing a company that does nothing else          |
+| **Full inventory management**    | Track colour because it feeds the engine. Do not track towels                                            |
+| **A generic AI chatbot**         | A dozen vendors ship this. Only worth doing if it runs the consultation                                  |
 
 The pattern: build what the consultation engine makes uniquely possible, and
 integrate everything else.
@@ -305,7 +305,7 @@ rulesets, the insurance channel.
 
 One caution on ordering: the achievability preview is the most exciting thing
 on this list and the most tempting to do first. It is worth substantially more
-*after* waitlist offers and plan-booking exist, because those are what make the
+_after_ waitlist offers and plan-booking exist, because those are what make the
 salon's day measurably better in week one. A product that dazzles in the demo
 and does not change Tuesday gets churned.
 

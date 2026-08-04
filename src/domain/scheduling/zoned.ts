@@ -88,14 +88,15 @@ export function daysBetween(from: string, to: string): number {
   return Math.round((parse(to) - parse(from)) / 86_400_000)
 }
 
-/** Human-facing local time, e.g. `2:15 pm`. */
-export function formatLocalTime(minutes: number, timeZone: string): string {
-  return formatInTimeZone(fromEpochMinutes(minutes), timeZone, 'h:mm a').toLowerCase()
-}
-
-export function formatLocalDateTime(minutes: number, timeZone: string): string {
-  return formatInTimeZone(fromEpochMinutes(minutes), timeZone, 'EEE d MMM, h:mm a')
-}
+/*
+ * Display formatting deliberately does NOT live here.
+ *
+ * There were two 12-hour formatters in the product and they disagreed — this
+ * module rendered `2:00 pm` where `src/lib/format.ts` rendered `2:00pm`. One
+ * of them was reachable from no screen at all, so the disagreement was invisible
+ * until someone reached for the wrong one. `src/lib/format.ts` is the only place
+ * a time becomes a string; this module does zoned arithmetic and nothing else.
+ */
 
 /**
  * Whether a local date contains a UTC-offset change in the given zone.
