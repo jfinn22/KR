@@ -207,14 +207,25 @@ delay because re-entering four years of clients by hand is unthinkable.
 
 ---
 
-## Open questions worth deciding before Phase 1 starts
+## Settled decisions
 
-- **Retention window for the source file.** Raw uploaded exports likely
-  contain more PII than the platform otherwise stores at once (full historical
-  contact lists) — worth a short, explicit retention/deletion policy rather
-  than leaving them in `storagePort()` indefinitely.
-- **Who can trigger an import.** Presumably owner/manager only, given it can
-  create thousands of client records and touch consent — an `Action` gate
-  through the existing `withAuthz` path.
-- **Multi-location salons.** Whether an import maps to one location or asks
-  the owner to assign location per uploaded file.
+**Who can trigger an import — owner and manager only.** A new
+`migration.import` action in the authorization matrix, gated through the
+existing `withAuthz` path like every other mutation. This is the correct
+restriction: an import can create thousands of client records, touch consent
+state, and write appointment history. It is not a front-desk operation.
+
+**Every upload is assigned to a location.** The wizard asks before parsing,
+rather than inferring from the file. Multi-site salons are the ones most
+likely to switch platforms — they have the most to gain and the most to lose —
+and a silent wrong guess puts a client's history at the wrong branch. One
+explicit question at upload time removes the ambiguity entirely, and
+single-location salons see it pre-filled.
+
+**Source files get a short, explicit retention window.** A raw export holds
+more contact PII in one object than the platform otherwise stores anywhere —
+a salon's entire client list, in the clear. Once a batch reaches a terminal
+state the source file is deleted on a scheduled job, leaving the parsed rows
+and the `ImportBatch` audit record but not the original dump. Retention runs
+from batch completion rather than upload, so a stalled import is not deleted
+out from under an owner mid-review.
