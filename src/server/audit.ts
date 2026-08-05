@@ -80,3 +80,37 @@ export async function auditOverride(
     after: params.detail,
   })
 }
+
+/**
+ * Audit an action taken by somebody with no account.
+ *
+ * `audit()` above takes a `TenantContext` and switches exhaustively on the
+ * principal kind — and a signup has no principal, which is the whole point of
+ * it. `ActorType.SYSTEM` has existed in the enum since the schema was written
+ * and nothing has ever produced it; this is what it was for.
+ *
+ * The salon is still recorded, because "somebody tried to join Aurora" is
+ * exactly the thing an owner may need to look back at.
+ */
+export async function auditPublic(
+  salonId: string,
+  entry: AuditEntry & { actorRole?: string },
+): Promise<void> {
+  await unsafeDb.auditLog.create({
+    data: {
+      salonId,
+      actorType: 'SYSTEM',
+      actorUserId: null,
+      actorRole: entry.actorRole ?? 'PUBLIC',
+      action: entry.action,
+      entityType: entry.entityType,
+      entityId: entry.entityId ?? null,
+      beforeJson: (entry.before ?? undefined) as never,
+      afterJson: (entry.after ?? undefined) as never,
+      reason: entry.reason ?? null,
+      ip: entry.ip ?? null,
+      userAgent: entry.userAgent ?? null,
+      requestId: entry.requestId ?? null,
+    },
+  })
+}

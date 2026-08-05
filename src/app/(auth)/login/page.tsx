@@ -30,6 +30,10 @@ export default async function LoginPage({
 }) {
   const { error, next = '/' } = await searchParams
 
+  // `/s/<slug>/…` is the only shape that names a salon, so that is the only
+  // shape a join link can be offered from.
+  const joinSalon = /^\/s\/([a-z0-9-]+)(\/|$)/i.exec(next)?.[1] ?? null
+
   return (
     <main className="app-wash flex min-h-screen items-center justify-center px-6 py-16">
       <div className="w-full max-w-md">
@@ -85,12 +89,20 @@ export default async function LoginPage({
           </CardContent>
         </Card>
 
-        <p className="mt-6 text-center text-secondary text-ink-muted">
-          New salon?{' '}
-          <Link href="/signup" className="text-blue-500 hover:underline">
-            Create an account
-          </Link>
-        </p>
+        {/*
+         * Points at the salon's own join link rather than a generic /signup,
+         * because there is no such thing as signing up to the platform — a
+         * client joins one salon. `next` carries the salon through, so the
+         * link is right whenever somebody arrived from one.
+         */}
+        {joinSalon && (
+          <p className="mt-6 text-center text-secondary text-ink-muted">
+            New here?{' '}
+            <Link href={`/join/${joinSalon}`} className="text-blue-500 hover:underline">
+              Create an account with this salon
+            </Link>
+          </p>
+        )}
       </div>
     </main>
   )

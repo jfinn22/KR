@@ -15,6 +15,7 @@ export type ActionErrorCode =
   | 'REASON_REQUIRED'
   | 'CONFLICT'
   | 'NOT_FOUND'
+  | 'RATE_LIMITED'
   | 'UNKNOWN'
 
 /** An expected, user-facing failure. Rendered as-is; never a stack trace. */

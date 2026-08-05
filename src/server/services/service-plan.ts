@@ -251,7 +251,13 @@ export async function reviewConsultation(
       data: {
         salonId: input.salonId,
         topic: 'consultation.approved',
-        payloadJson: { consultationId: consultation.id, servicePlanId: plan.id },
+        // clientProfileId travels with the event: the dispatcher turns this
+        // into a notification and cannot look up who to tell without it.
+        payloadJson: {
+          consultationId: consultation.id,
+          servicePlanId: plan.id,
+          clientProfileId: consultation.clientProfileId,
+        },
       },
     })
 

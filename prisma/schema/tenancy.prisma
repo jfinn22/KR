@@ -119,6 +119,7 @@ model Salon {
   aiSuggestions      AiSuggestion[]
   aiUsage            AiUsageCounter[]
   integrations       IntegrationConnection[]
+  publicAttempts     PublicActionAttempt[]
 
   @@index([status])
 }
@@ -146,6 +147,11 @@ model SalonSettings {
 
   // Consultation
   consultationSlaHours    Int     @default(24)
+
+  /// Short code the front desk can read out so somebody standing at the till
+  /// joins the right salon. Optional: a salon that only shares its own link
+  /// never needs one. Rotatable, because a code read aloud all day leaks.
+  joinCode                String?
   consultationExpiryDays  Int     @default(60)
   planValidityDays        Int     @default(90)
   autoApproveSimple       Boolean @default(false)

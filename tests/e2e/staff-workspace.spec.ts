@@ -276,3 +276,84 @@ test.describe('the phase editor tells the truth about capacity', () => {
     await expect(readout).toContainText(/interleaving is switched off/i)
   })
 })
+
+/**
+ * The Phase 1 primitives, from outside.
+ *
+ * Signup is the one flow in the product that runs with no principal at all, so
+ * it is also the one that cannot be covered by signing in first.
+ */
+test.describe('joining a salon', () => {
+  test('a stranger can reach the join page and it wears the salon', async ({ page }) => {
+    // No sign-in: this is the whole point. `withAuthz` could not serve this
+    // page, because resolveContext returns null for exactly this visitor.
+    await page.goto(`/join/${SALON}`)
+
+    await expect(page.getByText('Aurora Hair Studio')).toBeVisible()
+    await expect(page.getByLabel('Email')).toBeVisible()
+    await expect(page.getByRole('button', { name: /create my account/i })).toBeVisible()
+  })
+
+  test('marketing is never pre-ticked', async ({ page }) => {
+    await page.goto(`/join/${SALON}`)
+    await expect(page.getByRole('checkbox')).not.toBeChecked()
+  })
+
+  test('a new client can create an account and then sign in with it', async ({ page }) => {
+    const email = `e2e-join-${Date.now()}@example.com`
+
+    await page.goto(`/join/${SALON}`)
+    await page.getByLabel('First name').fill('Wren')
+    await page.getByLabel('Email').fill(email)
+    await page.getByLabel('Password').fill('a-long-enough-password')
+    await page.getByRole('button', { name: /create my account/i }).click()
+
+    // Sent to sign in rather than logged straight in: signup and claiming an
+    // existing walk-in look identical, and the second must not hand a session
+    // to whoever typed the address.
+    await expect(page).toHaveURL(/\/login/, { timeout: 20_000 })
+
+    await page.getByLabel('Email').fill(email)
+    await page.getByLabel('Password').fill('a-long-enough-password')
+    await page.getByRole('button', { name: /sign in/i }).click()
+
+    await expect(page).toHaveURL(new RegExp(`/s/${SALON}/my`), { timeout: 20_000 })
+    await expect(page.getByRole('heading', { name: /hello/i })).toBeVisible()
+  })
+
+  test('a salon that does not exist is a 404, not a hint', async ({ page }) => {
+    const response = await page.goto('/join/not-a-real-salon')
+    expect(response?.status()).toBe(404)
+  })
+})
+
+test.describe('settings', () => {
+  test('an owner can reach settings and turn on handing the chair over', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/admin/settings`)
+
+    await expect(page.getByRole('heading', { name: /^settings$/i })).toBeVisible()
+    await expect(page.getByText(/let the calendar sell processing time/i)).toBeVisible()
+  })
+
+  test('a brand colour that cannot carry white text is refused, in words', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/admin/settings`)
+
+    const field = page.getByLabel('Your colour')
+    await field.fill('#8A8A8C')
+
+    // Refused before saving, and the message says what to do — not a ratio.
+    await expect(page.getByText(/too close to grey/i)).toBeVisible()
+    await expect(page.getByRole('button', { name: /^save$/i }).last()).toBeDisabled()
+  })
+
+  test('a workable colour previews the whole ladder', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/admin/settings`)
+
+    await page.getByLabel('Your colour').fill('#C7457F')
+    await expect(page.getByText(/what we would use/i)).toBeVisible()
+    await expect(page.getByText(/checked against the same contrast standard/i)).toBeVisible()
+  })
+})

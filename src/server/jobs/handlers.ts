@@ -4,6 +4,8 @@ import { emailPort, smsPort, storagePort } from '@/ports/registry'
 import { assessPhoto } from '@/domain/hair/photo-quality'
 import { installOutboxSink } from '@/server/outbox-sink'
 import { enqueue } from './queue'
+import type { NotificationTrigger } from '@prisma/client'
+import { DEFAULT_COPY, materialiseNotification } from '@/server/services/notifications'
 
 /**
  * Job handlers.
@@ -34,6 +36,34 @@ const define = <T>(def: JobDefinition<T>): AnyJobDefinition => def
  * rows into jobs. That is why a booking confirmation is never lost because a
  * provider happened to be down at the moment of commit.
  */
+/**
+ * Which outbox topics become a client-facing notification, and as what.
+ *
+ * A table rather than a chain of ifs, because the next six triggers are all
+ * the same shape — and the reason approval notified nobody is that adding a
+ * seventh `if` was nobody's idea of a Tuesday.
+ */
+const NOTIFY_TOPICS: Record<
+  string,
+  { trigger: NotificationTrigger; refType: string; refKey: string; clientKey: string }
+> = {
+  'consultation.approved': {
+    trigger: 'CONSULT_DECISION',
+    refType: 'Consultation',
+    refKey: 'consultationId',
+    clientKey: 'clientProfileId',
+  },
+}
+
+/**
+ * Triggers whose message is the salon's marketing rather than the service.
+ * Everything else is transactional: the client asked for the thing the message
+ * is about, so silence is not a reason to withhold it.
+ */
+const MARKETING_TRIGGERS: ReadonlySet<NotificationTrigger | null> = new Set([
+  'REBOOK_DUE',
+] as NotificationTrigger[])
+
 const outboxDispatch = define({
   schema: z.object({}).passthrough(),
   timeoutMs: 30_000,
@@ -64,6 +94,28 @@ const outboxDispatch = define({
           payload,
           dedupeKey: `waitlist:${payload.appointmentId}`,
         })
+      }
+
+      /*
+       * Everything else that should reach a client goes through the generic
+       * materialiser. Before this, `consultation.approved` was emitted, fell
+       * through both branches above, and was marked published — so approving a
+       * plan told the client nothing at all, and the only way they found out
+       * was returning to the site and noticing a card.
+       */
+      const notify = NOTIFY_TOPICS[topic]
+      if (notify && event.salonId) {
+        const clientProfileId = payload[notify.clientKey]
+        const refId = payload[notify.refKey]
+        if (typeof clientProfileId === 'string' && typeof refId === 'string') {
+          await materialiseNotification({
+            salonId: event.salonId,
+            trigger: notify.trigger,
+            refType: notify.refType,
+            refId,
+            clientProfileId,
+          })
+        }
       }
 
       await unsafeDb.outbox.update({
@@ -177,16 +229,39 @@ const notificationSend = define({
       channel === 'SMS' ? scheduled.clientProfile.phone : scheduled.clientProfile.email
     if (!address) return
 
+    /*
+     * Consent, with the purpose the message actually has.
+     *
+     * Two things were wrong here. The purpose was hardcoded to TRANSACTIONAL,
+     * so a marketing send was checked against transactional permission — the
+     * wrong question. And the test was `consent && status === 'REVOKED'`, so an
+     * ABSENT row passed: a client with no consent record at all received
+     * whatever was queued.
+     *
+     * The fix is not simply "require a GRANTED row", because the two purposes
+     * genuinely differ. Somebody who booked an appointment expects to be told
+     * about it, and a walk-in the front desk created has no consent row through
+     * no fault of theirs — so absent is allowed for TRANSACTIONAL. Marketing is
+     * the opposite: silence is not permission, so absent blocks.
+     */
+    const purpose = MARKETING_TRIGGERS.has(scheduled.trigger ?? scheduled.schedule?.trigger ?? null)
+      ? 'MARKETING'
+      : 'TRANSACTIONAL'
+
     const consent = await unsafeDb.contactConsent.findUnique({
       where: {
         clientProfileId_channel_purpose: {
           clientProfileId: scheduled.clientProfileId,
           channel,
-          purpose: 'TRANSACTIONAL',
+          purpose,
         },
       },
     })
-    if (consent && consent.status === 'REVOKED') {
+
+    const permitted =
+      purpose === 'TRANSACTIONAL' ? consent?.status !== 'REVOKED' : consent?.status === 'GRANTED'
+
+    if (!permitted) {
       await unsafeDb.scheduledNotification.update({
         where: { id: scheduled.id },
         data: { status: 'FAILED', cancelledAt: new Date() },
@@ -199,8 +274,14 @@ const notificationSend = define({
     })
     if (suppressed) return
 
+    const trigger = scheduled.trigger ?? scheduled.schedule?.trigger ?? null
+    const fallback = (trigger && DEFAULT_COPY[trigger]) ?? {
+      subject: 'Your appointment',
+      body: 'A reminder about your appointment.',
+    }
+
     const template = scheduled.schedule?.template
-    const body = renderTemplate(template?.body ?? 'A reminder about your appointment.', {
+    const body = renderTemplate(template?.body ?? fallback.body, {
       'client.firstName': scheduled.clientProfile.firstName,
     })
 
@@ -209,7 +290,7 @@ const notificationSend = define({
     } else {
       await emailPort().send({
         to: address,
-        subject: template?.subject ?? 'Your appointment',
+        subject: template?.subject ?? fallback.subject,
         html: `<p>${body}</p>`,
         reference: scheduled.id,
       })
@@ -282,12 +363,19 @@ const consultationStaleNudge = define({
       take: 100,
     })
 
+    /*
+     * This used to enqueue a send directly for a dedupe key nothing ever
+     * created a row against, so `notificationSend` looked it up, found
+     * nothing, and returned — a job that has been quietly doing nothing since
+     * it was written. Materialising first is the missing half.
+     */
     for (const consultation of stale) {
-      await enqueue({
-        type: 'notification.send',
+      await materialiseNotification({
         salonId: consultation.salonId,
-        payload: { dedupeKey: `consult-nudge:${consultation.id}` },
-        dedupeKey: `consult-nudge:${consultation.id}`,
+        trigger: 'CONSULT_STALE',
+        refType: 'Consultation',
+        refId: consultation.id,
+        clientProfileId: consultation.clientProfileId,
       })
     }
   },

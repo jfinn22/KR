@@ -172,6 +172,13 @@ model ScheduledNotification {
   clientProfileId String
   clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
 
+  /// Why this exists. Denormalised from the schedule on purpose: `scheduleId`
+  /// is nullable, so a notification for a trigger the salon has not configured
+  /// a schedule for would otherwise have no way to say what it is — and the
+  /// sender would fall back to appointment wording for a consultation
+  /// decision. Nullable only so existing rows need no backfill.
+  trigger NotificationTrigger?
+
   refType String
   refId   String
   channel MessageChannel
