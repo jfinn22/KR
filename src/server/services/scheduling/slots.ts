@@ -3,6 +3,7 @@ import { DomainError } from '@/server/errors'
 import { computeAvailability } from '@/domain/scheduling/availability'
 import { chainDuration } from '@/domain/scheduling/chain'
 import { fromEpochMinutes } from '@/domain/scheduling/zoned'
+import { describeWindow, windowFrom } from '@/domain/scheduling/window'
 import type { PhaseChain, Slot } from '@/domain/scheduling/types'
 import { loadAvailabilityRequest } from './loader'
 import { loadPlan, sessionBookability } from '../service-plan'
@@ -27,8 +28,6 @@ export interface SlotSearch {
   stylistId?: string | null
   /** Any capable stylist, rather than only the one who did the consultation. */
   anyStylist?: boolean
-  earliestMin?: number | null
-  latestMin?: number | null
   now?: Date
 }
 
@@ -49,6 +48,14 @@ export interface SlotSearchResult {
   reason: string | null
   bookable: boolean
   earliestDate: string | null
+  /**
+   * The narrowing in words, or null when there is none.
+   *
+   * Shown to the client rather than kept quiet: "no times in that range" is
+   * infuriating when the reason is a restriction somebody else applied and
+   * nobody mentioned.
+   */
+  restrictedTo: string | null
 }
 
 /** The frozen chain for a session, reassembled from the plan's stored JSON. */
@@ -94,10 +101,26 @@ export async function findSlots(search: SlotSearch): Promise<SlotSearchResult> {
     throw new DomainError('CONFLICT', 'That session is already booked.')
   }
 
+  /*
+   * The window comes off the plan, never off the request.
+   *
+   * A stylist narrowing an approval to Tuesdays is making a clinical decision
+   * about somebody's hair, not expressing a preference — so it is not
+   * something the client's own search can widen back out by omitting a field.
+   */
+  const window = windowFrom(plan)
+  const restrictedTo = describeWindow(window)
+
   // Refuse before searching, so a client is never shown times they cannot take.
   const gate = await sessionBookability(search.salonId, search.servicePlanId, search.sequence)
   if (!gate.bookable) {
-    return { slots: [], reason: gate.reason, bookable: false, earliestDate: gate.earliestDate }
+    return {
+      slots: [],
+      reason: gate.reason,
+      bookable: false,
+      earliestDate: gate.earliestDate,
+      restrictedTo,
+    }
   }
 
   const chain = sessionChain(session)
@@ -112,7 +135,13 @@ export async function findSlots(search: SlotSearch): Promise<SlotSearchResult> {
   const fromDate =
     gate.earliestDate && gate.earliestDate > search.fromDate ? gate.earliestDate : search.fromDate
   if (fromDate > search.toDate) {
-    return { slots: [], reason: gate.reason, bookable: true, earliestDate: gate.earliestDate }
+    return {
+      slots: [],
+      reason: gate.reason,
+      bookable: true,
+      earliestDate: gate.earliestDate,
+      restrictedTo,
+    }
   }
 
   const request = await loadAvailabilityRequest({
@@ -125,8 +154,7 @@ export async function findSlots(search: SlotSearch): Promise<SlotSearchResult> {
     isChemical: await anyChemical(search.salonId, serviceIds),
     isNewClient: false,
     pinnedStylistId: search.anyStylist ? null : (search.stylistId ?? plan.stylistProfileId),
-    earliestMin: search.earliestMin ?? null,
-    latestMin: search.latestMin ?? null,
+    window,
     now: search.now,
   })
 
@@ -145,9 +173,10 @@ export async function findSlots(search: SlotSearch): Promise<SlotSearchResult> {
       offersInterleave: slot.offersInterleave,
       token: encodeSlot(slot),
     })),
-    reason: result.slots.length === 0 ? explain(result.reason) : null,
+    reason: result.slots.length === 0 ? explain(result.reason, restrictedTo) : null,
     bookable: true,
     earliestDate: gate.earliestDate,
+    restrictedTo,
   }
 }
 
@@ -183,6 +212,11 @@ export async function resolveSlot(
     isChemical: await anyChemical(search.salonId, serviceIds),
     isNewClient: false,
     pinnedStylistId: decoded.stylistId,
+    // Also applied here, not only in the search. The token is deliberately
+    // unsigned, so this is the step that actually enforces the narrowing: a
+    // slot outside it is never solved, so there is nothing to match and the
+    // hold is refused.
+    window: windowFrom(plan),
     now: search.now,
   })
 
@@ -219,8 +253,24 @@ async function anyChemical(salonId: string, serviceIds: readonly string[]): Prom
   return count > 0
 }
 
-/** Say why, in words a client can act on. */
-function explain(reason: string | null): string {
+/**
+ * Say why, in words a client can act on.
+ *
+ * A narrowed plan gets the narrowing named. Otherwise "no times in that range"
+ * reads as the salon being full, and the client widens the date range again
+ * and again against a restriction no amount of widening will move.
+ */
+function explain(reason: string | null, restrictedTo: string | null): string {
+  if (restrictedTo) {
+    const suffix = ` Your stylist has held this to ${restrictedTo}.`
+    switch (reason) {
+      case 'NO_CAPABLE_STYLIST':
+        return `Nobody qualified is free in that range.${suffix}`
+      default:
+        return `No times left in that range.${suffix} Try further ahead.`
+    }
+  }
+
   switch (reason) {
     case 'NO_CAPABLE_STYLIST':
       return 'Nobody qualified for this service is taking bookings in that range. Try a wider date range, or ask us to suggest someone.'

@@ -1,4 +1,5 @@
 import type { Interval } from './interval'
+import type { BookingWindow } from './window'
 
 export type PhaseKind = 'BUFFER_BEFORE' | 'ACTIVE' | 'PROCESSING' | 'RINSE' | 'BUFFER_AFTER'
 export type ResourceType = 'CHAIR' | 'BASIN' | 'PROCESSING_SEAT' | 'ROOM' | 'DRYER'
@@ -80,8 +81,22 @@ export interface AvailabilityRequest {
   /** Contains a chemical service, for the daily cap. */
   isChemical: boolean
   constraints: {
-    earliestMin: number | null
-    latestMin: number | null
+    /**
+     * Absolute bounds in epoch minutes, for spacing rather than preference —
+     * the multi-session planner uses them to keep session 2 inside the six-to-
+     * ten week gap the engine set. Renamed from `earliestMin`/`latestMin`,
+     * which read as minutes-of-day and were validated that way in the booking
+     * action (0–1440) while the solver treated them as absolute. Nothing
+     * passed them from that side, so the disagreement never fired.
+     */
+    notBeforeMin?: number | null
+    notAfterMin?: number | null
+    /**
+     * Days and times somebody has ruled out — the stylist at approval, or the
+     * client on the waitlist. Local, recurring, and a different thing from the
+     * absolute bounds above. Absent means anything the salon is open for.
+     */
+    window?: BookingWindow | null
     pinnedStylistId: string | null
   }
   /** Cap on returned slots per local day. */

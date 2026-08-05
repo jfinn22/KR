@@ -193,6 +193,74 @@ test.describe('the review queue', () => {
   })
 })
 
+/*
+ * "Approve, but Tuesdays and Thursdays, mornings only" is a real thing a
+ * colourist says about a five-hour correction, and there was nowhere to put it
+ * — the client got the whole open diary and the stylist found out on the day.
+ */
+test.describe('narrowing when a plan can be booked', () => {
+  async function openFirstReview(page: Page) {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/review`)
+    const first = page.getByRole('link', { name: /flag/i }).first()
+    if ((await first.count()) === 0) test.skip(true, 'Nothing in the queue')
+    await first.click()
+    await expect(page).toHaveURL(/\/review\/[a-z0-9]+/, { timeout: 15_000 })
+  }
+
+  test('starts wide open and out of the way', async ({ page }) => {
+    await openFirstReview(page)
+
+    // Off by default, for the same reason the price override is blank by
+    // default: the common case is agreeing with the diary, and every
+    // restriction here costs the client appointments.
+    await expect(page.getByText(/anything the diary can take/i)).toBeVisible()
+    await expect(page.locator('#win-start')).toHaveCount(0)
+  })
+
+  test('a stylist can hold it to certain days and read back what they chose', async ({ page }) => {
+    await openFirstReview(page)
+
+    await page.getByRole('button', { name: /narrow it/i }).click()
+    await expect(page.locator('#win-start')).toBeVisible()
+
+    // Leave Tuesday and Thursday on.
+    for (const day of ['Sun', 'Mon', 'Wed', 'Fri', 'Sat']) {
+      await page.getByRole('button', { name: day, exact: true }).click()
+    }
+    await page.locator('#win-start').selectOption(String(9 * 60))
+
+    // Said back in words, so nobody has to decode a bitmask to see what they did.
+    await expect(page.getByText(/Tue and Thu/)).toBeVisible()
+    await expect(page.getByText(/starting between 9am/i)).toBeVisible()
+  })
+
+  test('refuses to leave zero days, which would be an outage not a narrowing', async ({ page }) => {
+    await openFirstReview(page)
+    await page.getByRole('button', { name: /narrow it/i }).click()
+
+    for (const day of ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']) {
+      await page.getByRole('button', { name: day, exact: true }).click()
+    }
+
+    // The last one does not turn off: with no days the solver returns nothing
+    // and the client is told the salon is fully booked, forever.
+    const stillOn = await page
+      .getByRole('button', { name: /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat)$/ })
+      .evaluateAll((nodes) => nodes.filter((n) => n.getAttribute('aria-pressed') === 'true').length)
+    expect(stillOn).toBe(1)
+  })
+
+  test('clears back to the whole diary in one tap', async ({ page }) => {
+    await openFirstReview(page)
+    await page.getByRole('button', { name: /narrow it/i }).click()
+    await page.getByRole('button', { name: 'Mon', exact: true }).click()
+
+    await page.getByRole('button', { name: /^clear$/i }).click()
+    await expect(page.getByText(/anything the diary can take/i)).toBeVisible()
+  })
+})
+
 test.describe('staff boundaries', () => {
   test('a client cannot reach the desk or the review queue', async ({ page }) => {
     await signIn(page, CLIENT)

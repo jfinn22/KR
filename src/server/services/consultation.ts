@@ -88,6 +88,67 @@ function toServiceSpec(service: {
   }
 }
 
+/**
+ * Which form this basket should be asked to fill in.
+ *
+ * Every consultation used to get the salon's single published template,
+ * whichever services were in the basket — so booking a haircut at Aurora asked
+ * about box dye, henna and previous bleach. `appliesToServiceIds` has been on
+ * the model since the schema was written and was read by nothing.
+ *
+ * Strictest service wins, mirroring `requiredPhotoViews`: a cut booked
+ * alongside a balayage gets the balayage form, because the risky service is
+ * the one being assessed and the client is having both done in one sitting.
+ * "Strictest" is decided by how specifically a template claims the basket — a
+ * template naming these exact services beats a general one, because somebody
+ * took the trouble to name them.
+ *
+ * `Consultation.templateId` is a single FK, so one basket gets one form.
+ * Splitting a mixed basket across two would mean a schema change and a rewrite
+ * of the answer-to-facts mapping, for a case a salon can already handle by
+ * writing one template that covers both.
+ */
+async function pickTemplate(salonId: string, serviceIds: string[], templateKey?: string) {
+  if (templateKey) {
+    return unsafeDb.consultationTemplate.findFirst({
+      where: {
+        status: 'PUBLISHED',
+        key: templateKey,
+        OR: [{ salonId }, { salonId: null }],
+      },
+      orderBy: [{ salonId: 'desc' }, { version: 'desc' }],
+    })
+  }
+
+  const candidates = await unsafeDb.consultationTemplate.findMany({
+    where: { status: 'PUBLISHED', OR: [{ salonId }, { salonId: null }] },
+    orderBy: [{ salonId: 'desc' }, { version: 'desc' }],
+  })
+  if (candidates.length === 0) return null
+
+  const wanted = new Set(serviceIds)
+
+  // A template that names one of these services claims the basket. Among
+  // those, the one naming the most of them is the most specific.
+  const claiming = candidates
+    .map((template) => ({
+      template,
+      matched: template.appliesToServiceIds.filter((id) => wanted.has(id)).length,
+    }))
+    .filter((c) => c.matched > 0)
+    .sort((a, b) => b.matched - a.matched)
+
+  if (claiming[0]) return claiming[0].template
+
+  /*
+   * Nothing claimed it, so fall back to a template that claims nothing —
+   * a general form, meant for anything. Only if there is no general form
+   * either does a specific one get used, because a colour form on a haircut
+   * is still better than refusing to take the booking.
+   */
+  return candidates.find((t) => t.appliesToServiceIds.length === 0) ?? candidates[0] ?? null
+}
+
 export async function startConsultation(input: {
   salonId: string
   clientProfileId: string
@@ -95,14 +156,7 @@ export async function startConsultation(input: {
   stylistProfileId?: string | null
   templateKey?: string
 }): Promise<string> {
-  const template = await unsafeDb.consultationTemplate.findFirst({
-    where: {
-      status: 'PUBLISHED',
-      OR: [{ salonId: input.salonId }, { salonId: null }],
-      ...(input.templateKey ? { key: input.templateKey } : {}),
-    },
-    orderBy: [{ salonId: 'desc' }, { version: 'desc' }],
-  })
+  const template = await pickTemplate(input.salonId, input.serviceIds, input.templateKey)
   if (!template) {
     throw new DomainError('NOT_FOUND', 'This salon has no published consultation form yet.')
   }
@@ -177,6 +231,9 @@ export async function loadConsultation(
       answers: true,
       photos: { select: { view: true } },
       template: { include: { questions: { orderBy: { sortOrder: 'asc' } } } },
+      // Whether the salon has seen this hair before decides whether a
+      // non-chemical service asks for photos at all.
+      clientProfile: { select: { completedVisits: true } },
     },
   })
   if (!consultation) throw new DomainError('NOT_FOUND', 'That consultation no longer exists.')
@@ -215,6 +272,8 @@ export async function loadConsultation(
     },
   })
 
+  const photoContext = { isFirstVisit: consultation.clientProfile.completedVisits === 0 }
+
   return {
     id: consultation.id,
     status: consultation.status,
@@ -223,8 +282,8 @@ export async function loadConsultation(
     answers,
     completion: completionRatio(questions, answers),
     missing: missingRequired(questions, answers).map((q) => q.key),
-    requiredPhotoViews: requiredPhotoViews(services),
-    suggestedPhotoViews: suggestedPhotoViews(services),
+    requiredPhotoViews: requiredPhotoViews(services, photoContext),
+    suggestedPhotoViews: suggestedPhotoViews(services, photoContext),
     providedPhotoViews: consultation.photos.map((p) => p.view),
     evaluation,
   }
@@ -353,7 +412,9 @@ export async function evaluateConsultation(input: {
     photos: {
       providedViews: consultation.photos.map((p) => p.view),
       // Scaled to the basket: a dry cut is not held up waiting for root shots.
-      requiredViews: requiredPhotoViews(services),
+      requiredViews: requiredPhotoViews(services, {
+        isFirstVisit: consultation.clientProfile.completedVisits === 0,
+      }),
       lowestQualityScore: consultation.photos.length
         ? Math.min(...consultation.photos.map((p) => Number(p.qualityScore ?? 1)))
         : null,

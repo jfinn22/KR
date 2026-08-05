@@ -84,6 +84,43 @@ describe('required photo views', () => {
   })
 })
 
+describe('the first visit', () => {
+  const first = { isFirstVisit: true }
+
+  /*
+   * The one photo requirement a non-chemical service ever carries. A regular's
+   * shape is on file from every previous visit; a stranger's is not, and
+   * "shoulder-length bob" covers a range wide enough to lose forty minutes in.
+   */
+  it('asks a stranger for their current shape before a cut', () => {
+    expect(requiredPhotoViews([cut], first)).toEqual(['FRONT', 'BACK'])
+  })
+
+  it('goes back to asking a regular for nothing', () => {
+    expect(requiredPhotoViews([cut], { isFirstVisit: false })).toEqual([])
+  })
+
+  // An unknown client is treated as returning: over-asking is the failure that
+  // makes people put their phone down.
+  it('treats an unstated history as a returning client', () => {
+    expect(requiredPhotoViews([cut])).toEqual([])
+  })
+
+  // The colour sets already contain FRONT and BACK, so there is nothing to add.
+  it('changes nothing about a chemical service', () => {
+    expect(requiredPhotoViews([balayage], first)).toEqual(requiredPhotoViews([balayage]))
+    expect(requiredPhotoViews([gloss], first)).toEqual(requiredPhotoViews([gloss]))
+  })
+
+  it('does not offer a shape shot it has just made compulsory', () => {
+    expect(suggestedPhotoViews([cut], first)).toEqual([])
+  })
+
+  it('still invites it from somebody who has been in before', () => {
+    expect(suggestedPhotoViews([cut])).toEqual(['FRONT', 'BACK'])
+  })
+})
+
 describe('suggested photo views', () => {
   it('still invites the shape shots for a cut', () => {
     expect(suggestedPhotoViews([cut])).toEqual(['FRONT', 'BACK'])

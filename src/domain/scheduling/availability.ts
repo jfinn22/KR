@@ -1,6 +1,7 @@
 import { fitsWithin, merge, overlaps, peakCoverage, subtract, type Interval } from './interval'
 import { chainDuration, chainOffersInterleave } from './chain'
 import { eachLocalDate, localDateOfEpochMinutes, localTimeToEpochMinutes } from './zoned'
+import { ANY_TIME, allowsDate, isNarrowed, startBoundsOn } from './window'
 import type {
   AvailabilityRequest,
   AvailabilityResult,
@@ -65,15 +66,29 @@ export function computeAvailability(request: AvailabilityRequest): AvailabilityR
   const horizonEnd = request.nowMin + settings.maxAdvanceDays * 1440
   const windowStart = Math.max(
     request.nowMin + settings.minBookingLeadMin,
-    request.constraints.earliestMin ?? -Infinity,
+    request.constraints.notBeforeMin ?? -Infinity,
   )
-  const windowEnd = Math.min(horizonEnd, request.constraints.latestMin ?? Infinity)
+  const windowEnd = Math.min(horizonEnd, request.constraints.notAfterMin ?? Infinity)
 
   if (windowStart >= windowEnd) {
     return { slots: [], reason: 'OUTSIDE_BOOKING_WINDOW', excluded }
   }
 
-  const dates = eachLocalDate(request.fromDate, request.toDate)
+  /*
+   * What somebody said they could actually do — Tuesdays, mornings, before the
+   * wedding. Applied here rather than by filtering the finished list so a
+   * narrowed search does not burn its per-day cap on times it is about to
+   * throw away, and so a day that is ruled out is never solved at all.
+   */
+  const window = request.constraints.window ?? ANY_TIME
+  const narrowed = isNarrowed(window)
+
+  const dates = eachLocalDate(request.fromDate, request.toDate).filter(
+    (localDate) => !narrowed || allowsDate(window, localDate, request.timeZone),
+  )
+  if (dates.length === 0) {
+    return { slots: [], reason: 'OUTSIDE_BOOKING_WINDOW', excluded }
+  }
   const granularity = Math.max(5, settings.slotGranularityMin)
   const offersInterleave = chainOffersInterleave(chain)
   const maxPerDay = request.maxPerDay ?? 8
@@ -87,9 +102,14 @@ export function computeAvailability(request: AvailabilityRequest): AvailabilityR
     const closeAt = Math.max(...open.map((i) => i.end)) + settings.allowFinishAfterCloseMin
     const daySlots: Slot[] = []
 
+    // Same arithmetic `allowsStart` uses, in the shape the start generator wants.
+    const bounds = narrowed
+      ? startBoundsOn(window, localDate, request.timeZone)
+      : { earliest: -Infinity, latest: Infinity }
+
     for (const stylist of capable) {
       const lead = stylist.leadMinOverride ?? settings.minBookingLeadMin
-      const earliest = Math.max(windowStart, request.nowMin + lead)
+      const earliest = Math.max(windowStart, request.nowMin + lead, bounds.earliest)
 
       // Daily ceiling on chemical work — a colourist doing six corrections in a
       // day is how a salon ends up running two hours late by lunchtime.
@@ -127,7 +147,12 @@ export function computeAvailability(request: AvailabilityRequest): AvailabilityR
 
       // Only ever start where the stylist is free — iterating every granularity
       // step across the day would be mostly wasted work.
-      const starts = candidateStarts(free, granularity, earliest, windowEnd - totalMin)
+      const starts = candidateStarts(
+        free,
+        granularity,
+        earliest,
+        Math.min(windowEnd - totalMin, bounds.latest),
+      )
 
       for (const start of starts) {
         const placement = placeChain(chain, start, request.resources)

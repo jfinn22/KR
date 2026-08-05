@@ -1,5 +1,5 @@
 import { pageContext } from '@/server/auth/page'
-import { inspirationPhotos } from '@/server/services/photos'
+import { currentColourOf, inspirationPhotos } from '@/server/services/photos'
 import { InspirationBoard } from './inspiration-board'
 
 export const dynamic = 'force-dynamic'
@@ -19,7 +19,19 @@ export default async function InspirationPage({
 }) {
   const { salon, id } = await params
   const ctx = await pageContext(salon)
-  const photos = await inspirationPhotos(ctx.salonId, id)
+  const [photos, current] = await Promise.all([
+    inspirationPhotos(ctx.salonId, id),
+    // So a reference can be measured against the hair it is sitting above,
+    // while the client is still on the screen where they can act on it.
+    currentColourOf(ctx.salonId, id),
+  ])
 
-  return <InspirationBoard salonSlug={salon} consultationId={id} initialPhotos={photos} />
+  return (
+    <InspirationBoard
+      salonSlug={salon}
+      consultationId={id}
+      initialPhotos={photos}
+      current={current}
+    />
+  )
 }

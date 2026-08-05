@@ -63,6 +63,43 @@ const DECISIONS = [
   'DECLINE',
 ] as const
 
+/*
+ * The days and times an approval is held to.
+ *
+ * Hoisted rather than inlined for the same reason `NEW_CLIENT` is in
+ * `actions/client.ts`: a `'use server'` module may only export async
+ * functions, and the arrow inside `.refine()` sits in an exported const's
+ * initializer, which the compiler rejects outright.
+ *
+ * The refusals are the point. A mask of zero and a start past its end are both
+ * windows no appointment can satisfy, and the failure mode is silent — the
+ * client is simply told the salon is fully booked, forever. The same
+ * conditions are a CHECK constraint on the table; this is the version that can
+ * say why.
+ */
+const WINDOW = z
+  .object({
+    earliestDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullish(),
+    latestDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullish(),
+    dayOfWeekMask: z.number().int().min(1, 'Pick at least one day.').max(127),
+    windowStartMinute: z.number().int().min(0).max(1440),
+    windowEndMinute: z.number().int().min(0).max(1440),
+  })
+  .refine((w) => w.windowStartMinute < w.windowEndMinute, {
+    message: 'The earliest start has to come before the latest.',
+    path: ['windowEndMinute'],
+  })
+  .refine((w) => !w.earliestDate || !w.latestDate || w.earliestDate <= w.latestDate, {
+    message: 'That date range runs backwards.',
+    path: ['latestDate'],
+  })
+
 export const decideReviewAction = withAuthz(
   {
     action: 'consultation.review',
@@ -77,6 +114,7 @@ export const decideReviewAction = withAuthz(
           priceCents: z.number().int().min(0).max(10_000_00).nullish(),
           depositCents: z.number().int().min(0).max(10_000_00).nullish(),
           stylistProfileId: cuid.nullish(),
+          window: WINDOW.nullish(),
         })
         .optional(),
     }),
@@ -93,10 +131,16 @@ export const decideReviewAction = withAuthz(
      * the decision label. APPROVE_WITH_CHANGES is what records that the human
      * and the engine differed, which is the input the calibration loop needs —
      * an override filed as a plain approval looks like the engine got it right.
+     *
+     * The window is deliberately not counted. Narrowing to Tuesday mornings is
+     * a statement about the stylist's diary, not about the engine's estimate
+     * being wrong, and filing it as a disagreement would put noise into exactly
+     * the signal this distinction exists to keep clean.
      */
+    const { window: _window, ...estimateOverrides } = input.overrides ?? {}
     const changed =
       input.overrides &&
-      Object.values(input.overrides).some((value) => value !== null && value !== undefined)
+      Object.values(estimateOverrides).some((value) => value !== null && value !== undefined)
 
     const decision: ReviewDecision =
       changed && input.decision === 'APPROVE' ? 'APPROVE_WITH_CHANGES' : input.decision
@@ -114,6 +158,15 @@ export const decideReviewAction = withAuthz(
             priceCents: input.overrides.priceCents ?? null,
             depositCents: input.overrides.depositCents ?? null,
             stylistProfileId: input.overrides.stylistProfileId ?? null,
+            window: input.overrides.window
+              ? {
+                  earliestDate: input.overrides.window.earliestDate ?? null,
+                  latestDate: input.overrides.window.latestDate ?? null,
+                  dayOfWeekMask: input.overrides.window.dayOfWeekMask,
+                  windowStartMinute: input.overrides.window.windowStartMinute,
+                  windowEndMinute: input.overrides.window.windowEndMinute,
+                }
+              : null,
           }
         : undefined,
     })

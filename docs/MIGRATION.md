@@ -183,7 +183,10 @@ has `ContactConsent` and `SuppressionEntry` for exactly this distinction; the
 import path should feed them deliberately rather than bypass them.
 
 **Staff import stays shallow on purpose.** Bring staff over as `StylistProfile`
-shells the owner assigns real logins to via the existing `Invitation` flow.
+shells the owner assigns real logins to afterwards. An earlier draft of this
+document said "via the existing `Invitation` flow" — there is no such flow. The
+`Invitation` model exists and has zero references anywhere in `src/`, so
+building it is part of this work rather than something to lean on.
 Do **not** auto-import skill/capability data — no competitor platform models
 stylist capability against a phase chain, so there is nothing correct to
 import. Five minutes of deliberate setup beats a wrong guess that silently

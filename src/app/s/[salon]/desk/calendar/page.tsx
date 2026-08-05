@@ -18,9 +18,20 @@ export const dynamic = 'force-dynamic'
  * salon already owns.
  */
 
-/** The window drawn. Outside it there is nothing to see. */
-const DAY_START_MIN = 7 * 60
-const DAY_END_MIN = 21 * 60
+/**
+ * The window drawn, as a floor rather than a limit.
+ *
+ * This used to be a fixed 7am–9pm with a comment saying "outside it there is
+ * nothing to see", which was not true — it was drawn nowhere and therefore
+ * invisible. A 6:30am blow-dry before a wedding and a 9:30pm booking on a late
+ * night are both ordinary, and a diary that silently omits them is worse than
+ * one that scrolls: the front desk reads an empty column as a free stylist.
+ *
+ * So the ordinary day is always shown, and the window stretches to contain
+ * whatever is actually booked.
+ */
+const DEFAULT_START_MIN = 7 * 60
+const DEFAULT_END_MIN = 21 * 60
 const PIXELS_PER_MIN = 1.4
 
 export default async function CalendarPage({
@@ -36,11 +47,27 @@ export default async function CalendarPage({
   const localDate = query.date ?? localDateIn(ctx.timezone)
   const { columns } = await daySchedule(ctx.salonId, { localDate, timeZone: ctx.timezone })
 
-  const height = (DAY_END_MIN - DAY_START_MIN) * PIXELS_PER_MIN
-  const hours = Array.from(
-    { length: (DAY_END_MIN - DAY_START_MIN) / 60 + 1 },
-    (_, i) => DAY_START_MIN + i * 60,
+  /*
+   * Stretch the window to whatever is booked, rounded out to whole hours so
+   * the gutter still reads as a clock rather than as "06:42".
+   */
+  const edges = columns.flatMap((column) =>
+    column.segments.flatMap((segment) => [
+      minutesInto(segment.startsAt, ctx.timezone),
+      minutesInto(segment.endsAt, ctx.timezone),
+    ]),
   )
+  const startMin = Math.max(
+    0,
+    Math.min(DEFAULT_START_MIN, ...edges.map((m) => Math.floor(m / 60) * 60)),
+  )
+  const endMin = Math.min(
+    1440,
+    Math.max(DEFAULT_END_MIN, ...edges.map((m) => Math.ceil(m / 60) * 60)),
+  )
+
+  const height = (endMin - startMin) * PIXELS_PER_MIN
+  const hours = Array.from({ length: (endMin - startMin) / 60 + 1 }, (_, i) => startMin + i * 60)
 
   const anything = columns.some((column) => column.segments.length > 0)
 
@@ -86,7 +113,7 @@ export default async function CalendarPage({
                   key={minute}
                   className="tabular absolute -translate-y-1/2 pl-2 text-label text-ink-subtle"
                   style={{
-                    marginTop: (minute - DAY_START_MIN) * PIXELS_PER_MIN,
+                    marginTop: (minute - startMin) * PIXELS_PER_MIN,
                     position: 'relative',
                   }}
                 >
@@ -112,17 +139,19 @@ export default async function CalendarPage({
                     <div
                       key={minute}
                       className="absolute inset-x-0 border-t border-line/60"
-                      style={{ top: (minute - DAY_START_MIN) * PIXELS_PER_MIN }}
+                      style={{ top: (minute - startMin) * PIXELS_PER_MIN }}
                     />
                   ))}
 
                   {column.segments.map((segment) => {
                     const start = minutesInto(segment.startsAt, ctx.timezone)
                     const end = minutesInto(segment.endsAt, ctx.timezone)
-                    const top = (start - DAY_START_MIN) * PIXELS_PER_MIN
+                    const top = (start - startMin) * PIXELS_PER_MIN
                     const blockHeight = Math.max(14, (end - start) * PIXELS_PER_MIN)
 
-                    if (end < DAY_START_MIN || start > DAY_END_MIN) return null
+                    // The window now contains every segment, so this only ever trims a
+                    // block whose own start and end disagree.
+                    if (end < startMin || start > endMin) return null
 
                     return (
                       <div

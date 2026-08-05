@@ -10,6 +10,9 @@ import {
   submitConsultationAction,
   tagInspirationAction,
 } from '@/server/actions/consultation'
+import { TONE_FAMILIES, shadeByKey } from '@/domain/hair/tone'
+import { compareToReference } from '@/domain/hair/comparison'
+import type { Level } from '@/domain/consultation/facts'
 
 /**
  * Reference pictures: the last step of every consultation.
@@ -51,10 +54,13 @@ export function InspirationBoard({
   salonSlug,
   consultationId,
   initialPhotos,
+  current,
 }: {
   salonSlug: string
   consultationId: string
   initialPhotos: InspirationPhotoView[]
+  /** Where the client's hair is now, for measuring a reference against. */
+  current: { shadeKey: string | null; level: number | null }
 }) {
   const router = useRouter()
 
@@ -133,14 +139,24 @@ export function InspirationBoard({
     }
   }
 
-  async function setTags(photoId: string, keys: AttributeKey[]) {
-    setPhotos((current) =>
-      current.map((photo) =>
+  /*
+   * Tags are a key→value map rather than a list of keys.
+   *
+   * Every tag but one is a yes: the client is pointing at a part of the
+   * picture. `TARGET_LEVEL` carries the shade they picked, which is what makes
+   * the comparison against their own hair possible — so toggling any other tag
+   * must not flatten it back to a bare "yes".
+   */
+  async function setTags(photoId: string, tags: Record<string, string>) {
+    const attributes = Object.entries(tags).map(([key, value]) => ({
+      key: key as AttributeKey,
+      value,
+    }))
+
+    setPhotos((photos) =>
+      photos.map((photo) =>
         photo.id === photoId
-          ? {
-              ...photo,
-              attributes: keys.map((key) => ({ key, value: 'yes', source: 'CLIENT' })),
-            }
+          ? { ...photo, attributes: attributes.map((a) => ({ ...a, source: 'CLIENT' })) }
           : photo,
       ),
     )
@@ -148,7 +164,7 @@ export function InspirationBoard({
     const result = await tagInspirationAction(salonSlug, {
       consultationId,
       inspirationPhotoId: photoId,
-      attributes: keys.map((key) => ({ key, value: 'yes' })),
+      attributes,
     })
     if (!result.ok) setError(result.error)
   }
@@ -194,7 +210,13 @@ export function InspirationBoard({
       {photos.length > 0 && (
         <div className="grid gap-5 sm:grid-cols-2">
           {photos.map((photo) => (
-            <InspirationCard key={photo.id} photo={photo} onTags={setTags} onRemove={remove} />
+            <InspirationCard
+              key={photo.id}
+              photo={photo}
+              current={current}
+              onTags={setTags}
+              onRemove={remove}
+            />
           ))}
         </div>
       )}
@@ -246,21 +268,35 @@ export function InspirationBoard({
 
 function InspirationCard({
   photo,
+  current,
   onTags,
   onRemove,
 }: {
   photo: InspirationPhotoView
-  onTags: (photoId: string, keys: AttributeKey[]) => void
+  current: { shadeKey: string | null; level: number | null }
+  onTags: (photoId: string, tags: Record<string, string>) => void
   onRemove: (photoId: string) => void
 }) {
-  const selected = new Set(photo.attributes.map((a) => a.key as AttributeKey))
+  const tags: Record<string, string> = Object.fromEntries(
+    photo.attributes.map((a) => [a.key, a.value]),
+  )
+  const selected = new Set(Object.keys(tags) as AttributeKey[])
 
   const toggle = (key: AttributeKey) => {
-    const next = new Set(selected)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    onTags(photo.id, [...next])
+    const next = { ...tags }
+    if (key in next) delete next[key]
+    else next[key] = 'yes'
+    onTags(photo.id, next)
   }
+
+  const setLevel = (shadeKey: string) => onTags(photo.id, { ...tags, TARGET_LEVEL: shadeKey })
+
+  const referenceShade = shadeByKey(tags.TARGET_LEVEL)
+  const comparison = compareToReference({
+    currentShadeKey: current.shadeKey,
+    currentLevel: (current.level ?? null) as Level | null,
+    referenceShadeKey: tags.TARGET_LEVEL,
+  })
 
   return (
     <article className="overflow-hidden rounded-lg border border-line bg-canvas">
@@ -309,6 +345,53 @@ function InspirationCard({
           })}
         </div>
 
+        {/*
+         * The level tag opens a swatch chart rather than being a plain yes.
+         *
+         * "I like the level" tells a stylist the client is pointing at depth
+         * and nothing about which depth — and depth is the one attribute in
+         * this list that can be measured against the hair already on their
+         * head. Same chart as the consultation's own colour question, so a
+         * client is picking from something they have already used once.
+         */}
+        {selected.has('TARGET_LEVEL') && (
+          <div className="mt-4 rounded-lg border border-line bg-surface p-3">
+            <p className="label-caps mb-2">Which level is it, roughly?</p>
+            <ShadeStrip selected={referenceShade?.key ?? null} onPick={setLevel} />
+          </div>
+        )}
+
+        {comparison && (
+          <div className="mt-3 rounded-lg border border-line bg-canvas p-3">
+            <div className="flex items-center gap-3">
+              <Swatch shade={comparison.fromShade} level={comparison.fromLevel} label="You now" />
+              <span aria-hidden className="text-ink-subtle">
+                →
+              </span>
+              <Swatch shade={comparison.toShade} level={comparison.toLevel} label="This picture" />
+            </div>
+            <p className="mt-3 text-secondary text-ink">{comparison.summary}</p>
+            {comparison.note && (
+              <p
+                className={cn(
+                  'mt-1 text-secondary',
+                  comparison.reach === 'BIG' ? 'text-gold-700' : 'text-ink-muted',
+                )}
+              >
+                {comparison.note}
+              </p>
+            )}
+            {/*
+             * Said every time, not only for a big change. How many visits it
+             * takes is the rules engine's answer and then the stylist's — a
+             * number guessed here would be the one the client remembers.
+             */}
+            <p className="mt-1 text-secondary text-ink-subtle">
+              Your stylist will confirm what it takes when they look at your photos.
+            </p>
+          </div>
+        )}
+
         {selected.size === 0 && (
           <Badge tone="warn" className="mt-3">
             Not tagged yet
@@ -316,5 +399,78 @@ function InspirationCard({
         )}
       </div>
     </article>
+  )
+}
+
+/**
+ * The whole chart in one scrolling strip, ordered dark to light.
+ *
+ * Not the full family-then-shade picker from the consultation: the client has
+ * already used that once for their own colour, and asking them to navigate two
+ * dropdowns again to say roughly how light a saved photo is would be the point
+ * they stop tagging. Levelling a reference is approximate by nature.
+ */
+function ShadeStrip({
+  selected,
+  onPick,
+}: {
+  selected: string | null
+  onPick: (shadeKey: string) => void
+}) {
+  const shades = React.useMemo(
+    () =>
+      TONE_FAMILIES.flatMap((family) => family.shades).sort(
+        (a, b) => a.level - b.level || a.name.localeCompare(b.name),
+      ),
+    [],
+  )
+
+  return (
+    <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Level of this reference">
+      {shades.map((shade) => (
+        <button
+          key={shade.key}
+          type="button"
+          role="radio"
+          aria-checked={selected === shade.key}
+          aria-label={`${shade.name}, level ${shade.level}`}
+          title={`${shade.name} · level ${shade.level}`}
+          onClick={() => onPick(shade.key)}
+          className={cn(
+            'h-8 w-8 rounded-md ring-1 ring-inset ring-ink/10 transition-all',
+            selected === shade.key
+              ? 'ring-2 ring-gold-500 ring-offset-2 ring-offset-surface'
+              : 'hover:-translate-y-0.5',
+          )}
+          style={{ backgroundColor: shade.hex }}
+        />
+      ))}
+    </div>
+  )
+}
+
+function Swatch({
+  shade,
+  level,
+  label,
+}: {
+  shade: { name: string; hex: string } | null
+  level: number
+  label: string
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        aria-hidden
+        className="block h-9 w-9 rounded-md ring-1 ring-inset ring-ink/10"
+        // A level with no shade behind it still has to show as something. The
+        // outline alone reads as "we know the depth, not the tone".
+        style={shade ? { backgroundColor: shade.hex } : undefined}
+      />
+      <span className="text-label text-ink-muted">
+        {label}
+        <span className="block text-ink">{shade ? shade.name : `Level ${level}`}</span>
+      </span>
+    </div>
   )
 }

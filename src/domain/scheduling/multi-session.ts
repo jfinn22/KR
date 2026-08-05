@@ -1,6 +1,7 @@
 import { computeAvailability } from './availability'
 import { addDays, localDateOfEpochMinutes } from './zoned'
 import type { AvailabilityRequest, PhaseChain, Slot } from './types'
+import type { BookingWindow } from './window'
 
 /**
  * Booking a whole multi-session plan at once.
@@ -29,6 +30,13 @@ export interface MultiSessionRequest {
   /** How far past the earliest date to look for each session. */
   searchWindowDays: number
   pinnedStylistId: string | null
+  /**
+   * Days and times the whole plan is held to.
+   *
+   * Applies to every session, not just the first: a stylist who said Tuesdays
+   * meant Tuesdays for the correction, not for its opening act.
+   */
+  window?: BookingWindow | null
 }
 
 export interface MultiSessionResult {
@@ -93,8 +101,9 @@ export function solveMultiSession(request: MultiSessionRequest): MultiSessionRes
       fromDate,
       toDate,
       constraints: {
-        earliestMin: previous ? previous.endMin : null,
-        latestMin,
+        notBeforeMin: previous ? previous.endMin : null,
+        notAfterMin: latestMin,
+        window: request.window ?? null,
         pinnedStylistId: pinned,
       },
     })

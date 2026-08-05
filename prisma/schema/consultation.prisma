@@ -459,6 +459,20 @@ model ServicePlan {
   evaluation     RuleEvaluation? @relation(fields: [evaluationId], references: [id], onDelete: SetNull)
 
   requiresStylistContinuity Boolean @default(false)
+
+  /// Days and times the stylist narrowed this plan to at approval — "Tuesdays
+  /// and Thursdays, mornings, before the end of March". The field names and
+  /// meanings are copied verbatim from WaitlistEntry so both can be read by the
+  /// one filter in domain/scheduling/window.ts; two models describing the same
+  /// idea differently is how a client ends up offered a day they ruled out.
+  /// Defaults are wide open, so an approval that says nothing narrows nothing.
+  windowEarliestDate DateTime? @db.Date
+  windowLatestDate   DateTime? @db.Date
+  /// Bitmask, Sunday = bit 0.
+  dayOfWeekMask      Int       @default(127)
+  windowStartMinute  Int       @default(0)
+  windowEndMinute    Int       @default(1440)
+
   notesToClient  String?   @db.Text
   approvedByUserId String?
   approvedAt     DateTime? @db.Timestamptz(3)

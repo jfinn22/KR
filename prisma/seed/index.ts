@@ -5,6 +5,7 @@ import {
   startConsultation,
   submitConsultation,
 } from '../../src/server/services/consultation'
+import { localDateOf, startOfLocalDay } from '../../src/domain/scheduling/zoned'
 
 /**
  * Aurora Hair Studio — the demo salon.
@@ -908,7 +909,26 @@ async function main() {
    * correctly whenever the seed happens to be run.
    */
   const now = new Date()
-  const minutesFromNow = (minutes: number) => new Date(now.getTime() + minutes * 60_000)
+
+  /*
+   * Offsets are from now, but clamped to the salon's own local day.
+   *
+   * The old version just added the offset and claimed the demo "reads
+   * correctly whenever the seed happens to be run". It does not: seeded a
+   * little after local midnight, "three hours ago" lands on yesterday, and the
+   * whole live day disappears from a front desk that is showing today. The
+   * demo then looks like a salon with nothing booked, which is the one thing
+   * the screen exists to disprove.
+   */
+  const dayStart = startOfLocalDay(localDateOf(now, salon.defaultTimezone), salon.defaultTimezone)
+  const dayEnd = new Date(dayStart.getTime() + 1440 * 60_000)
+  const minutesFromNow = (minutes: number, durationMin: number) => {
+    const wanted = now.getTime() + minutes * 60_000
+    const latest = dayEnd.getTime() - durationMin * 60_000
+    return new Date(
+      Math.min(Math.max(wanted, dayStart.getTime()), Math.max(latest, dayStart.getTime())),
+    )
+  }
 
   const liveDay: {
     offsetMin: number
@@ -946,7 +966,7 @@ async function main() {
     if (!spec || !serviceId || !stylist || !clientId) continue
 
     const estimated = spec.phases.reduce((sum, p) => sum + p.min, 0)
-    const wanted = minutesFromNow(entry.offsetMin)
+    const wanted = minutesFromNow(entry.offsetMin, estimated)
     const busyUntil = freeFrom.get(stylist.id)
     const startsAt = busyUntil && busyUntil > wanted ? busyUntil : wanted
     const endsAt = new Date(startsAt.getTime() + estimated * 60_000)
@@ -1011,19 +1031,17 @@ async function main() {
     liveCount++
   }
 
-  // --- Consultation template ----------------------------------------------
-  const template = await db.consultationTemplate.create({
-    data: {
-      salonId: salon.id,
-      key: 'colour-consultation',
-      version: 1,
-      name: 'Colour consultation',
-      status: 'PUBLISHED',
-      appliesToServiceIds: [serviceIds.get('full-balayage')!, serviceIds.get('colour-correction')!],
-    },
-  })
-
-  const questions: {
+  // --- Consultation templates ----------------------------------------------
+  /*
+   * Two forms, because a salon does not ask a haircut about box dye.
+   *
+   * The colour form names the services it is for, so `pickTemplate` hands it to
+   * a colour basket and nothing else. The care form names nothing, which is what
+   * makes it the general fallback — a cut, a blow-dry, a bond treatment or a
+   * service invented next week all get the short form rather than a chemical
+   * history nobody needs to give.
+   */
+  type QuestionSeed = {
     key: string
     section: string
     prompt: string
@@ -1031,7 +1049,46 @@ async function main() {
     factKey?: string
     options?: string[]
     visibleWhen?: unknown
-  }[] = [
+  }
+
+  async function writeQuestions(templateId: string, list: QuestionSeed[]) {
+    for (const [sortOrder, question] of list.entries()) {
+      await db.consultationQuestion.create({
+        data: {
+          salonId: salon.id,
+          templateId,
+          key: question.key,
+          section: question.section,
+          sortOrder,
+          prompt: question.prompt,
+          inputType: question.inputType,
+          factKey: question.factKey ?? null,
+          optionsJson: question.options ? { options: question.options } : undefined,
+          visibleWhenJson: (question.visibleWhen ?? undefined) as never,
+          isRequired: question.inputType !== 'LONG_TEXT',
+        },
+      })
+    }
+  }
+
+  const template = await db.consultationTemplate.create({
+    data: {
+      salonId: salon.id,
+      key: 'colour-consultation',
+      version: 1,
+      name: 'Colour consultation',
+      status: 'PUBLISHED',
+      appliesToServiceIds: [
+        serviceIds.get('full-balayage')!,
+        serviceIds.get('colour-correction')!,
+        serviceIds.get('root-touch-up')!,
+        serviceIds.get('gloss')!,
+        serviceIds.get('half-head-foils')!,
+      ],
+    },
+  })
+
+  const questions: QuestionSeed[] = [
     {
       key: 'goal_level',
       section: 'Your goal',
@@ -1106,23 +1163,93 @@ async function main() {
     },
   ]
 
-  for (const [sortOrder, question] of questions.entries()) {
-    await db.consultationQuestion.create({
-      data: {
-        salonId: salon.id,
-        templateId: template.id,
-        key: question.key,
-        section: question.section,
-        sortOrder,
-        prompt: question.prompt,
-        inputType: question.inputType,
-        factKey: question.factKey ?? null,
-        optionsJson: question.options ? { options: question.options } : undefined,
-        visibleWhenJson: (question.visibleWhen ?? undefined) as never,
-        isRequired: question.inputType !== 'LONG_TEXT',
-      },
-    })
-  }
+  await writeQuestions(template.id, questions)
+
+  /*
+   * The general form: cutting, styling, extensions, treatments.
+   *
+   * Seven questions against the colour form's ten, and not one of them about a
+   * chemical. What it does ask is the pair that actually changes a cut or a
+   * treatment — texture, because fine hair and coarse hair do not hold the same
+   * shape or take the same time, and scalp sensitivity, because somebody who
+   * flinches at a section clip is having a different appointment from somebody
+   * who does not, and the stylist would rather know before the gown is on.
+   */
+  const careTemplate = await db.consultationTemplate.create({
+    data: {
+      salonId: salon.id,
+      key: 'care-consultation',
+      version: 1,
+      name: 'Cut, styling & care',
+      status: 'PUBLISHED',
+      // Deliberately empty. This is the form for everything not named above.
+      appliesToServiceIds: [],
+    },
+  })
+
+  await writeQuestions(careTemplate.id, [
+    {
+      key: 'length',
+      section: 'Your hair',
+      prompt: 'Roughly how long is it now?',
+      inputType: 'SINGLE_SELECT',
+      factKey: 'hair.lengthCategory',
+      options: ['PIXIE', 'CHIN', 'SHOULDER', 'COLLARBONE', 'MID_BACK', 'WAIST', 'HIP'],
+    },
+    {
+      key: 'texture',
+      section: 'Your hair',
+      prompt: 'How would you describe the texture of a single strand?',
+      inputType: 'SINGLE_SELECT',
+      factKey: 'hair.texture',
+      options: ['FINE', 'MEDIUM', 'COARSE'],
+    },
+    {
+      key: 'density',
+      section: 'Your hair',
+      prompt: 'And how much of it is there?',
+      inputType: 'SINGLE_SELECT',
+      factKey: 'hair.density',
+      options: ['LOW', 'MEDIUM', 'HIGH'],
+    },
+    {
+      key: 'care_scalp_condition',
+      section: 'Scalp',
+      prompt: 'How is your scalp at the moment?',
+      inputType: 'SINGLE_SELECT',
+      factKey: 'hair.scalpCondition',
+      options: ['NORMAL', 'DRY', 'OILY', 'FLAKY', 'IRRITATED', 'PSORIASIS', 'ECZEMA'],
+    },
+    {
+      key: 'care_scalp',
+      section: 'Scalp',
+      prompt: 'How sensitive is your scalp?',
+      inputType: 'SINGLE_SELECT',
+      factKey: 'hair.scalpSensitivity',
+      options: ['NONE', 'MILD', 'MODERATE', 'SEVERE'],
+    },
+    {
+      key: 'care_split_ends',
+      section: 'Condition',
+      prompt: 'How are the ends looking?',
+      inputType: 'SINGLE_SELECT',
+      factKey: 'hair.splitEnds',
+      options: ['NONE', 'SOME', 'SEVERE'],
+    },
+    {
+      key: 'care_heat',
+      section: 'Condition',
+      prompt: 'How many times a week do you use heat on it?',
+      inputType: 'NUMBER',
+      factKey: 'lifestyle.heatStylingPerWeek',
+    },
+    {
+      key: 'care_notes',
+      section: 'Anything else',
+      prompt: 'Anything else we should know?',
+      inputType: 'LONG_TEXT',
+    },
+  ])
 
   /*
    * Consultations waiting for a stylist.

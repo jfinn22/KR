@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/button'
 import { Field, Input, Select, Textarea } from '@/components/ui/field'
 import { decideReviewAction } from '@/server/actions/review'
 import { formatMoney } from '@/lib/format'
+import { ANY_TIME, isNarrowed, type BookingWindow } from '@/domain/scheduling/window'
+import { WindowPicker } from './window-picker'
 
 /**
  * The decision.
@@ -90,6 +92,7 @@ export function DecisionPanel({
   const [price, setPrice] = React.useState('')
   const [deposit, setDeposit] = React.useState('')
   const [stylistId, setStylistId] = React.useState(currentStylistId ?? '')
+  const [window, setWindow] = React.useState<BookingWindow>(ANY_TIME)
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -118,8 +121,17 @@ export function DecisionPanel({
     priceCents: price === '' ? null : Math.round(Number(price) * 100),
     depositCents: deposit === '' ? null : Math.round(Number(deposit) * 100),
     stylistProfileId: changedStylist ? stylistId : null,
+    window: isNarrowed(window) ? window : null,
   }
-  const hasOverride = Object.values(overrides).some((v) => v !== null)
+  /*
+   * The window is excluded on purpose. "Approved with changes" means the human
+   * disagreed with the engine's estimate, which is the calibration signal —
+   * narrowing to Tuesday mornings says nothing about whether the estimate was
+   * right, so counting it here would file a scheduling preference as engine
+   * error. The server makes the same distinction.
+   */
+  const { window: _window, ...estimateOverrides } = overrides
+  const hasOverride = Object.values(estimateOverrides).some((v) => v !== null)
 
   async function decide(decision: DecisionKey) {
     setBusy(true)
@@ -131,7 +143,8 @@ export function DecisionPanel({
       decision,
       notesToClient: notesToClient.trim() || null,
       notesInternal: notesInternal.trim() || null,
-      overrides: decision === 'APPROVE' && hasOverride ? overrides : undefined,
+      overrides:
+        decision === 'APPROVE' && (hasOverride || overrides.window) ? overrides : undefined,
     })
 
     if (!result.ok) {
@@ -230,6 +243,8 @@ export function DecisionPanel({
           )}
         </div>
       )}
+
+      <WindowPicker value={window} onChange={setWindow} />
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <Field

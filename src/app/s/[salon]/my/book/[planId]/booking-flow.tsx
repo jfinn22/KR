@@ -29,6 +29,8 @@ export interface SlotSearchResult {
   reason: string | null
   bookable: boolean
   earliestDate: string | null
+  /** The narrowing the stylist applied at approval, in words. Null if none. */
+  restrictedTo: string | null
 }
 
 export function BookingFlow({
@@ -177,6 +179,18 @@ export function BookingFlow({
         <h1 className="font-display text-display-lg text-ink">{sessionName}</h1>
         {stylistName && !anyStylist && (
           <p className="mt-2 text-body text-ink-muted">Times shown are {stylistName}&rsquo;s.</p>
+        )}
+        {/*
+         * Said up front rather than only when the list comes back empty. A
+         * client who does not know a restriction exists reads a short list as
+         * the salon being busy, widens the range, and gets the same short list
+         * back — over and over against something no amount of widening moves.
+         */}
+        {result.restrictedTo && (
+          <p className="mt-2 text-body text-gold-700">
+            {stylistName ? `${stylistName} has` : 'Your stylist has'} asked to do this on{' '}
+            {result.restrictedTo}.
+          </p>
         )}
       </header>
 

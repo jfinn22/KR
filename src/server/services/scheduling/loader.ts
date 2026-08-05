@@ -8,6 +8,8 @@ import {
   localTimeToEpochMinutes,
   toEpochMinutes,
 } from '@/domain/scheduling/zoned'
+import { windowSignature } from '@/domain/scheduling/window'
+import type { BookingWindow } from '@/domain/scheduling/window'
 import type { Interval } from '@/domain/scheduling/interval'
 import type {
   AvailabilityRequest,
@@ -36,8 +38,8 @@ export interface LoadOptions {
   isNewClient: boolean
   stylistIds?: readonly string[]
   pinnedStylistId?: string | null
-  earliestMin?: number | null
-  latestMin?: number | null
+  /** Days and times already ruled out. Part of the cache key, not decoration. */
+  window?: BookingWindow | null
   now?: Date
 }
 
@@ -76,6 +78,9 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
     opts.pinnedStylistId ?? '-',
     (opts.stylistIds ?? []).join(','),
     opts.requiredSkill ? `${opts.requiredSkill.code}:${opts.requiredSkill.level}` : '-',
+    // Two searches of the same week that differ only in the window are two
+    // different answers. Leaving this out would serve one from the other.
+    windowSignature(opts.window),
     Math.floor(nowMin / 5),
   ].join(':')
 
@@ -313,8 +318,7 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
     isNewClient: opts.isNewClient,
     isChemical: opts.isChemical,
     constraints: {
-      earliestMin: opts.earliestMin ?? null,
-      latestMin: opts.latestMin ?? null,
+      window: opts.window ?? null,
       pinnedStylistId: opts.pinnedStylistId ?? null,
     },
   }

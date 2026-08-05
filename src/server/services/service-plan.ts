@@ -1,6 +1,7 @@
 import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
 import { buildChain, chainDuration } from '@/domain/scheduling/chain'
+import { isNarrowed, type BookingWindow } from '@/domain/scheduling/window'
 import type { EvaluationResult } from '@/domain/consultation/types'
 import { capableStylists, getServices, toChainSpec } from './catalog'
 
@@ -36,11 +37,34 @@ export interface ApproveInput {
     priceCents?: number | null
     depositCents?: number | null
     stylistProfileId?: string | null
+    /**
+     * Days and times to hold this to. Availability stays auto-computed — this
+     * only removes from what the solver would have offered, never adds, so a
+     * narrowing can never conjure a slot the diary does not have.
+     */
+    window?: BookingWindow | null
   }
   notesInternal?: string | null
   notesToClient?: string | null
   /** True when this came from auto-approval rather than a person. */
   automatic?: boolean
+}
+
+/**
+ * The window as five columns.
+ *
+ * Written as a spread rather than five conditionals so an approval that
+ * narrows nothing writes nothing, and the schema defaults — wide open — stand.
+ */
+function windowColumns(window: BookingWindow | null | undefined) {
+  if (!window || !isNarrowed(window)) return {}
+  return {
+    windowEarliestDate: window.earliestDate ? new Date(`${window.earliestDate}T00:00:00Z`) : null,
+    windowLatestDate: window.latestDate ? new Date(`${window.latestDate}T00:00:00Z`) : null,
+    dayOfWeekMask: window.dayOfWeekMask,
+    windowStartMinute: window.windowStartMinute,
+    windowEndMinute: window.windowEndMinute,
+  }
 }
 
 const DECISION_TO_STATUS: Record<ReviewDecision, string> = {
@@ -183,6 +207,7 @@ export async function reviewConsultation(
         evaluationId: evaluationRow.id,
         // Multi-session correction should stay with one pair of hands.
         requiresStylistContinuity: evaluation.plan.sessionCount > 1,
+        ...windowColumns(input.overrides?.window),
         notesToClient: input.notesToClient ?? evaluation.plan.rationale,
         approvedByUserId: input.reviewerUserId,
         approvedAt: new Date(),

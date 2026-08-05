@@ -20,7 +20,60 @@ typechecks, lints and builds, then throws an opaque 500 with a digest and no
 stack at render time — nothing else in the pipeline catches it, and it cost
 real debugging time before the check existed.
 
-Counts: **419 unit**, **83 integration**, **48 end-to-end**.
+Counts: **557 unit**, **143 integration**, **70 end-to-end**.
+
+---
+
+## The build-out, phase by phase
+
+The 18 workstreams got the product working. These phases are the program that
+followed, in dependency order. Each ends green on `pnpm verify` plus
+`pnpm build && pnpm test:e2e`.
+
+| Phase                            | What landed                                                                                                                                                                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **P0** Fixes and reconciliations | 12-hour clock in the diary gutter; reference pictures removable; back buttons across the client flow; client and per-visit notes; the two interleave thresholds reconciled so the phase editor stops advertising gaps the solver refuses               |
+| **P1** Four primitives           | `withPublicAction` (a mutation path with no tenant context); a notification materialiser keyed on any trigger, which made the long-dead consultation nudge start working; the admin settings shell; white-label branding that cannot break AA contrast |
+| **P2** People can get in         | Front-desk "add client"; self-signup on the salon's own link plus a join code; walk-in claim; consent written at both doors; the approval notice; `notesToClient` surfaced to the client it was written for                                            |
+| **P3** The right questions       | Service-scoped consultation forms; first-visit photos; availability narrowing at approval, sharing one filter with the waitlist; reference pictures measured against the hair under them                                                               |
+
+### What P3 changed, specifically
+
+- **A cut is no longer interrogated about box dye.**
+  `ConsultationTemplate.appliesToServiceIds` had been in the schema since it
+  was written and was read by nothing, so every basket got the salon's single
+  published form. Resolution is strictest-service-wins, mirroring
+  `requiredPhotoViews`: a cut booked alongside a balayage gets the balayage
+  form, because the risky service is the one being assessed. The seed now
+  carries two forms — a colour one naming the colour services, and a general
+  one naming nothing, which is what makes it the fallback.
+- **A stranger is asked for their shape; a regular is not.** `photos.ts` used
+  to require no photos at all for a non-chemical service. A regular's shape is
+  on file from every previous visit; a first-timer's is not, and
+  "shoulder-length bob" covers a range wide enough to lose forty minutes in.
+- **A stylist can say "Tuesdays and Thursdays, mornings".** `ServicePlan`
+  gained `WaitlistEntry`'s five window columns verbatim, so
+  `domain/scheduling/window.ts` reads both with one filter — two models
+  describing the same idea differently is how a client ends up offered a day
+  they ruled out. The window bounds the _start_, not the finish; bounding the
+  finish would return nothing for exactly the long services this exists to
+  control. It comes off the plan, never off the request, so a client's own
+  search cannot widen it back out, and `resolveSlot` applies it too — the slot
+  token is unsigned, so that is the step that actually enforces it.
+- **A reference picture is measured against the hair under it.** Tagging a
+  reference with "the overall level" now opens the shade chart instead of
+  storing a bare yes, and the gap is shown at upload — while the client can
+  still act on it, rather than in the chair on the day. It reports distance and
+  never a number of visits: that is the rules engine's answer, and a second
+  threshold would eventually disagree with it.
+- **Two defects found on the way.** The booking action validated
+  `earliestMin`/`latestMin` as minutes-of-day while the solver read them as
+  absolute epoch minutes; nothing passed them, so the disagreement never fired.
+  They are now `notBeforeMin`/`notAfterMin`, which is what the multi-session
+  planner actually meant by them. And the diary drew a fixed 7am–9pm window
+  with a comment claiming there was nothing outside it to see — an early or
+  late appointment was drawn nowhere at all, which a front desk reads as a free
+  stylist.
 
 ---
 
@@ -42,10 +95,16 @@ Counts: **419 unit**, **83 integration**, **48 end-to-end**.
 `pnpm seed` builds **Aurora Hair Studio**: 2 locations in different timezones,
 12 services with real phase chains, 6 staff with divergent skills and pace, 40
 clients with hair profiles, 120 completed appointments with matching
-quote-accuracy rows so calibration and analytics have genuine inputs, a
-consultation template with conditional logic, reminder schedules, and consent
-form placeholders. A second salon (**Bloom**) exists so tenant isolation is
-visible rather than theoretical.
+quote-accuracy rows so calibration and analytics have genuine inputs, two
+consultation forms (a colour one with conditional logic and a general one for
+everything else), reminder schedules, and consent form placeholders. A second
+salon (**Bloom**) exists so tenant isolation is visible rather than theoretical.
+
+The live day is placed relative to now but clamped to the salon's own local
+date. Seeded a little after local midnight, "three hours ago" used to land on
+yesterday and the whole day vanished from a front desk showing today — a demo
+salon with nothing booked, which is the one thing that screen exists to
+disprove.
 
 Every account uses password `salon1234`:
 `owner@aurora.test` · `manager@aurora.test` · `frontdesk@aurora.test` ·

@@ -3,6 +3,7 @@ import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
 import { storagePort } from '@/ports/registry'
 import { enqueue } from '@/server/jobs/queue'
+import { readShadeAnswer } from '@/domain/hair/tone'
 
 /**
  * Client photographs.
@@ -295,6 +296,50 @@ export async function consultationPhotos(salonId: string, consultationId: string
       url: await signedUrlFor(photo.photoAsset.storageKey),
     })),
   )
+}
+
+/**
+ * Where the client's hair actually is, for comparing a reference against.
+ *
+ * Answers first, hair profile second. A client who has just told us their
+ * colour in this consultation should be measured against that rather than
+ * against a profile written eighteen months ago — the profile is the fallback
+ * for somebody who reached the reference board without answering a shade
+ * question, which the non-colour template makes an ordinary case.
+ */
+export async function currentColourOf(
+  salonId: string,
+  consultationId: string,
+): Promise<{ shadeKey: string | null; level: number | null }> {
+  const consultation = await unsafeDb.consultation.findFirst({
+    where: { id: consultationId, salonId },
+    select: {
+      answers: { select: { questionKey: true, valueJson: true } },
+      template: { select: { questions: { select: { key: true, factKey: true } } } },
+      clientProfile: {
+        select: { hairProfile: { select: { currentLevelMids: true, naturalLevel: true } } },
+      },
+    },
+  })
+  if (!consultation) return { shadeKey: null, level: null }
+
+  // The fact path is the contract, not the question key — a salon may name its
+  // questions anything, and two templates already do.
+  const keyFor = (factKey: string) =>
+    consultation.template.questions.find((q) => q.factKey === factKey)?.key ?? null
+
+  for (const factKey of ['hair.currentLevel.mids', 'hair.naturalLevel']) {
+    const questionKey = keyFor(factKey)
+    if (!questionKey) continue
+    const answer = consultation.answers.find((a) => a.questionKey === questionKey)
+    const shade = readShadeAnswer(answer?.valueJson)
+    if (shade) return { shadeKey: shade.tone, level: shade.level }
+  }
+
+  // The profile stores depth but no shade key, so this end of the comparison
+  // becomes a bare level. `compareToReference` takes either.
+  const profile = consultation.clientProfile.hairProfile
+  return { shadeKey: null, level: profile?.currentLevelMids ?? profile?.naturalLevel ?? null }
 }
 
 export async function inspirationPhotos(salonId: string, consultationId: string) {

@@ -55,7 +55,13 @@ export default async function BookPage({
         fromDate: from,
         toDate: to,
       })
-    : { slots: [], reason: gate.reason, bookable: false, earliestDate: gate.earliestDate }
+    : {
+        slots: [],
+        reason: gate.reason,
+        bookable: false,
+        earliestDate: gate.earliestDate,
+        restrictedTo: null,
+      }
 
   return (
     <BookingFlow

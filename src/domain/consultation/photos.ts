@@ -39,6 +39,17 @@ export type PhotoView =
 const SHAPE: readonly PhotoView[] = []
 
 /**
+ * Except the very first time, where the same two frames are required.
+ *
+ * A regular's shape is already on file from every previous visit; a stranger's
+ * is not, and "shoulder-length bob" covers a range wide enough to lose forty
+ * minutes in. Asking once, on the visit where the salon knows least, is a
+ * different proposition from asking every time — and it is the only photo
+ * requirement a non-chemical service ever carries.
+ */
+const SHAPE_FIRST_VISIT: readonly PhotoView[] = ['FRONT', 'BACK']
+
+/**
  * Existing colour and how it sits — needed before anything is applied.
  *
  * Texture is required, not suggested. A shot taken head-on at arm's length
@@ -89,13 +100,31 @@ export type PhotoNeedInput = Pick<
 >
 
 /**
+ * What the salon knows about this client already.
+ *
+ * An options object rather than a positional flag: the photo requirements are
+ * going to learn about more than first visits eventually, and every one of
+ * those would otherwise churn a signature that has six call sites and its own
+ * test file.
+ */
+export interface PhotoContext {
+  /** No completed visits on record. Defaults to false — an unknown client is
+   *  treated as a returning one, because over-asking is the failure that makes
+   *  people abandon a consultation. */
+  isFirstVisit?: boolean
+}
+
+/**
  * The union of what every service in the basket needs.
  *
  * A cut booked alongside a balayage still needs the balayage photos — the
  * strictest service in the basket sets the bar, because the risky one is the
  * one being assessed.
  */
-export function requiredPhotoViews(services: readonly PhotoNeedInput[]): readonly PhotoView[] {
+export function requiredPhotoViews(
+  services: readonly PhotoNeedInput[],
+  context: PhotoContext = {},
+): readonly PhotoView[] {
   const needed = new Set<PhotoView>()
 
   for (const service of services) {
@@ -105,7 +134,9 @@ export function requiredPhotoViews(services: readonly PhotoNeedInput[]): readonl
         ? EXTENSIONS
         : service.isChemical || service.containsDye
           ? COLOUR
-          : SHAPE
+          : context.isFirstVisit
+            ? SHAPE_FIRST_VISIT
+            : SHAPE
     for (const view of views) needed.add(view)
   }
 
@@ -121,8 +152,11 @@ export function requiredPhotoViews(services: readonly PhotoNeedInput[]): readonl
  * estimate is honest, and something the estimate depends on does not belong in
  * a list of nice-to-haves.
  */
-export function suggestedPhotoViews(services: readonly PhotoNeedInput[]): readonly PhotoView[] {
-  const required = new Set(requiredPhotoViews(services))
+export function suggestedPhotoViews(
+  services: readonly PhotoNeedInput[],
+  context: PhotoContext = {},
+): readonly PhotoView[] {
+  const required = new Set(requiredPhotoViews(services, context))
   const suggested = new Set<PhotoView>(['FRONT', 'BACK'])
 
   for (const service of services) {

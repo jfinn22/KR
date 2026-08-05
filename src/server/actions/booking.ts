@@ -65,8 +65,6 @@ const searchSchema = z.object({
   locationId: cuid.nullish(),
   stylistId: cuid.nullish(),
   anyStylist: z.boolean().optional(),
-  earliestMin: z.number().int().min(0).max(1440).nullish(),
-  latestMin: z.number().int().min(0).max(1440).nullish(),
 })
 
 /** Read-only, so no audit row: searching for a time is not an event. */

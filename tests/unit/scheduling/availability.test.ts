@@ -8,6 +8,7 @@ import {
   type ServiceChainSpec,
 } from '@/domain/scheduling/chain'
 import { localTimeToEpochMinutes } from '@/domain/scheduling/zoned'
+import { ANY_TIME, maskOf, type BookingWindow } from '@/domain/scheduling/window'
 import type {
   AvailabilityRequest,
   CandidateResource,
@@ -125,7 +126,7 @@ function request(overrides: Partial<AvailabilityRequest> = {}): AvailabilityRequ
     requiredSkill: null,
     isNewClient: false,
     isChemical: false,
-    constraints: { earliestMin: null, latestMin: null, pinnedStylistId: null },
+    constraints: { notBeforeMin: null, notAfterMin: null, pinnedStylistId: null },
     maxPerDay: 100,
     ...overrides,
   }
@@ -382,7 +383,7 @@ describe('stylist filtering', () => {
     const result = computeAvailability(
       request({
         candidates: [stylist({ stylistId: 'a' }), stylist({ stylistId: 'b' })],
-        constraints: { earliestMin: null, latestMin: null, pinnedStylistId: 'b' },
+        constraints: { notBeforeMin: null, notAfterMin: null, pinnedStylistId: 'b' },
       }),
     )
     expect(result.slots.every((s) => s.stylistId === 'b')).toBe(true)
@@ -410,23 +411,118 @@ describe('stylist filtering', () => {
 describe('constraints and ranking', () => {
   it('respects an earliest bound from a multi-session gap', () => {
     const result = computeAvailability(
-      request({ constraints: { earliestMin: at(14), latestMin: null, pinnedStylistId: null } }),
+      request({ constraints: { notBeforeMin: at(14), notAfterMin: null, pinnedStylistId: null } }),
     )
     expect(Math.min(...result.slots.map((s) => s.startMin))).toBeGreaterThanOrEqual(at(14))
   })
 
   it('respects a latest bound', () => {
     const result = computeAvailability(
-      request({ constraints: { earliestMin: null, latestMin: at(12), pinnedStylistId: null } }),
+      request({ constraints: { notBeforeMin: null, notAfterMin: at(12), pinnedStylistId: null } }),
     )
     expect(Math.max(...result.slots.map((s) => s.endMin))).toBeLessThanOrEqual(at(12))
   })
 
   it('returns OUTSIDE_BOOKING_WINDOW when the bounds cross', () => {
     const result = computeAvailability(
-      request({ constraints: { earliestMin: at(16), latestMin: at(10), pinnedStylistId: null } }),
+      request({
+        constraints: { notBeforeMin: at(16), notAfterMin: at(10), pinnedStylistId: null },
+      }),
     )
     expect(result.reason).toBe('OUTSIDE_BOOKING_WINDOW')
+  })
+
+  /*
+   * The narrowing a stylist applies at approval. Distinct from the absolute
+   * bounds above: those are a multi-session gap in epoch minutes, these are
+   * local days and wall-clock times that recur.
+   */
+  describe('a booking window', () => {
+    const narrowed = (window: Partial<BookingWindow>) =>
+      computeAvailability(
+        request({
+          constraints: { pinnedStylistId: null, window: { ...ANY_TIME, ...window } },
+        }),
+      )
+
+    it('changes nothing when it narrows nothing', () => {
+      const open = computeAvailability(request())
+      expect(narrowed({}).slots).toEqual(open.slots)
+    })
+
+    // DATE is a Monday, so a Tuesdays-only plan has nothing here.
+    it('drops a day the mask excludes', () => {
+      expect(narrowed({ dayOfWeekMask: maskOf([2]) }).slots).toEqual([])
+    })
+
+    it('keeps a day it includes', () => {
+      expect(narrowed({ dayOfWeekMask: maskOf([1]) }).slots.length).toBeGreaterThan(0)
+    })
+
+    it('holds starts to the time of day', () => {
+      const result = narrowed({ windowStartMinute: 11 * 60, windowEndMinute: 13 * 60 })
+      expect(result.slots.length).toBeGreaterThan(0)
+      for (const slot of result.slots) {
+        expect(slot.startMin).toBeGreaterThanOrEqual(at(11))
+        expect(slot.startMin).toBeLessThanOrEqual(at(13))
+      }
+    })
+
+    /*
+     * The bar is on the start, not the finish. Bounding the finish would
+     * return nothing for exactly the long, difficult services this exists to
+     * control — and returning nothing reads to a client as "fully booked".
+     */
+    it('lets a long appointment run past the end of the window', () => {
+      const result = computeAvailability(
+        request({
+          chain: buildChain([BALAYAGE], { settings: SETTINGS }),
+          resources: resources(2, 1),
+          constraints: {
+            pinnedStylistId: null,
+            window: { ...ANY_TIME, windowStartMinute: 9 * 60, windowEndMinute: 10 * 60 },
+          },
+        }),
+      )
+      expect(result.slots.length).toBeGreaterThan(0)
+      expect(Math.max(...result.slots.map((s) => s.endMin))).toBeGreaterThan(at(10))
+    })
+
+    it('says the window is why, not that the salon is full', () => {
+      expect(narrowed({ dayOfWeekMask: maskOf([2]) }).reason).toBe('OUTSIDE_BOOKING_WINDOW')
+    })
+
+    it('spends its per-day cap on times inside the window', () => {
+      // The cap is applied per day after ranking. Filtering the finished list
+      // instead of the candidate starts would have thrown away most of these.
+      const result = computeAvailability(
+        request({
+          maxPerDay: 3,
+          constraints: {
+            pinnedStylistId: null,
+            window: { ...ANY_TIME, windowStartMinute: 15 * 60, windowEndMinute: 16 * 60 },
+          },
+        }),
+      )
+      expect(result.slots).toHaveLength(3)
+      expect(result.slots.every((s) => s.startMin >= at(15))).toBe(true)
+    })
+
+    it('composes with the absolute bounds rather than replacing them', () => {
+      const result = computeAvailability(
+        request({
+          constraints: {
+            notBeforeMin: at(13),
+            pinnedStylistId: null,
+            window: { ...ANY_TIME, windowStartMinute: 9 * 60, windowEndMinute: 15 * 60 },
+          },
+        }),
+      )
+      expect(result.slots.length).toBeGreaterThan(0)
+      // Later of the two floors, earlier of the two ceilings.
+      expect(Math.min(...result.slots.map((s) => s.startMin))).toBeGreaterThanOrEqual(at(13))
+      expect(Math.max(...result.slots.map((s) => s.startMin))).toBeLessThanOrEqual(at(15))
+    })
   })
 
   // Gap-fill is the metric salon owners actually care about.

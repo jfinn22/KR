@@ -401,6 +401,75 @@ test.describe('the client journey', () => {
   })
 })
 
+/*
+ * A cut used to be interrogated about box dye, henna and previous bleach.
+ * `appliesToServiceIds` had been on ConsultationTemplate since the schema was
+ * written and was read by nothing, so every basket got the salon's one form.
+ */
+test.describe('the form fits the service', () => {
+  const legendsOf = async (page: Page) => {
+    const seen: string[] = []
+    for (let step = 0; step < 12; step++) {
+      const visible = await page
+        .locator('fieldset')
+        .first()
+        .waitFor({ state: 'visible', timeout: 10_000 })
+        .then(() => true)
+        .catch(() => false)
+      if (!visible) break
+
+      seen.push(...(await page.locator('fieldset legend').allInnerTexts()))
+      await answerStep(page)
+
+      const next = page.getByRole('button', { name: /continue|add photos|reference photos/i })
+      if ((await next.count()) === 0) break
+
+      const before = await page.getByRole('heading', { level: 1 }).innerText()
+      await next.first().click()
+      await page
+        .waitForFunction(
+          (was) =>
+            document.querySelector('h1')?.textContent !== was ||
+            /\/review|\/photos|\/inspiration/.test(location.pathname),
+          before,
+          { timeout: 15_000 },
+        )
+        .catch(() => undefined)
+      if (/\/review|\/photos|\/inspiration/.test(page.url())) break
+    }
+    return seen.join(' | ')
+  }
+
+  test('a cut is asked about texture and scalp, and never about box dye', async ({ page }) => {
+    await signIn(page, CLIENT)
+    await page.goto(`/s/${SALON}/my/consult/new`)
+    await page
+      .getByRole('button', { name: /cut & finish/i })
+      .first()
+      .click()
+    await page.getByRole('button', { name: /^continue$/i }).click()
+    await expect(page).toHaveURL(CONSULT_URL, { timeout: 15_000 })
+
+    const asked = await legendsOf(page)
+    expect(asked).toMatch(/texture/i)
+    expect(asked).toMatch(/scalp/i)
+    expect(asked).not.toMatch(/box dye|henna|bleach/i)
+  })
+
+  test('a colour service still gets the chemical history', async ({ page }) => {
+    await signIn(page, CLIENT)
+    await page.goto(`/s/${SALON}/my/consult/new`)
+    await page
+      .getByRole('button', { name: /balayage/i })
+      .first()
+      .click()
+    await page.getByRole('button', { name: /^continue$/i }).click()
+    await expect(page).toHaveURL(CONSULT_URL, { timeout: 15_000 })
+
+    expect(await legendsOf(page)).toMatch(/box dye/i)
+  })
+})
+
 test.describe('the phase editor', () => {
   test('an owner sees the real balayage chain and what it frees up', async ({ page }) => {
     await signIn(page, OWNER)
