@@ -39,8 +39,47 @@ followed, in dependency order. Each ends green on `pnpm verify` plus
 | **P4** Money at the chair        | Ad-hoc invoice lines; editable prices; an owner-written discount catalogue with a real cap and an escalation path; gift cards on a ledger; and one authority for what a deposit costs                                                                  |
 | **P5** Cards on file             | A card kept at the provider and never here; the deposit lifecycle made real, from owed through held, taken, spent or kept; a signed webhook that reconciles what the provider says; cancellations and no-shows that settle the money; paid corrective consultations, credited against the work |
 | **P6** Filling the calendar      | A slot search with no plan behind it; one decision about when a consultation is actually needed, with an audited way past it; booking from the desk; the gold processing gaps made bookable; "come in and let me look at it" turned into an appointment the client picks; a waitlist that honours what people asked for and holds what it offers; and every visit of a plan booked in one pass |
+| **P9** Memberships and billing   | Something a client pays for monthly and gets back every visit — applied at the till where they can watch it land; a lifecycle that survives an expired card, a plan change mid-period and a cancellation somebody has already paid past; and the platform's own subscription, which finally writes the columns it has carried since the first migration |
 | **P8** Retention and migration   | A salon's whole history brought across from the platform they are leaving, with one-operation undo; upcoming appointments booked for real rather than inserted, so a parallel run cannot cause the double-booking it exists to prevent; aftercare written at the chair with the reason attached; the clients a salon is quietly losing, listed while somebody can still ring them; a 72-hour check-in that is one tap from a text; and what the colour in the bowl actually cost |
 | **P7** The differentiator        | The middle of the journey, drawn honestly — including the visits that leave somebody orange; a handoff card carrying everything the consultation found onto one screen; photo coaching that names the actual problem; consultations filled in with the client in the chair; and a short clip of the hair moving, for the assessments a still cannot serve |
+
+### What P9 changed, specifically
+
+- **The ten schema models were the easy tenth.** `ClientMembership`,
+  `ClientMembershipPlan` and eight relatives had described memberships since the
+  beginning and nothing had ever created one. Almost all of the work is what
+  happens AFTER the sale, because that is where a subscription business is
+  either trustworthy or not.
+- **Every ambiguous case is read the client's way.** They get the better of two
+  benefits, not the cheaper. They keep the period they have already paid for
+  when they cancel. A failed card gets three weeks before the membership ends,
+  because most failures are an expired card on somebody who fully intends to
+  keep paying. A salon that wins those arguments does not lose a subscription,
+  it loses the client.
+- **Benefits are applied at the till, visibly.** As a per-line discount rather
+  than a lowered price, because a membership that silently reduces a bill reads
+  as a pricing error to the person paying — and watching it work is the whole
+  reason anybody keeps paying the fee. They deliberately do not count against
+  the discount cap: an entitlement somebody bought is not a discretionary
+  discount for the front desk to be limited on.
+- **Uses are a ledger, not a counter.** Every running total in this platform has
+  eventually been found wrong with nothing to check it against. Rows can be
+  counted per period, an allowance resets without anybody sweeping, and a voided
+  invoice gives its own use back.
+- **Benefits stop at a week overdue; the membership ends at three.** A
+  membership still giving away haircuts against a card that does not work is one
+  the salon is paying for. Cancelling at the first decline is a client who has
+  to be re-sold something they already wanted.
+- **A plan change does not restart the period.** A client who upgrades on the
+  20th has already paid to the end of the month, and resetting the clock charges
+  a fresh period on top of the difference they just settled — the double-charge
+  every subscription complaint is about. The proration is shown as both numbers
+  it came from, because "£15 left on the old one, £25 for the rest of this one"
+  is a conversation and "that will be £10" is a dispute.
+- **A failed platform payment suspends nothing.** `requireFeature` reads the
+  plan, not the payment state, and that separation is deliberate. A salon whose
+  card expired still has clients arriving at nine tomorrow, and taking their
+  diary away over it would cost them their day and this platform its reputation.
 
 ### What P8 changed, specifically
 

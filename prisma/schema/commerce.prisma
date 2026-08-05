@@ -436,12 +436,56 @@ model ClientMembership {
   plan            ClientMembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
   status          ClientMembershipStatus @default(ACTIVE)
   startedAt       DateTime  @default(now()) @db.Timestamptz(3)
+  /// The period the client has actually paid for.
+  ///
+  /// Both ends, because every piece of arithmetic a membership needs — what a
+  /// plan change costs, how much of the fee is earned, how many free cuts are
+  /// left — is a fraction of a period, and a single `renewsAt` cannot say how
+  /// long the period was.
+  currentPeriodStart DateTime? @db.Timestamptz(3)
   renewsAt        DateTime? @db.Timestamptz(3)
+  /// Asked to stop, but paid up until the period ends.
+  ///
+  /// Distinct from `cancelledAt`: somebody who cancels on the 3rd has bought
+  /// the rest of the month and is entitled to it. Ending it the moment they
+  /// click is taking money for a service withdrawn.
+  cancelAtPeriodEnd Boolean @default(false)
   cancelledAt     DateTime? @db.Timestamptz(3)
+  /// When the payment first failed, which is what the dunning clock runs from.
+  pastDueSince    DateTime? @db.Timestamptz(3)
   creditsRemaining Int      @default(0)
   stripeSubscriptionId String?
 
+  benefitUses MembershipBenefitUse[]
+
   @@index([salonId, status])
+  @@index([salonId, stripeSubscriptionId])
+}
+
+/// One use of one membership benefit.
+///
+/// A ledger rather than a counter on the membership, for the reason every other
+/// counter in this platform has taught: a running total is a number somebody
+/// has to remember to keep right, and when it drifts there is nothing to check
+/// it against. Rows can be counted per period, and a refunded invoice can take
+/// its own use back out.
+model MembershipBenefitUse {
+  id           String           @id @default(cuid())
+  salonId      String
+  membershipId String
+  membership   ClientMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  invoiceId    String?
+  /// Identifies WHICH entitlement, so an allowance is per benefit and not per
+  /// membership — a plan with a free cut and a discounted colour has two.
+  entitlementKey String
+  label          String
+  discountCents  Int
+  /// The period it was used in, so an allowance resets without anybody sweeping.
+  periodStart  DateTime @db.Timestamptz(3)
+  usedAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, membershipId, periodStart])
+  @@index([salonId, invoiceId])
 }
 
 model PackageDefinition {

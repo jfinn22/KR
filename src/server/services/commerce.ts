@@ -1,6 +1,7 @@
 import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
 import { paymentsPort } from '@/ports/registry'
+import { benefitsForBill, recordBenefitUse } from './memberships'
 import {
   amountDue,
   computeCancellationFee,
@@ -379,11 +380,15 @@ export async function priceInvoice(input: BuildInvoiceInput) {
    */
   const agreed = new Map(appointment.services.map((row) => [row.id, row.priceCents]))
 
+  /** Which catalogue service each appointment line is, for membership benefits. */
+  const serviceOf = new Map(appointment.services.map((row) => [row.id, row.serviceId]))
+
   const supplied = input.lines ?? null
   const rows: (InvoiceLineInput & {
     kind: 'SERVICE' | 'RETAIL' | 'FEE' | 'GIFT_CARD'
     agreedUnitPriceCents: number | null
     giftCardCode: string | null
+    serviceId: string | null
   })[] = supplied
     ? supplied.map((line) => {
         const agreedCents = line.appointmentServiceId
@@ -397,6 +402,9 @@ export async function priceInvoice(input: BuildInvoiceInput) {
           kind: line.kind ?? (line.appointmentServiceId ? 'SERVICE' : 'RETAIL'),
           agreedUnitPriceCents: agreedCents,
           giftCardCode: line.giftCardCode ?? null,
+          serviceId: line.appointmentServiceId
+            ? (serviceOf.get(line.appointmentServiceId) ?? null)
+            : null,
         }
       })
     : appointment.services.map((row) => ({
@@ -407,7 +415,35 @@ export async function priceInvoice(input: BuildInvoiceInput) {
         kind: 'SERVICE' as const,
         agreedUnitPriceCents: row.priceCents,
         giftCardCode: null,
+        serviceId: row.serviceId,
       }))
+
+  /*
+   * What the client's membership takes off, before anything else is worked out.
+   *
+   * Applied as a per-line discount rather than by lowering the price, for two
+   * reasons. The receipt has to be able to say "£50, less your membership" —
+   * a membership that silently lowers a price reads as a pricing error to the
+   * person paying, and watching it work is the reason they keep paying the fee.
+   * And it deliberately does NOT count toward the discount cap: an entitlement
+   * somebody has already bought is not a discretionary discount for the front
+   * desk to be limited on.
+   */
+  const membership = await benefitsForBill(
+    input.salonId,
+    appointment.clientProfileId,
+    rows.map((row) => ({
+      serviceId: row.serviceId,
+      description: row.description,
+      quantity: row.quantity,
+      unitPriceCents: row.unitPriceCents,
+    })),
+  )
+
+  for (const benefit of membership?.benefits ?? []) {
+    const row = rows[benefit.lineIndex]
+    if (row) row.discountCents = (row.discountCents ?? 0) + benefit.discountCents
+  }
 
   const totals = computeInvoice({
     lines: rows,
@@ -466,11 +502,21 @@ export async function priceInvoice(input: BuildInvoiceInput) {
     appointment,
     rows,
     totals,
+    membership,
     heldDeposits,
     depositHeld,
     repricedDownCents,
-    /** Everything the cap has to be measured against: given away, however. */
-    discountedCents: totals.discountCents + repricedDownCents,
+    /*
+     * Everything the cap has to be measured against: given away, however.
+     *
+     * Membership benefits are subtracted back out. They are already in
+     * `totals.discountCents` because that is how they reach the receipt, but a
+     * cap on what the front desk may give away must not be spent by an
+     * entitlement the client bought — otherwise selling memberships slowly
+     * removes the desk's ability to fix anything.
+     */
+    discountedCents:
+      totals.discountCents + repricedDownCents - (membership?.totalCents ?? 0),
     dueCents: amountDue({ totalCents: totals.totalCents, depositAppliedCents: depositHeld }),
   }
 }
@@ -479,7 +525,7 @@ export async function buildInvoice(
   input: BuildInvoiceInput,
 ): Promise<{ invoiceId: string; totalCents: number; dueCents: number }> {
   const priced = await priceInvoice(input)
-  const { appointment, rows, totals, depositHeld, heldDeposits } = priced
+  const { appointment, rows, totals, depositHeld, heldDeposits, membership } = priced
 
   if (appointment.invoice) {
     throw new DomainError('CONFLICT', 'This appointment has already been invoiced.')
@@ -587,6 +633,21 @@ export async function buildInvoice(
       salonId: input.salonId,
       depositId: deposit.id,
       invoiceId: invoice.id,
+    })
+  }
+
+  /*
+   * The allowance is spent once the bill is real, never while it is being
+   * built. A till recalculates on every line somebody adds, and counting a use
+   * per recalculation would eat a client's free cut while they were still
+   * deciding whether to buy a shampoo.
+   */
+  if (membership && membership.benefits.length > 0) {
+    await recordBenefitUse({
+      salonId: input.salonId,
+      membershipId: membership.membershipId,
+      invoiceId: invoice.id,
+      benefits: membership.benefits,
     })
   }
 

@@ -514,6 +514,26 @@ const rebookNudge = define({
   },
 })
 
+/**
+ * Memberships whose card has stopped working, and ones somebody cancelled.
+ *
+ * Both read the current state rather than acting on schedules minted in
+ * advance. A client who pays on day eight must not receive a cancellation
+ * notice queued on day one, and a schedule per stage would have to be found and
+ * cancelled — which is the failure mode that leaves a paid-up client being told
+ * their membership has ended.
+ */
+const membershipSweep = define({
+  schema: z.object({}).passthrough(),
+  timeoutMs: 120_000,
+  maxAttempts: 3,
+  handler: async () => {
+    const { sweepDunning, sweepCancellations } = await import('@/server/services/memberships')
+    await sweepDunning()
+    await sweepCancellations()
+  },
+})
+
 /** Expire consultations and plans nobody acted on. */
 const expireStale = define({
   schema: z.object({}).passthrough(),
@@ -797,6 +817,7 @@ export const JOB_REGISTRY: Record<string, AnyJobDefinition> = {
   'system.reap': systemReap,
   'import.source.reap': importSourceReap,
   'retention.rebook.nudge': rebookNudge,
+  'membership.sweep': membershipSweep,
 }
 
 export type JobType = keyof typeof JOB_REGISTRY
@@ -813,6 +834,7 @@ export const RECURRING: { key: string; type: string; everyMinutes: number }[] = 
   { key: 'calibration', type: 'calibration.recompute', everyMinutes: 1440 },
   { key: 'import-files', type: 'import.source.reap', everyMinutes: 1440 },
   { key: 'rebook', type: 'retention.rebook.nudge', everyMinutes: 1440 },
+  { key: 'memberships', type: 'membership.sweep', everyMinutes: 720 },
 ]
 
 function renderTemplate(body: string, vars: Record<string, string>): string {

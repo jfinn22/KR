@@ -5,10 +5,12 @@ import { clientAppointments, hairTimeline } from '@/server/services/client-porta
 import { clientRecord } from '@/server/services/front-desk'
 import { consentState } from '@/server/services/compliance'
 import { predictionFor } from '@/server/services/hair-prediction'
+import { membershipFor, salonPlans } from '@/server/services/memberships'
 import { HairTimeline } from '@/components/salon/hair-timeline'
 import { ConsentPanel } from './consent-panel'
 import { NotesPanel } from './notes-panel'
 import { HairForm } from './hair-form'
+import { MembershipPanel } from './membership-panel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionHeading, Stat } from '@/components/ui/data'
@@ -37,12 +39,13 @@ export default async function ClientRecordPage({
 
   const { client, accuracy, overrunCount, averageOverrunMin } = record
 
-  const [{ upcoming, past }, timeline, consent, prediction, hair] = await Promise.all([
+  const [{ upcoming, past }, timeline, consent, prediction, hair, membership, plans] =
+    await Promise.all([
     clientAppointments(ctx.salonId, client.id),
     hairTimeline(ctx.salonId, client.id),
     consentState(ctx.salonId, client.id),
     predictionFor(ctx.salonId, id),
-    ctx.db.hairProfile.findFirst({
+      ctx.db.hairProfile.findFirst({
       where: { salonId: ctx.salonId, clientProfileId: id },
       select: {
         naturalLevel: true,
@@ -56,7 +59,9 @@ export default async function ClientRecordPage({
         growthCmPerMonth: true,
       },
     }),
-  ])
+      membershipFor(ctx.salonId, id),
+      salonPlans(ctx.salonId),
+    ])
 
   return (
     <div className="flex flex-col gap-10">
@@ -190,6 +195,49 @@ export default async function ClientRecordPage({
               validUntil: test.validUntil.toISOString(),
               isCurrent: test.isCurrent,
             }))}
+          />
+        </div>
+      </section>
+
+      <section>
+        <SectionHeading
+          title="Membership"
+          description="What they pay for every month, and what is left of it this period."
+        />
+        <div className="mt-6">
+          <MembershipPanel
+            salonSlug={salon}
+            clientProfileId={id}
+            plans={plans
+              .filter((plan) => plan.isActive)
+              .map((plan) => ({
+                id: plan.id,
+                name: plan.name,
+                priceCents: plan.priceCents,
+                interval: plan.interval,
+              }))}
+            membership={
+              membership
+                ? {
+                    id: membership.id,
+                    planId: membership.planId,
+                    planName: membership.planName,
+                    priceCents: membership.priceCents,
+                    status: membership.status,
+                    renewsAt: membership.renewsAt?.toISOString() ?? null,
+                    cancelAtPeriodEnd: membership.cancelAtPeriodEnd,
+                    suspended: membership.suspended,
+                    benefits: membership.entitlements.map((entitlement) => ({
+                      label: entitlement.label,
+                      used:
+                        membership.usedThisPeriod[
+                          `${entitlement.serviceId ?? '*'}:${entitlement.kind}:${entitlement.value}`
+                        ] ?? 0,
+                      allowance: entitlement.perPeriod,
+                    })),
+                  }
+                : null
+            }
           />
         </div>
       </section>

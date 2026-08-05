@@ -167,6 +167,42 @@ async function dispatch(event: {
     return { handled: true, kind: 'setup', cards: cards.length }
   }
 
+  /*
+   * A subscription changed at the provider.
+   *
+   * Keyed on the subscription reference the event carries, which is the only
+   * identifier guaranteed to come back on every event about it — metadata is
+   * whatever was attached at creation, and does not survive a subscription
+   * recreated by hand in the provider's dashboard, which is how a salon
+   * actually fixes a billing problem at four in the afternoon.
+   */
+  if (event.type.startsWith('customer.subscription.') || event.type.startsWith('invoice.')) {
+    const { applySubscriptionEvent } = await import('@/server/services/memberships')
+    const { applyPlatformSubscriptionEvent } = await import('@/server/services/platform-billing')
+
+    const membership = await applySubscriptionEvent({
+      type: event.type,
+      subscriptionRef: event.objectId,
+      currentPeriodEnd: event.metadata?.currentPeriodEnd ?? null,
+    })
+    if (membership.handled) {
+      return { handled: true, kind: 'membership', status: membership.status }
+    }
+
+    // Not a client's membership, so it may be the salon's own subscription to
+    // this platform. Same events, different table.
+    const platform = await applyPlatformSubscriptionEvent({
+      type: event.type,
+      subscriptionRef: event.objectId,
+      currentPeriodEnd: event.metadata?.currentPeriodEnd ?? null,
+    })
+    if (platform.handled) {
+      return { handled: true, kind: 'platform', status: platform.status }
+    }
+
+    return { handled: false, reason: 'no subscription matches that reference' }
+  }
+
   if (event.type.startsWith('payment_intent.')) {
     const deposit = await reconcileDepositEvent(event)
     if (deposit.matched) {
