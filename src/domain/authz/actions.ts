@@ -57,6 +57,17 @@ export const ACTIONS = [
   'discount.applyOverCap',
   'fee.waive',
   'deposit.view',
+  /**
+   * Add or remove a card on file.
+   *
+   * A separate action from `payment.take` on purpose. Taking a payment is a
+   * one-off the client is standing there for; keeping a card is a standing
+   * permission to charge them when they are not — a different thing to be
+   * trusted with, and one an assistant should not hold.
+   */
+  'card.manage',
+  /** Charge, release or forfeit a deposit against a card already on file. */
+  'deposit.charge',
 
   // --- Communication ------------------------------------------------------
   'message.send',

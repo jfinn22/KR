@@ -12,6 +12,7 @@ import {
 } from '@/server/services/scheduling/booking'
 import { invalidateAvailabilityCache } from '@/server/services/scheduling/loader'
 import { loadPlan } from '@/server/services/service-plan'
+import { authorizeDeposit } from '@/server/services/deposits'
 import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
@@ -197,10 +198,37 @@ export const confirmBookingAction = withAuthz(
     revalidatePath(`/s/${ctx.salonSlug}/my`)
     revalidatePath(`/s/${ctx.salonSlug}/my/appointments`)
 
+    /*
+     * Ask the card for the deposit now, outside the booking transaction.
+     *
+     * The row `bookFromHold` wrote is PENDING — owed, not held — and until
+     * this it stayed that way forever: `DepositStatus` had seven values and
+     * only three were ever written, none of them by an update. A deposit that
+     * is never asked for is a deposit policy that does not exist.
+     *
+     * A decline does NOT fail the booking. The client picked a time, the slot
+     * is theirs, and the salon would far rather have the appointment and a
+     * conversation about the card than neither. The status comes back so the
+     * screen can say which happened.
+     */
+    let deposit: { status: string; failureMessage?: string | null } | null = null
+    if (booking.depositId) {
+      try {
+        deposit = await authorizeDeposit({
+          salonId: ctx.salonId,
+          depositId: booking.depositId,
+          currency: ctx.currency,
+        })
+      } catch (error) {
+        deposit = { status: 'PENDING', failureMessage: String(error) }
+      }
+    }
+
     return {
       appointmentId: booking.appointmentId,
       startsAt: booking.startsAt.toISOString(),
       endsAt: booking.endsAt.toISOString(),
+      depositStatus: deposit?.status ?? null,
     }
   },
 )

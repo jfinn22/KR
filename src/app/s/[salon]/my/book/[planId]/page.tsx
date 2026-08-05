@@ -1,6 +1,7 @@
 import { pageContext } from '@/server/auth/page'
 import { loadPlan, sessionBookability } from '@/server/services/service-plan'
 import { findSlots } from '@/server/services/scheduling/slots'
+import { cardsFor } from '@/server/services/cards'
 import { EmptyState } from '@/components/ui/feedback'
 import { addDays, localDateIn } from '@/lib/format'
 import { BookingFlow } from './booking-flow'
@@ -43,6 +44,14 @@ export default async function BookPage({
 
   const gate = await sessionBookability(ctx.salonId, planId, sequence)
 
+  /*
+   * Only the first visit of a plan carries the deposit — the same rule
+   * `confirmBookingAction` books against, kept in one shape so the screen
+   * cannot promise a figure the server then charges differently.
+   */
+  const depositCents = sequence === 1 ? (plan.depositCents ?? 0) : 0
+  const cards = depositCents > 0 ? await cardsFor(ctx.salonId, plan.clientProfileId) : []
+
   // The window opens at the earliest the hair is ready, not today.
   const from = gate.earliestDate ?? localDateIn(ctx.timezone)
   const to = addDays(from, INITIAL_WINDOW_DAYS)
@@ -76,6 +85,9 @@ export default async function BookPage({
       initialFrom={from}
       initialTo={to}
       initialResult={initial}
+      clientProfileId={plan.clientProfileId}
+      depositCents={depositCents}
+      cards={cards}
     />
   )
 }

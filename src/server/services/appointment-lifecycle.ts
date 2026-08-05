@@ -1,6 +1,7 @@
 import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
 import { enqueue } from '@/server/jobs/queue'
+import { assessCancellation } from '@/server/services/commerce'
 
 /**
  * The day of the appointment.
@@ -49,7 +50,7 @@ export async function advanceAppointment(
 ): Promise<{ status: string; at: Date }> {
   const at = input.at ?? new Date()
 
-  return unsafeDb.$transaction(async (tx) => {
+  const result = await unsafeDb.$transaction(async (tx) => {
     const appointment = await tx.appointment.findFirst({
       where: { id: input.appointmentId, salonId: input.salonId },
       select: {
@@ -152,6 +153,37 @@ export async function advanceAppointment(
 
     return { status: NEXT_STATUS[input.step], at }
   })
+
+  /*
+   * The desk marking a no-show is the second route to one — `cancelAppointment`
+   * with `markNoShow` is the first — and it has to settle the deposit too, or
+   * which button the desk happened to press decides whether the client is
+   * charged. Outside the transaction, because it talks to the provider.
+   *
+   * Not fatal, for the same reason as in `cancelAppointment`: the appointment
+   * IS a no-show, and a slow card network must not make the desk think the
+   * button failed and press it again.
+   */
+  if (input.step === 'NO_SHOW') {
+    try {
+      await assessCancellation({
+        salonId: input.salonId,
+        appointmentId: input.appointmentId,
+        cancelledAt: at,
+        isNoShow: true,
+      })
+    } catch (error) {
+      await unsafeDb.outbox.create({
+        data: {
+          salonId: input.salonId,
+          topic: 'cancellation.assessment_failed',
+          payloadJson: { appointmentId: input.appointmentId, error: String(error) },
+        },
+      })
+    }
+  }
+
+  return result
 }
 
 /** Say what is actually wrong, not "invalid transition". */

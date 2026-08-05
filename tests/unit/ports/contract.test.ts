@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { InMemoryMessageSink, AdapterError, AdapterNotConfiguredError, mockId } from '@/ports/types'
 import { MockSmsAdapter, TwilioSmsAdapter, countSegments } from '@/ports/sms'
 import { MockEmailAdapter, ResendEmailAdapter, htmlToText } from '@/ports/email'
-import { MockPaymentsAdapter, StripePaymentsAdapter } from '@/ports/payments'
+import { MockPaymentsAdapter, StripePaymentsAdapter, type PaymentsPort } from '@/ports/payments'
 import {
   MockStorageAdapter,
   S3StorageAdapter,
@@ -214,9 +214,112 @@ describe('payments port', () => {
     expect(await payments.parseWebhook(payload, signature)).toMatchObject(event)
   })
 
+  it('rejects a replayed signature once it is outside the tolerance window', async () => {
+    /*
+     * A signature with no timestamp is a signature that can be replayed
+     * forever: capture one delivery off the wire and it stays valid. The
+     * timestamp is what makes a stolen payload expire — and testing it means
+     * signing in the past, which is why the mock takes an epoch at all.
+     */
+    const event = { id: 'evt_old', type: 'payment_intent.succeeded', objectId: 'pi_old' }
+    const payload = JSON.stringify({
+      id: event.id,
+      type: event.type,
+      data: { object: { id: event.objectId } },
+    })
+    const stale = payments.signTestPayload(payload, Math.floor(Date.now() / 1000) - 3600)
+
+    await expect(payments.parseWebhook(payload, stale)).rejects.toThrow(/signature|timestamp/i)
+  })
+
+  it('a signature is over the exact bytes, so a re-serialised body fails', async () => {
+    const { payload, signature } = MockPaymentsAdapter.synthesizeWebhook({
+      id: 'evt_2',
+      type: 'payment_intent.succeeded',
+      objectId: 'pi_2',
+    })
+    // Same JSON, different bytes — which is exactly what happens if a route
+    // parses the body and hands the parsed object on to be verified.
+    const reserialised = JSON.stringify(JSON.parse(payload), null, 2)
+
+    await expect(payments.parseWebhook(reserialised, signature)).rejects.toThrow(/signature/i)
+  })
+
+  it('creates one customer per idempotency key', async () => {
+    const a = await payments.createCustomer({ email: 'a@x.test', idempotencyKey: 'cus_1' })
+    const b = await payments.createCustomer({ email: 'a@x.test', idempotencyKey: 'cus_1' })
+    expect(b.id).toBe(a.id)
+  })
+
+  it('a setup intent holds no card until one is attached', async () => {
+    const customer = await payments.createCustomer({ idempotencyKey: 'cus_2' })
+    const setup = await payments.createSetupIntent({
+      customerRef: customer.id,
+      idempotencyKey: 'seti_1',
+    })
+
+    expect(setup.status).toBe('REQUIRES_PAYMENT_METHOD')
+    expect(setup.paymentMethodRef).toBeNull()
+    expect(await payments.listPaymentMethods(customer.id)).toHaveLength(0)
+
+    const card = payments.attachTestCard(setup.id)
+    expect((await payments.getSetupIntent(setup.id))?.status).toBe('SUCCEEDED')
+    expect(await payments.listPaymentMethods(customer.id)).toMatchObject([{ id: card.id }])
+  })
+
+  it('detaching a card removes it from the customer', async () => {
+    const customer = await payments.createCustomer({ idempotencyKey: 'cus_3' })
+    const setup = await payments.createSetupIntent({
+      customerRef: customer.id,
+      idempotencyKey: 'seti_2',
+    })
+    const card = payments.attachTestCard(setup.id)
+
+    await payments.detachPaymentMethod(card.id)
+    expect(await payments.listPaymentMethods(customer.id)).toHaveLength(0)
+  })
+
+  it('a card on file confirmed off-session lands authorised with nobody present', async () => {
+    const customer = await payments.createCustomer({ idempotencyKey: 'cus_4' })
+    const setup = await payments.createSetupIntent({
+      customerRef: customer.id,
+      idempotencyKey: 'seti_3',
+    })
+    const card = payments.attachTestCard(setup.id)
+
+    const intent = await payments.createIntent({
+      ...deposit,
+      idempotencyKey: 'dep_offsession',
+      customerRef: customer.id,
+      paymentMethodRef: card.id,
+      offSession: true,
+      confirm: true,
+    })
+
+    // Manual capture, so the money is held and has NOT moved.
+    expect(intent.status).toBe('REQUIRES_CAPTURE')
+    expect(intent.capturedCents).toBe(0)
+  })
+
   it('the real adapter refuses to run without credentials', async () => {
     const real = new StripePaymentsAdapter(undefined)
     await expect(real.createIntent(deposit)).rejects.toThrow(AdapterNotConfiguredError)
+  })
+
+  it('the real adapter cannot forge its own signatures or cards', () => {
+    /*
+     * `signTestPayload` and `attachTestCard` exist so an integration test can
+     * drive the real route, and so the card step is completable with no
+     * provider account. If the Stripe adapter grew them, production code could
+     * call them — so their absence is the guarantee.
+     *
+     * Typed as the PORT rather than the class, because on the class they do
+     * not exist at all and the compiler rejects the reference: the strongest
+     * form of this assertion is the one that will not compile if it fails.
+     */
+    const real: PaymentsPort = new StripePaymentsAdapter(undefined)
+    expect(real.signTestPayload).toBeUndefined()
+    expect(real.attachTestCard).toBeUndefined()
   })
 })
 

@@ -2,6 +2,8 @@ import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { pageContext } from '@/server/auth/page'
 import { clientHome } from '@/server/services/client-portal'
+import { cardsFor } from '@/server/services/cards'
+import { CardOnFile } from '@/components/salon/card-on-file'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -33,10 +35,10 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
   // rather than showing a client page they cannot use.
   if (ctx.principal.kind !== 'client') redirect(`/s/${salon}/desk`)
 
-  const { next, openConsultations, plans, recent } = await clientHome(
-    ctx.salonId,
-    ctx.principal.clientProfileId,
-  )
+  const [{ next, openConsultations, plans, recent }, cards] = await Promise.all([
+    clientHome(ctx.salonId, ctx.principal.clientProfileId),
+    cardsFor(ctx.salonId, ctx.principal.clientProfileId),
+  ])
   if (!ctx.salonId) notFound()
 
   const tz = ctx.timezone
@@ -167,6 +169,20 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
           </div>
         </section>
       )}
+
+      <section>
+        <SectionHeading
+          title="Payment"
+          description="Some appointments ask for a deposit. Keeping a card here means that happens without another form — and you can take it off at any time."
+        />
+        <div className="mt-4">
+          <CardOnFile
+            salonSlug={salon}
+            clientProfileId={ctx.principal.clientProfileId}
+            cards={cards}
+          />
+        </div>
+      </section>
 
       <section>
         <SectionHeading

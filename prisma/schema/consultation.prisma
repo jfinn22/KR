@@ -242,6 +242,7 @@ model Consultation {
   riskFlags    RiskFlag[]
   reviews      ConsultationReview[]
   servicePlan  ServicePlan?
+  deposits     Deposit[]
   requirements PreRequirement[]
   hairHistory  HairHistoryEvent[]
   conditionChecks HairConditionAssessment[]

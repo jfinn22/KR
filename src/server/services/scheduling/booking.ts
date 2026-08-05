@@ -8,6 +8,7 @@ import {
 import { chainDuration } from '@/domain/scheduling/chain'
 import { DomainError } from '@/server/errors'
 import { invalidateAvailabilityCache } from './loader'
+import { assessCancellation } from '@/server/services/commerce'
 import type { PhaseChain, Slot } from '@/domain/scheduling/types'
 
 /**
@@ -206,6 +207,8 @@ export interface BookingResult {
   startsAt: Date
   endsAt: Date
   checkInToken: string
+  /** The deposit this booking owes, PENDING and not yet asked for. */
+  depositId?: string | null
 }
 
 /**
@@ -285,8 +288,18 @@ export async function bookFromHold(input: BookFromHoldInput): Promise<BookingRes
         data: { status: 'CONSUMED' },
       })
 
+      /*
+       * PENDING means owed, not held. Nothing has been asked of a card inside
+       * this transaction and nothing should be — a card network call inside a
+       * transaction holding a slot-exclusion lock blocks every other booker
+       * for as long as the bank takes to answer.
+       *
+       * The id comes back out so the caller can authorise it immediately
+       * afterwards, outside the lock.
+       */
+      let depositId: string | null = null
       if (input.depositCents && input.depositCents > 0) {
-        await tx.deposit.create({
+        const deposit = await tx.deposit.create({
           data: {
             salonId: input.salonId,
             clientProfileId: input.clientProfileId,
@@ -295,7 +308,9 @@ export async function bookFromHold(input: BookFromHoldInput): Promise<BookingRes
             amountCents: input.depositCents,
             status: 'PENDING',
           },
+          select: { id: true },
         })
+        depositId = deposit.id
       }
 
       if (hold.servicePlanSessionId) {
@@ -324,6 +339,7 @@ export async function bookFromHold(input: BookFromHoldInput): Promise<BookingRes
         startsAt: appointment.startsAt,
         endsAt: appointment.endsAt,
         checkInToken,
+        depositId,
       }
     })
   } catch (err) {
@@ -396,6 +412,35 @@ export async function cancelAppointment(input: CancelInput): Promise<void> {
   })
 
   invalidateAvailabilityCache(input.salonId)
+
+  /*
+   * Now settle the money, outside the transaction because it talks to the
+   * payment provider.
+   *
+   * `assessCancellation` has existed since commerce was written and had zero
+   * callers — so no cancellation has ever produced a fee record, and no
+   * no-show has ever kept its deposit. Cancelling was free, whenever you did
+   * it, which is the exact thing deposits exist to prevent.
+   *
+   * Deliberately not fatal. The appointment IS cancelled — the time is already
+   * freed and the client already told — and throwing here because a card
+   * network was slow would leave a cancelled appointment reported as failed.
+   */
+  try {
+    await assessCancellation({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      isNoShow: input.markNoShow,
+    })
+  } catch (error) {
+    await unsafeDb.outbox.create({
+      data: {
+        salonId: input.salonId,
+        topic: 'cancellation.assessment_failed',
+        payloadJson: { appointmentId: input.appointmentId, error: String(error) },
+      },
+    })
+  }
 }
 
 /** Duration of a chain, exposed so callers do not recompute it inconsistently. */

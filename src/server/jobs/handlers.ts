@@ -400,6 +400,81 @@ const expireStale = define({
 })
 
 /**
+ * Re-authorise deposits whose hold is about to lapse.
+ *
+ * A card authorisation is not permanent — providers drop them after about a
+ * week — and a deposit taken six weeks before an appointment will outlive its
+ * own hold several times over. Left alone, the salon discovers on the day that
+ * the money it was relying on was released a month ago.
+ *
+ * Re-authorising rather than capturing keeps the promise a promise: the client
+ * agreed to a hold, not to being charged early.
+ */
+const depositReauthorize = define({
+  schema: z.object({}).passthrough(),
+  timeoutMs: 120_000,
+  maxAttempts: 3,
+  handler: async () => {
+    const { renewDepositAuthorization, releaseDeposit } = await import(
+      '@/server/services/deposits'
+    )
+
+    // A day's grace, so a hold is renewed before it lapses rather than after.
+    const soon = new Date(Date.now() + 86_400_000)
+    const expiring = await unsafeDb.deposit.findMany({
+      where: { status: 'AUTHORIZED', authorizationExpiresAt: { lt: soon } },
+      select: {
+        id: true,
+        salonId: true,
+        appointmentId: true,
+        appointment: { select: { startsAt: true, status: true } },
+        salon: { select: { currency: true } },
+      },
+      take: 200,
+    })
+
+    for (const deposit of expiring) {
+      /*
+       * The appointment already happened, or was cancelled without the
+       * cancellation path ever running. Renewing a hold against it would keep
+       * a client's money reserved for an appointment that no longer exists.
+       */
+      const appointment = deposit.appointment
+      const over =
+        appointment != null &&
+        (appointment.startsAt < new Date() ||
+          appointment.status === 'CANCELLED' ||
+          appointment.status === 'COMPLETED')
+
+      try {
+        if (over) {
+          await releaseDeposit({ salonId: deposit.salonId, depositId: deposit.id })
+          continue
+        }
+        await renewDepositAuthorization({
+          salonId: deposit.salonId,
+          depositId: deposit.id,
+          currency: deposit.salon.currency,
+        })
+      } catch (error) {
+        /*
+         * One card declining must not stop the sweep. The salon is told rather
+         * than the job silently dying, because a deposit that could not be
+         * renewed is a conversation to have before the appointment, not after.
+         */
+        await unsafeDb.outbox.create({
+          data: {
+            salonId: deposit.salonId,
+            topic: 'deposit.reauthorization_failed',
+            payloadJson: { depositId: deposit.id, error: String(error) },
+          },
+        })
+      }
+    }
+  },
+})
+
+/**
  * Score an uploaded photo.
  *
  * Off the request path deliberately: a client should never wait behind image
@@ -567,6 +642,7 @@ export const JOB_REGISTRY: Record<string, AnyJobDefinition> = {
   'waitlist.match': waitlistMatch,
   'consultation.stale.nudge': consultationStaleNudge,
   'expire.stale': expireStale,
+  'deposit.reauthorize': depositReauthorize,
   'photo.assess': photoAssess,
   'quoteaccuracy.capture': quoteAccuracyCapture,
   'calibration.recompute': calibrationRecompute,
@@ -581,6 +657,7 @@ export const RECURRING: { key: string; type: string; everyMinutes: number }[] = 
   { key: 'holds', type: 'hold.expire', everyMinutes: 1 },
   { key: 'reap', type: 'system.reap', everyMinutes: 5 },
   { key: 'stale', type: 'expire.stale', everyMinutes: 60 },
+  { key: 'deposits', type: 'deposit.reauthorize', everyMinutes: 360 },
   { key: 'nudge', type: 'consultation.stale.nudge', everyMinutes: 720 },
   { key: 'calibration', type: 'calibration.recompute', everyMinutes: 1440 },
 ]

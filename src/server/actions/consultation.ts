@@ -243,6 +243,7 @@ export const submitConsultationAction = withAuthz(
       salonId: ctx.salonId,
       consultationId: input.consultationId,
       clientNote: input.clientNote ?? null,
+      currency: ctx.currency,
     })
 
     const servicePlanId = await maybeAutoApprove({

@@ -107,6 +107,13 @@ const MATRIX: Record<Action, RoleRow> = {
   'discount.applyOverCap': row(AR, AR, N, N, N),
   'fee.waive': row(A, A, AR, N, N),
   'deposit.view': row(A, A, A, O, N),
+  // A stylist may take a card for their own client — the conversation about a
+  // deposit happens in the chair, not at the desk. An assistant may not: a
+  // standing permission to charge somebody is not a junior's to collect.
+  'card.manage': row(A, A, A, O, N),
+  // Forfeiting a deposit takes money from someone who is not in the room, so
+  // it carries a written reason at every level that holds it.
+  'deposit.charge': row(AR, AR, AR, N, N),
 
   // Communication
   'message.send': row(A, A, A, O, N),
@@ -164,6 +171,9 @@ const CLIENT_ACTIONS: ReadonlySet<Action> = new Set<Action>([
   'formula.view',
   'message.send',
   'deposit.view',
+  // A client keeps their own cards. Nobody else's — `CLIENT_SCOPED_ACTIONS`
+  // is checked against their own `clientProfileId`.
+  'card.manage',
 ])
 
 /** Actions a background job may perform on behalf of the system. */

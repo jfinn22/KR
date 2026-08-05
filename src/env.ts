@@ -60,6 +60,15 @@ const serverSchema = z.object({
 
 const clientSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().default('http://localhost:3000'),
+  /**
+   * The provider's publishable key, which is public by design — it can create
+   * a payment attempt and nothing else.
+   *
+   * Optional, and absence is the signal rather than an error: with no key the
+   * card step falls back to the mock adapter's flow, so the whole booking
+   * journey runs end to end in dev and CI without a Stripe account.
+   */
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional(),
 })
 
 export type ServerEnv = z.infer<typeof serverSchema>
@@ -83,6 +92,9 @@ export function serverEnv(): ServerEnv {
 
 export const clientEnv = clientSchema.parse({
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+  // Written out in full rather than read dynamically: Next inlines
+  // `process.env.NEXT_PUBLIC_*` at build time only when it sees the literal.
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
 })
 
 const PORT_OVERRIDE: Record<PortName, keyof ServerEnv> = {

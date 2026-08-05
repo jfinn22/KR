@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { AdapterError, mockId, mockNow, requireEnv } from './types'
 
 /**
@@ -30,6 +31,50 @@ export interface CreateIntentInput {
   captureMethod: 'automatic' | 'manual'
   description?: string
   metadata?: Record<string, string>
+  /** The stored customer to charge against, for a card already on file. */
+  customerRef?: string
+  paymentMethodRef?: string
+  /**
+   * Charge a card whose owner is not at the keyboard.
+   *
+   * A deposit taken six weeks before an appointment, or forfeited after a
+   * no-show, happens with nobody there to complete a challenge — which is
+   * exactly the case a provider needs told about in advance, because the
+   * agreement to charge later was made when they WERE there.
+   */
+  offSession?: boolean
+  /** Attempt the charge immediately rather than handing back a client secret. */
+  confirm?: boolean
+}
+
+/**
+ * Collecting a card without charging it.
+ *
+ * The whole point: the browser talks to the provider directly and this server
+ * never sees a card number. What comes back is a reference — worthless to
+ * anybody who steals it, and the only thing worth storing.
+ */
+export type SetupStatus = 'REQUIRES_PAYMENT_METHOD' | 'REQUIRES_ACTION' | 'SUCCEEDED' | 'CANCELLED'
+
+export interface SetupIntent {
+  id: string
+  clientSecret: string
+  status: SetupStatus
+  customerRef: string
+  /** Present once the card is attached. */
+  paymentMethodRef?: string | null
+}
+
+export interface StoredCard {
+  id: string
+  brand: string
+  last4: string
+  expMonth: number
+  expYear: number
+}
+
+export interface CustomerRef {
+  id: string
 }
 
 export interface RefundResult {
@@ -50,6 +95,18 @@ export interface WebhookEvent {
   objectId: string
   amountCents?: number
   metadata?: Record<string, string>
+  /**
+   * Fields the reconciler needs and the flattened shape used to discard.
+   *
+   * A `setup_intent.succeeded` carries the card it just attached and is
+   * meaningless without it; a `payment_intent.payment_failed` carries why, and
+   * "your card was declined" is a different message from "your bank wants you
+   * to confirm". Optional because not every event has them.
+   */
+  customerRef?: string | null
+  paymentMethodRef?: string | null
+  failureCode?: string | null
+  failureMessage?: string | null
 }
 
 export interface PaymentsPort {
@@ -59,6 +116,31 @@ export interface PaymentsPort {
   capture(id: string, amountCents?: number): Promise<PaymentIntent>
   cancel(id: string): Promise<PaymentIntent>
   refund(intentId: string, amountCents: number, idempotencyKey: string): Promise<RefundResult>
+
+  /**
+   * A customer at the provider, so a card can outlive one transaction.
+   *
+   * `createSubscription` below has always taken a `customerRef` that nothing
+   * produced. This is what produces it — memberships and platform billing
+   * inherit it rather than inventing a second one.
+   */
+  createCustomer(input: {
+    email?: string | null
+    name?: string | null
+    idempotencyKey: string
+    metadata?: Record<string, string>
+  }): Promise<CustomerRef>
+
+  createSetupIntent(input: {
+    customerRef: string
+    idempotencyKey: string
+    metadata?: Record<string, string>
+  }): Promise<SetupIntent>
+  getSetupIntent(id: string): Promise<SetupIntent | null>
+
+  listPaymentMethods(customerRef: string): Promise<StoredCard[]>
+  detachPaymentMethod(paymentMethodRef: string): Promise<void>
+
   createSubscription(input: {
     customerRef: string
     priceId: string
@@ -66,6 +148,73 @@ export interface PaymentsPort {
     idempotencyKey: string
   }): Promise<SubscriptionResult>
   parseWebhook(payload: string, signature: string): Promise<WebhookEvent>
+
+  /**
+   * Mint a signature this adapter's own `parseWebhook` will accept.
+   *
+   * Present only on adapters that can — the mock. It exists so an integration
+   * test can drive the real webhook ROUTE end to end rather than calling the
+   * reconciler directly, which would leave the route's verification, its
+   * replay guard and its error handling untested. A real provider signs with a
+   * secret only it holds, so `StripePaymentsAdapter` does not implement it and
+   * production code must never call it.
+   */
+  signTestPayload?(payload: string, atEpochSeconds?: number): string
+
+  /**
+   * Finish a card setup without a browser.
+   *
+   * Present only on the mock, for the same reason as above and one more: with
+   * no provider account configured there is no Elements to render, and a card
+   * step that simply cannot be completed makes the whole booking journey
+   * untestable in dev and CI. The card form falls back to this.
+   *
+   * `StripePaymentsAdapter` does not implement it, so the fallback is
+   * structurally unreachable the moment a real key is configured — it is not
+   * guarded by a flag somebody can set wrong.
+   */
+  attachTestCard?(setupIntentId: string, card?: Partial<StoredCard>): StoredCard
+}
+
+/**
+ * The mock's signing scheme: `t=<epoch>,v1=<hmac of t.payload>`.
+ *
+ * Deliberately the same shape a real provider uses, so the route that verifies
+ * it is exercising the same code path in both modes — a mock that is trivially
+ * verifiable teaches the route nothing. The secret is a constant because this
+ * adapter only ever runs where there is nothing to protect.
+ */
+const MOCK_WEBHOOK_SECRET = 'mock-webhook-secret'
+const MOCK_TOLERANCE_SECONDS = 300
+
+function signMockPayload(payload: string, atEpochSeconds?: number): string {
+  const t = atEpochSeconds ?? Math.floor(Date.parse(mockNow()) / 1000)
+  const v1 = createHmac('sha256', MOCK_WEBHOOK_SECRET).update(`${t}.${payload}`).digest('hex')
+  return `t=${t},v1=${v1}`
+}
+
+function verifyMockSignature(payload: string, signature: string): boolean {
+  const parts = Object.fromEntries(
+    signature.split(',').map((part) => {
+      const at = part.indexOf('=')
+      return [part.slice(0, at), part.slice(at + 1)]
+    }),
+  )
+  const t = Number(parts.t)
+  if (!Number.isFinite(t) || typeof parts.v1 !== 'string') return false
+
+  // A signature is only good for a window. Without this, anybody who captured
+  // one valid delivery could replay it forever.
+  const age = Math.abs(Math.floor(Date.now() / 1000) - t)
+  if (age > MOCK_TOLERANCE_SECONDS) return false
+
+  const expected = createHmac('sha256', MOCK_WEBHOOK_SECRET)
+    .update(`${t}.${payload}`)
+    .digest('hex')
+  const given = Buffer.from(parts.v1, 'utf8')
+  const want = Buffer.from(expected, 'utf8')
+  // Constant time, so a wrong signature does not leak how wrong it was.
+  return given.length === want.length && timingSafeEqual(given, want)
 }
 
 export function assertAmount(port: string, amountCents: number): void {
@@ -86,6 +235,9 @@ export class MockPaymentsAdapter implements PaymentsPort {
   private readonly intents = new Map<string, PaymentIntent>()
   private readonly byIdempotency = new Map<string, string>()
   private readonly refunds = new Map<string, RefundResult>()
+  private readonly customers = new Map<string, CustomerRef>()
+  private readonly setups = new Map<string, SetupIntent>()
+  private readonly cards = new Map<string, StoredCard[]>()
 
   async createIntent(input: CreateIntentInput): Promise<PaymentIntent> {
     assertAmount(this.name, input.amountCents)
@@ -94,12 +246,23 @@ export class MockPaymentsAdapter implements PaymentsPort {
     const existing = this.byIdempotency.get(input.idempotencyKey)
     if (existing) return { ...this.intents.get(existing)! }
 
+    /*
+     * A card on file that is confirmed off-session lands already authorised —
+     * there is nobody at the keyboard to complete a step, which is the whole
+     * reason the agreement was taken in advance.
+     */
+    const chargedNow = Boolean(input.confirm && input.paymentMethodRef)
     const id = mockId('pi', input.idempotencyKey)
     const intent: PaymentIntent = {
       id,
       amountCents: input.amountCents,
       currency: input.currency,
-      status: input.captureMethod === 'manual' ? 'REQUIRES_CAPTURE' : 'SUCCEEDED',
+      status:
+        input.captureMethod === 'manual'
+          ? 'REQUIRES_CAPTURE'
+          : chargedNow || input.captureMethod === 'automatic'
+            ? 'SUCCEEDED'
+            : 'REQUIRES_PAYMENT_METHOD',
       capturedCents: input.captureMethod === 'manual' ? 0 : input.amountCents,
       clientSecret: `${id}_secret`,
       createdAt: mockNow(),
@@ -107,6 +270,84 @@ export class MockPaymentsAdapter implements PaymentsPort {
     this.intents.set(id, intent)
     this.byIdempotency.set(input.idempotencyKey, id)
     return { ...intent }
+  }
+
+  async createCustomer(input: {
+    email?: string | null
+    name?: string | null
+    idempotencyKey: string
+  }): Promise<CustomerRef> {
+    const id = mockId('cus', input.idempotencyKey)
+    const existing = this.customers.get(id)
+    if (existing) return { ...existing }
+    const created = { id }
+    this.customers.set(id, created)
+    this.cards.set(id, [])
+    return { ...created }
+  }
+
+  async createSetupIntent(input: {
+    customerRef: string
+    idempotencyKey: string
+  }): Promise<SetupIntent> {
+    const id = mockId('seti', input.idempotencyKey)
+    const existing = this.setups.get(id)
+    if (existing) return { ...existing }
+
+    const setup: SetupIntent = {
+      id,
+      clientSecret: `${id}_secret`,
+      status: 'REQUIRES_PAYMENT_METHOD',
+      customerRef: input.customerRef,
+      paymentMethodRef: null,
+    }
+    this.setups.set(id, setup)
+    return { ...setup }
+  }
+
+  async getSetupIntent(id: string): Promise<SetupIntent | null> {
+    const found = this.setups.get(id)
+    return found ? { ...found } : null
+  }
+
+  async listPaymentMethods(customerRef: string): Promise<StoredCard[]> {
+    return (this.cards.get(customerRef) ?? []).map((card) => ({ ...card }))
+  }
+
+  async detachPaymentMethod(paymentMethodRef: string): Promise<void> {
+    for (const [customer, list] of this.cards) {
+      this.cards.set(
+        customer,
+        list.filter((card) => card.id !== paymentMethodRef),
+      )
+    }
+  }
+
+  /**
+   * Test helper: pretend the client finished the card form.
+   *
+   * The real flow completes in the browser and comes back as a webhook. This
+   * is the same landing place, reached without one — so a test can set up "a
+   * client with a card on file" in one line instead of six.
+   */
+  attachTestCard(setupIntentId: string, card?: Partial<StoredCard>): StoredCard {
+    const setup = this.setups.get(setupIntentId)
+    if (!setup) throw new AdapterError(this.name, 'NOT_FOUND', `No setup intent ${setupIntentId}.`)
+
+    const stored: StoredCard = {
+      id: mockId('pm', setupIntentId),
+      brand: card?.brand ?? 'visa',
+      last4: card?.last4 ?? '4242',
+      expMonth: card?.expMonth ?? 12,
+      expYear: card?.expYear ?? 2030,
+    }
+    this.cards.set(setup.customerRef, [...(this.cards.get(setup.customerRef) ?? []), stored])
+    this.setups.set(setupIntentId, {
+      ...setup,
+      status: 'SUCCEEDED',
+      paymentMethodRef: stored.id,
+    })
+    return stored
   }
 
   async getIntent(id: string): Promise<PaymentIntent | null> {
@@ -192,9 +433,18 @@ export class MockPaymentsAdapter implements PaymentsPort {
     }
   }
 
-  /** In mock mode a "webhook" is just JSON we synthesised ourselves. */
+  /**
+   * In mock mode a "webhook" is JSON we synthesised — but signed properly.
+   *
+   * This used to compare against the constant string `mock-signature`, which
+   * meant the one property a webhook endpoint most needs — that an old
+   * payload replayed by somebody who captured it is refused — could not be
+   * tested at all, because every signature was valid forever. The scheme here
+   * is the timestamped HMAC the platform already uses for its OUTBOUND
+   * webhooks, with the same tolerance, so there is one idea rather than two.
+   */
   async parseWebhook(payload: string, signature: string): Promise<WebhookEvent> {
-    if (signature !== 'mock-signature') {
+    if (!verifyMockSignature(payload, signature)) {
       throw new AdapterError(this.name, 'BAD_SIGNATURE', 'Webhook signature did not verify.')
     }
     const parsed = JSON.parse(payload) as WebhookEvent
@@ -208,9 +458,17 @@ export class MockPaymentsAdapter implements PaymentsPort {
     return parsed
   }
 
+  signTestPayload(payload: string, atEpochSeconds?: number): string {
+    return signMockPayload(payload, atEpochSeconds)
+  }
+
   /** Test helper: build a payload `parseWebhook` will accept. */
-  static synthesizeWebhook(event: WebhookEvent): { payload: string; signature: string } {
-    return { payload: JSON.stringify(event), signature: 'mock-signature' }
+  static synthesizeWebhook(
+    event: WebhookEvent,
+    atEpochSeconds?: number,
+  ): { payload: string; signature: string } {
+    const payload = JSON.stringify(event)
+    return { payload, signature: signMockPayload(payload, atEpochSeconds) }
   }
 }
 
@@ -264,10 +522,106 @@ export class StripePaymentsAdapter implements PaymentsPort {
         capture_method: input.captureMethod,
         description: input.description,
         metadata: input.metadata,
+        customer: input.customerRef,
+        payment_method: input.paymentMethodRef,
+        // Told in advance, because the agreement to charge later was made when
+        // the client WAS at the keyboard and the provider needs to know that.
+        off_session: input.offSession,
+        confirm: input.confirm,
       },
       { idempotencyKey: input.idempotencyKey },
     )
     return StripePaymentsAdapter.toIntent(pi as never)
+  }
+
+  async createCustomer(input: {
+    email?: string | null
+    name?: string | null
+    idempotencyKey: string
+    metadata?: Record<string, string>
+  }): Promise<CustomerRef> {
+    const stripe = await this.client()
+    const customer = await stripe.customers.create(
+      {
+        email: input.email ?? undefined,
+        name: input.name ?? undefined,
+        metadata: input.metadata,
+      },
+      { idempotencyKey: input.idempotencyKey },
+    )
+    return { id: customer.id }
+  }
+
+  async createSetupIntent(input: {
+    customerRef: string
+    idempotencyKey: string
+    metadata?: Record<string, string>
+  }): Promise<SetupIntent> {
+    const stripe = await this.client()
+    const si = await stripe.setupIntents.create(
+      {
+        customer: input.customerRef,
+        // The card is being stored so it can be charged when nobody is there.
+        usage: 'off_session',
+        metadata: input.metadata,
+      },
+      { idempotencyKey: input.idempotencyKey },
+    )
+    return StripePaymentsAdapter.toSetup(si as never, input.customerRef)
+  }
+
+  async getSetupIntent(id: string): Promise<SetupIntent | null> {
+    const stripe = await this.client()
+    try {
+      const si = await stripe.setupIntents.retrieve(id)
+      return StripePaymentsAdapter.toSetup(si as never, String(si.customer ?? ''))
+    } catch {
+      return null
+    }
+  }
+
+  async listPaymentMethods(customerRef: string): Promise<StoredCard[]> {
+    const stripe = await this.client()
+    const list = await stripe.paymentMethods.list({ customer: customerRef, type: 'card' })
+    return list.data.flatMap((pm) =>
+      pm.card
+        ? [
+            {
+              id: pm.id,
+              brand: pm.card.brand,
+              last4: pm.card.last4,
+              expMonth: pm.card.exp_month,
+              expYear: pm.card.exp_year,
+            },
+          ]
+        : [],
+    )
+  }
+
+  async detachPaymentMethod(paymentMethodRef: string): Promise<void> {
+    const stripe = await this.client()
+    await stripe.paymentMethods.detach(paymentMethodRef)
+  }
+
+  private static toSetup(
+    si: { id: string; client_secret?: string | null; status: string; payment_method?: unknown },
+    customerRef: string,
+  ): SetupIntent {
+    const statusMap: Record<string, SetupStatus> = {
+      requires_payment_method: 'REQUIRES_PAYMENT_METHOD',
+      requires_action: 'REQUIRES_ACTION',
+      requires_confirmation: 'REQUIRES_ACTION',
+      succeeded: 'SUCCEEDED',
+      canceled: 'CANCELLED',
+    }
+    const pm = si.payment_method
+    return {
+      id: si.id,
+      clientSecret: si.client_secret ?? '',
+      status: statusMap[si.status] ?? 'REQUIRES_PAYMENT_METHOD',
+      customerRef,
+      paymentMethodRef: typeof pm === 'string' ? pm : ((pm as { id?: string })?.id ?? null),
+    }
   }
 
   async getIntent(id: string): Promise<PaymentIntent | null> {
@@ -354,13 +708,26 @@ export class StripePaymentsAdapter implements PaymentsPort {
       id: string
       amount?: number
       metadata?: Record<string, string>
+      customer?: string | { id: string } | null
+      payment_method?: string | { id: string } | null
+      last_payment_error?: { code?: string; message?: string } | null
     }
+    const ref = (value: string | { id: string } | null | undefined) =>
+      typeof value === 'string' ? value : (value?.id ?? null)
+
     return {
       id: event.id,
       type: event.type,
       objectId: object.id,
       amountCents: object.amount,
       metadata: object.metadata,
+      // Carried rather than discarded: a setup_intent.succeeded is meaningless
+      // without the card it just attached, and a failure without its reason
+      // cannot be turned into anything a client can act on.
+      customerRef: ref(object.customer),
+      paymentMethodRef: ref(object.payment_method),
+      failureCode: object.last_payment_error?.code ?? null,
+      failureMessage: object.last_payment_error?.message ?? null,
     }
   }
 }

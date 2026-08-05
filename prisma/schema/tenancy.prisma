@@ -101,6 +101,7 @@ model Salon {
   payments           Payment[]
   discountReasons    DiscountReason[]
   giftCards          GiftCard[]
+  savedCards         SavedCard[]
   loyaltyAccounts    LoyaltyAccount[]
   membershipPlans    ClientMembershipPlan[]
   packages           PackageDefinition[]
@@ -163,6 +164,15 @@ model SalonSettings {
   cancellationFeePercent  Int @default(50)
   noShowFeePercent        Int @default(100)
   depositCapCents         Int @default(50000)
+  /// What a corrective consultation costs, paid up front and credited against
+  /// the work booked from it. Zero — the default — means consultations are
+  /// free, which is what most salons want and all of them start with.
+  ///
+  /// It exists because a corrective assessment is an hour of a senior
+  /// stylist's time, often for somebody another salon damaged, and a salon
+  /// that cannot charge for it either stops offering it or does it at a loss.
+  /// Crediting it against the work is what keeps it from being a fee.
+  correctiveConsultFeeCents Int @default(0)
 
   // AI
   aiEnabled              Boolean @default(true)
@@ -459,6 +469,10 @@ model ClientProfile {
   invoices         Invoice[]
   payments         Payment[]
   giftCardsBought  GiftCard[]      @relation("GiftCardPurchaser")
+  savedCards       SavedCard[]
+  /// The provider's customer for this person at this salon. A client of two
+  /// salons has two, because each salon's provider account is its own.
+  paymentsCustomerRef String?
   messageThreads   MessageThread[]
   contactConsents  ContactConsent[]
   formSubmissions  FormSubmission[]

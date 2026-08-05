@@ -37,6 +37,49 @@ followed, in dependency order. Each ends green on `pnpm verify` plus
 | **P2** People can get in         | Front-desk "add client"; self-signup on the salon's own link plus a join code; walk-in claim; consent written at both doors; the approval notice; `notesToClient` surfaced to the client it was written for                                            |
 | **P3** The right questions       | Service-scoped consultation forms; first-visit photos; availability narrowing at approval, sharing one filter with the waitlist; reference pictures measured against the hair under them                                                               |
 | **P4** Money at the chair        | Ad-hoc invoice lines; editable prices; an owner-written discount catalogue with a real cap and an escalation path; gift cards on a ledger; and one authority for what a deposit costs                                                                  |
+| **P5** Cards on file             | A card kept at the provider and never here; the deposit lifecycle made real, from owed through held, taken, spent or kept; a signed webhook that reconciles what the provider says; cancellations and no-shows that settle the money; paid corrective consultations, credited against the work |
+
+### What P5 changed, specifically
+
+- **A deposit is now actually asked for.** `DepositStatus` had seven values
+  and three were ever written — all at row creation, none by an update.
+  `APPLIED`, `FORFEITED` and `REFUNDED` were unreachable, and
+  `authorizationExpiresAt` and `appliedToPaymentId` were columns nothing
+  touched. The lifecycle was a comment. It is a state machine now, and every
+  transition that moves money either calls the provider first and records what
+  it said, or is driven by a webhook.
+- **A hold that was never held.** `takeDeposit` created a payment intent with
+  no customer and no payment method behind it and marked the row `AUTHORIZED`
+  on the strength of it — a hold nobody had agreed to, recorded as if they
+  had, against a card that was never asked. Nothing was ever capturable. It
+  now authorises off-session against a card on file, or leaves the row
+  `PENDING` and hands the browser a client secret. A deposit is not taken
+  until it is taken.
+- **A PENDING deposit blocked its own charge.** `bookDirect` wrote a `PENDING`
+  row at booking time; `takeDeposit` treated any live row as "already taken"
+  and returned early. The row it had just written permanently prevented the
+  charge it existed for.
+- **Cancelling was free, whenever you did it.** `assessCancellation` had zero
+  callers — so no cancellation ever produced a fee record and no no-show ever
+  kept its deposit. Both routes to a no-show now settle it, and a deposit is
+  kept only up to the fee: £50 held against a £30 late-cancel fee returns £20,
+  because "the policy says 50%" is not a defence for taking more than 50%.
+- **The bill and the money agree.** `buildInvoice` credited a held deposit
+  through `paidCents` without ever capturing it — the salon handed over a
+  discount and called it a deposit. Capture now happens before the credit is
+  written, so a card that declines fails the checkout rather than producing an
+  invoice short by the deposit; the row is marked `APPLIED` after, which is
+  what stops the next bill crediting the same money again.
+- **Holds do not silently lapse.** Providers drop an authorisation after about
+  a week and a deposit taken six weeks out will outlive its own hold several
+  times. A sweep renews them — cancelling the old hold before taking the new
+  one, because two live holds on one card is what a client reads as being
+  charged twice.
+- **A corrective consultation can be charged for, and is credited.** Keyed on
+  the engine's own `CORRECTIVE` band rather than a second definition of the
+  word. Zero by default. Credited against the work booked from it, which is
+  what keeps it from being a fee: you pay for the assessment only if you walk
+  away.
 
 ### What P4 changed, specifically
 
@@ -197,3 +240,13 @@ Nothing here is a stub pretending to be a feature.
 - **Photo quality is mechanical.** Resolution and compression, from the file
   header. Whether the lighting is any good is the AI port's job, and it is off
   by default.
+- **Cards need a provider account to be real.** With no
+  `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` the card step falls back to the mock
+  adapter, which is what keeps the whole booking journey runnable in dev and
+  CI. The fallback calls `attachTestCard`, which the Stripe adapter does not
+  implement — so configuring a real key makes it structurally unreachable
+  rather than merely discouraged.
+- **Deposits are held, not taken, until the day.** Manual capture throughout.
+  That is deliberate, and it means a salon sees authorisations rather than
+  settled funds in its provider dashboard until an appointment is invoiced or
+  a no-show is recorded.

@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { unsafeDb } from '@/server/db/client'
+import { MockPaymentsAdapter } from '@/ports/payments'
+import { paymentsPort } from '@/ports/registry'
+import { beginCardSetup, syncCards } from '@/server/services/cards'
 import {
   assessCancellation,
   buildInvoice,
@@ -140,6 +143,23 @@ async function makeClient(id = 'cm_cli') {
   })
 }
 
+/**
+ * A client with a card on file.
+ *
+ * The precondition for a deposit ever reaching AUTHORIZED. Before Phase 5 a
+ * deposit was marked held the moment an intent was created, with nothing
+ * behind it to hold — so these tests passed against a hold that did not exist.
+ */
+async function makeClientWithCard(id = 'cm_cli') {
+  const client = await makeClient(id)
+  const setup = await beginCardSetup({ salonId: S, clientProfileId: client.id })
+  const port = paymentsPort()
+  if (!(port instanceof MockPaymentsAdapter)) throw new Error('Needs the mock adapter.')
+  port.attachTestCard(setup.setupIntentId)
+  await syncCards({ salonId: S, clientProfileId: client.id })
+  return client
+}
+
 async function makeAppointment(clientId: string, startsAt: Date, totalCents = 22000) {
   return unsafeDb.appointment.create({
     data: {
@@ -186,8 +206,8 @@ describe('deposits', () => {
     expect(quote.source).toBe('SALON_POLICY')
   })
 
-  it('authorises rather than captures', async () => {
-    const client = await makeClient()
+  it('authorises rather than captures, when there is a card to authorise', async () => {
+    const client = await makeClientWithCard()
     const result = await takeDeposit({
       salonId: S,
       clientProfileId: client.id,
@@ -202,6 +222,29 @@ describe('deposits', () => {
     expect(row.status).toBe('AUTHORIZED')
     expect(row.refundableUntil).not.toBeNull()
     expect(row.policySnapshotJson).toBeTruthy()
+  })
+
+  it('stays owed, not held, when there is no card behind it', async () => {
+    /*
+     * This used to come back AUTHORIZED. An intent was created with no
+     * customer and no payment method, and the row was marked held on the
+     * strength of it — a hold nobody had agreed to, recorded as if they had,
+     * against a card that was never asked. Nothing was ever capturable.
+     */
+    const client = await makeClient()
+    const result = await takeDeposit({
+      salonId: S,
+      clientProfileId: client.id,
+      amountCents: 4400,
+      currency: 'USD',
+    })
+
+    expect(result.status).toBe('PENDING')
+    // The browser gets something to do instead: a secret to confirm with.
+    expect(result.clientSecret).toBeTruthy()
+    expect(
+      (await unsafeDb.deposit.findUniqueOrThrow({ where: { id: result.depositId! } })).status,
+    ).toBe('PENDING')
   })
 
   // The double-tap is the most common cause of a duplicate charge.
@@ -303,7 +346,7 @@ describe('invoicing', () => {
   })
 
   it('applies a deposit already held against what is due', async () => {
-    const client = await makeClient()
+    const client = await makeClientWithCard()
     const appointment = await makeAppointment(client.id, new Date('2026-08-01T14:00:00Z'))
 
     await takeDeposit({
@@ -506,7 +549,7 @@ describe('cancellation', () => {
   })
 
   it('offsets a deposit already held', async () => {
-    const client = await makeClient()
+    const client = await makeClientWithCard()
     const soon = new Date(Date.now() + 6 * 3_600_000)
     const appointment = await makeAppointment(client.id, soon)
 

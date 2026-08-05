@@ -17,6 +17,13 @@ import {
   type DiscountReasonSpec,
 } from '@/domain/commerce/discounts'
 import { decideDeposit } from '@/domain/commerce/deposits'
+import {
+  authorizeDeposit,
+  captureDeposit,
+  forfeitDeposit,
+  markDepositApplied,
+  releaseDeposit,
+} from '@/server/services/deposits'
 import type { DepositBand as RiskBand } from '@/domain/consultation/types'
 
 /**
@@ -122,10 +129,29 @@ export async function quoteDeposit(input: {
   })
 }
 
+/**
+ * Ask for the deposit the plan already says is owed.
+ *
+ * This used to mark a deposit AUTHORIZED the moment it created an intent that
+ * had no card behind it — a hold nobody had agreed to, recorded as if they
+ * had. And it treated a PENDING row as "already taken" and returned early, so
+ * the PENDING row `bookDirect` writes at booking time permanently blocked its
+ * own charge. Both are gone.
+ *
+ * There are now two honest paths, and which one runs depends on one fact:
+ * whether this client has a card on file.
+ *
+ *   With a card   the deposit is authorised off-session there and then, and
+ *                 comes back AUTHORIZED (or FAILED, with the bank's reason).
+ *   Without one   an intent is created and its client secret handed to the
+ *                 browser. The row stays PENDING until the client actually
+ *                 confirms, because a deposit is not taken until it is taken.
+ */
 export async function takeDeposit(input: TakeDepositInput): Promise<{
   depositId: string | null
   amountCents: number
   clientSecret: string | null
+  status: string
 }> {
   /*
    * The policy is loaded to be SNAPSHOTTED, not to decide the amount. What is
@@ -140,13 +166,9 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
     refundableUntilHours: input.refundableUntilHours ?? policy.refundableUntilHours ?? 48,
   }
 
-  if (result.amountCents < CENTS) return { depositId: null, amountCents: 0, clientSecret: null }
-
-  /*
-   * Keyed on what is being paid for, not on when. A retry of the same booking
-   * returns the same intent; a genuinely new booking gets a new one.
-   */
-  const idempotencyKey = `dep_${input.servicePlanId ?? input.appointmentId ?? input.clientProfileId}`
+  if (result.amountCents < CENTS) {
+    return { depositId: null, amountCents: 0, clientSecret: null, status: 'NONE' }
+  }
 
   const existing = await unsafeDb.deposit.findFirst({
     where: {
@@ -155,44 +177,90 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
       servicePlanId: input.servicePlanId ?? null,
       status: { in: ['PENDING', 'AUTHORIZED', 'CAPTURED'] },
     },
+    orderBy: { createdAt: 'desc' },
   })
-  if (existing) {
+
+  // Money already held or taken. Asking again would be a second charge.
+  if (existing && existing.status !== 'PENDING') {
     return {
       depositId: existing.id,
       amountCents: existing.amountCents,
-      clientSecret: existing.providerIntentId,
+      clientSecret: null,
+      status: existing.status,
     }
   }
 
+  const deposit =
+    existing ??
+    (await unsafeDb.deposit.create({
+      data: {
+        salonId: input.salonId,
+        clientProfileId: input.clientProfileId,
+        servicePlanId: input.servicePlanId ?? null,
+        appointmentId: input.appointmentId ?? null,
+        amountCents: result.amountCents,
+        // Owed, not held. Nothing has been asked of a card yet.
+        status: 'PENDING',
+        // Snapshotted so the refund window survives a later policy change.
+        policySnapshotJson: { ...policy, rationale: result.rationale } as never,
+        refundableUntil: new Date(Date.now() + result.refundableUntilHours * 3_600_000),
+      },
+    }))
+
+  const card = await unsafeDb.savedCard.findFirst({
+    where: { salonId: input.salonId, clientProfileId: input.clientProfileId, detachedAt: null },
+    orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+    select: { id: true },
+  })
+
+  if (card) {
+    const charged = await authorizeDeposit({
+      salonId: input.salonId,
+      depositId: deposit.id,
+      currency: input.currency,
+    })
+    return {
+      depositId: deposit.id,
+      amountCents: deposit.amountCents,
+      clientSecret: null,
+      status: charged.status,
+    }
+  }
+
+  /*
+   * Keyed on what is being paid for, not on when. A retry of the same booking
+   * returns the same intent; a genuinely new booking gets a new one.
+   */
   const intent = await paymentsPort().createIntent({
-    amountCents: result.amountCents,
+    amountCents: deposit.amountCents,
     currency: input.currency.toLowerCase(),
     // Authorised, not captured: the money is held, and taking it only happens
     // if the client does not turn up.
     captureMethod: 'manual',
-    idempotencyKey,
+    idempotencyKey: `dep_${deposit.id}`,
     metadata: {
       salonId: input.salonId,
+      depositId: deposit.id,
       servicePlanId: input.servicePlanId ?? '',
     },
   })
 
-  const deposit = await unsafeDb.deposit.create({
-    data: {
-      salonId: input.salonId,
-      clientProfileId: input.clientProfileId,
-      servicePlanId: input.servicePlanId ?? null,
-      appointmentId: input.appointmentId ?? null,
-      amountCents: result.amountCents,
-      status: intent.status === 'SUCCEEDED' ? 'CAPTURED' : 'AUTHORIZED',
-      providerIntentId: intent.id,
-      // Snapshotted so the refund window survives a later policy change.
-      policySnapshotJson: { ...policy, rationale: result.rationale } as never,
-      refundableUntil: new Date(Date.now() + result.refundableUntilHours * 3_600_000),
-    },
+  await unsafeDb.deposit.update({
+    where: { id: deposit.id },
+    data: { providerIntentId: intent.id },
   })
 
-  return { depositId: deposit.id, amountCents: result.amountCents, clientSecret: intent.id }
+  /*
+   * Still PENDING. The client has a secret and an intent, and neither is a
+   * payment — the webhook moves this to AUTHORIZED when the provider says the
+   * card actually agreed.
+   */
+  return {
+    depositId: deposit.id,
+    amountCents: deposit.amountCents,
+    clientSecret: intent.clientSecret,
+    status: 'PENDING',
+  }
 }
 
 /**
@@ -365,14 +433,40 @@ export async function priceInvoice(input: BuildInvoiceInput) {
     0,
   )
 
-  const depositHeld = appointment.deposits
-    .filter((d) => d.status === 'AUTHORIZED' || d.status === 'CAPTURED')
-    .reduce((sum, d) => sum + d.amountCents, 0)
+  /*
+   * A deposit counts against this bill while it is still held or already
+   * taken. An APPLIED one has been spent on a bill already and a FORFEITED one
+   * was kept for an appointment nobody came to — neither is this client's
+   * money to be credited twice.
+   */
+  /*
+   * A corrective consultation was paid for before this work was booked, and
+   * crediting it here is what keeps it from being a fee — the client pays for
+   * the assessment only if they walk away. It hangs off the consultation
+   * rather than the appointment, so it does not appear in `deposits` above.
+   */
+  const consultationDeposits = appointment.consultationId
+    ? await unsafeDb.deposit.findMany({
+        where: {
+          salonId: input.salonId,
+          consultationId: appointment.consultationId,
+          appointmentId: null,
+          status: { in: ['AUTHORIZED', 'CAPTURED'] },
+        },
+      })
+    : []
+
+  const heldDeposits = [
+    ...appointment.deposits.filter((d) => d.status === 'AUTHORIZED' || d.status === 'CAPTURED'),
+    ...consultationDeposits,
+  ]
+  const depositHeld = heldDeposits.reduce((sum, d) => sum + d.amountCents, 0)
 
   return {
     appointment,
     rows,
     totals,
+    heldDeposits,
     depositHeld,
     repricedDownCents,
     /** Everything the cap has to be measured against: given away, however. */
@@ -385,10 +479,26 @@ export async function buildInvoice(
   input: BuildInvoiceInput,
 ): Promise<{ invoiceId: string; totalCents: number; dueCents: number }> {
   const priced = await priceInvoice(input)
-  const { appointment, rows, totals, depositHeld } = priced
+  const { appointment, rows, totals, depositHeld, heldDeposits } = priced
 
   if (appointment.invoice) {
     throw new DomainError('CONFLICT', 'This appointment has already been invoiced.')
+  }
+
+  /*
+   * Take the held money BEFORE the bill claims it has been taken.
+   *
+   * `paidCents: depositHeld` below credits the deposit against the invoice.
+   * Until Phase 5 that credit was the only thing that ever happened — the
+   * authorisation was never captured and the Deposit row never left
+   * AUTHORIZED, so the salon handed over a discount and called it a deposit.
+   *
+   * Capturing first means a card that declines fails the checkout instead of
+   * producing an invoice that is short by the deposit. Already-CAPTURED rows
+   * are a no-op, so a retried checkout is safe.
+   */
+  for (const deposit of heldDeposits) {
+    await captureDeposit({ salonId: input.salonId, depositId: deposit.id })
   }
 
   const invoice = await unsafeDb.$transaction(async (tx) => {
@@ -466,6 +576,19 @@ export async function buildInvoice(
 
     return created
   })
+
+  /*
+   * The bill exists and has been credited, so the deposits are spent. Marking
+   * them APPLIED is what stops the next invoice for this client from finding
+   * them still "held" and crediting the same money again.
+   */
+  for (const deposit of heldDeposits) {
+    await markDepositApplied({
+      salonId: input.salonId,
+      depositId: deposit.id,
+      invoiceId: invoice.id,
+    })
+  }
 
   return { invoiceId: invoice.id, totalCents: totals.totalCents, dueCents: priced.dueCents }
 }
@@ -684,18 +807,33 @@ export async function assessCancellation(input: {
     noShowPercent: settings?.noShowFeePercent ?? 100,
   }
 
-  const depositHeld = appointment.deposits
-    .filter((d) => d.status === 'AUTHORIZED' || d.status === 'CAPTURED')
-    .reduce((sum, d) => sum + d.amountCents, 0)
+  const heldDeposits = appointment.deposits.filter(
+    (d) => d.status === 'AUTHORIZED' || d.status === 'CAPTURED',
+  )
+  const depositHeld = heldDeposits.reduce((sum, d) => sum + d.amountCents, 0)
 
+  const at = input.cancelledAt ?? new Date()
   const outcome = computeCancellationFee({
     policy,
     serviceTotalCents: appointment.estimatedTotalCents,
     scheduledAt: appointment.startsAt,
-    cancelledAt: input.cancelledAt ?? new Date(),
+    cancelledAt: at,
     isNoShow: input.isNoShow,
     depositHeldCents: depositHeld,
   })
+
+  /*
+   * What the policy says the cancellation costs, BEFORE the deposit is taken
+   * off it. `outcome.feeCents` is the residual still to collect; forfeiting
+   * against that figure would keep the deposit and then charge the fee again.
+   */
+  const grossFeeCents = computeCancellationFee({
+    policy,
+    serviceTotalCents: appointment.estimatedTotalCents,
+    scheduledAt: appointment.startsAt,
+    cancelledAt: at,
+    isNoShow: input.isNoShow,
+  }).feeCents
 
   if (!appointment.cancellationFee) {
     await unsafeDb.cancellationFee.create({
@@ -706,6 +844,32 @@ export async function assessCancellation(input: {
         computedCents: outcome.feeCents,
         status: outcome.feeCents === 0 ? 'WAIVED' : 'PENDING',
       },
+    })
+  }
+
+  /*
+   * Settle the deposit, which is the half that never happened.
+   *
+   * `computeCancellationFee` returns the fee NET of the deposit — it has
+   * always assumed the deposit would be kept, and nothing ever kept it. Every
+   * no-show since this was written left the authorisation to quietly expire.
+   *
+   * Cancelled in good time    the hold is let go, explicitly rather than left
+   *                           to lapse, because a pending charge sitting on a
+   *                           statement for a week produces a phone call.
+   * Cancelled late, or missed the deposit covers the fee, capped at the fee —
+   *                           a £50 deposit against a £30 fee returns £20.
+   */
+  for (const deposit of heldDeposits) {
+    if (outcome.withinWindow) {
+      await releaseDeposit({ salonId: input.salonId, depositId: deposit.id })
+      continue
+    }
+    await forfeitDeposit({
+      salonId: input.salonId,
+      depositId: deposit.id,
+      reason: outcome.rationale,
+      keepAtMostCents: grossFeeCents,
     })
   }
 

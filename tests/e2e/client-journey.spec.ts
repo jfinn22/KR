@@ -202,7 +202,12 @@ test.describe('the client journey', () => {
     await expect(page.getByText(/your appointment/i)).toBeVisible({ timeout: 15_000 })
     await expect(page.getByText(/held for you for/i)).toBeVisible()
 
-    await page.getByRole('button', { name: /confirm this time/i }).click()
+    /*
+     * The button says what it is about to do. A visit that owes a deposit
+     * reads "Confirm and pay the deposit", because a client who taps "Confirm
+     * this time" and then sees a charge on their card was not told.
+     */
+    await page.getByRole('button', { name: /confirm (this time|and pay)/i }).click()
 
     await expect(page).toHaveURL(/\/my\/appointments/, { timeout: 20_000 })
     await expect(page.getByText(/you are booked in/i)).toBeVisible()

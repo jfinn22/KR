@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { SlotPicker, SlotSummary, type OfferedSlot } from '@/components/salon/slot-picker'
+import { CardOnFile, type SavedCardView } from '@/components/salon/card-on-file'
+import { formatMoney } from '@/lib/format'
 import {
   confirmBookingAction,
   findSlotsAction,
@@ -36,6 +38,7 @@ export interface SlotSearchResult {
 export function BookingFlow({
   salonSlug,
   timeZone,
+  currency,
   servicePlanId,
   sequence,
   sessionName,
@@ -44,6 +47,9 @@ export function BookingFlow({
   initialFrom,
   initialTo,
   initialResult,
+  clientProfileId,
+  depositCents,
+  cards,
 }: {
   salonSlug: string
   timeZone: string
@@ -56,6 +62,10 @@ export function BookingFlow({
   initialFrom: string
   initialTo: string
   initialResult: SlotSearchResult
+  clientProfileId: string
+  /** What this visit owes up front. Zero for every visit but the first. */
+  depositCents: number
+  cards: SavedCardView[]
 }) {
   const router = useRouter()
 
@@ -205,6 +215,33 @@ export function BookingFlow({
           <SlotSummary slot={selected} timeZone={timeZone} />
           <HoldTimer expiresAt={hold.expiresAt} />
 
+          {/*
+           * The deposit is asked for HERE, on the confirmation screen, and not
+           * a step earlier. A client who has not yet chosen a time has not
+           * agreed to anything, and asking for a card before they have is the
+           * fastest way to lose a booking that was going to happen.
+           */}
+          {depositCents > 0 && (
+            <div className="rounded-lg border border-line bg-gold-soft p-5">
+              <p className="text-body text-ink">
+                This visit asks for a {formatMoney(depositCents, currency)} deposit, which comes off
+                the cost on the day.
+              </p>
+              <div className="mt-4">
+                <CardOnFile
+                  salonSlug={salonSlug}
+                  clientProfileId={clientProfileId}
+                  cards={cards}
+                  purpose={
+                    cards.length > 0
+                      ? 'We will hold the deposit against this card. Nothing is taken until the day.'
+                      : 'Add a card to hold the deposit. Nothing is taken until the day.'
+                  }
+                />
+              </div>
+            </div>
+          )}
+
           {error && (
             <p role="alert" className="text-secondary text-danger">
               {error}
@@ -213,7 +250,7 @@ export function BookingFlow({
 
           <div className="flex flex-wrap gap-3">
             <Button onClick={confirm} disabled={busy}>
-              {busy ? 'Booking…' : 'Confirm this time'}
+              {busy ? 'Booking…' : depositCents > 0 ? 'Confirm and pay the deposit' : 'Confirm this time'}
             </Button>
             <Button
               variant="secondary"

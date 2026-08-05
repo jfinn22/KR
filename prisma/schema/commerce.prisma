@@ -81,20 +81,72 @@ model Deposit {
   servicePlanId String?
   appointmentId String?
   appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  /// A paid consultation is a deposit against the assessment rather than the
+  /// appointment. Same lifecycle, same machinery, same audit trail — a
+  /// corrective consult that costs a stylist an hour is not free labour, and
+  /// crediting it against the work is what keeps it from being a fee.
+  consultationId String?
+  consultation   Consultation? @relation(fields: [consultationId], references: [id], onDelete: SetNull)
+
+  /// The card this was or will be charged against.
+  savedCardId String?
+  savedCard   SavedCard? @relation(fields: [savedCardId], references: [id], onDelete: SetNull)
 
   amountCents Int
   status      DepositStatus @default(PENDING)
   providerIntentId String?
   authorizationExpiresAt DateTime? @db.Timestamptz(3)
   appliedToPaymentId     String?
+  /// The bill this was spent on. Not derivable from `appointmentId`: a paid
+  /// consultation is credited against the corrective work booked afterwards,
+  /// which is a different appointment entirely.
+  appliedToInvoiceId String?
+  appliedToInvoice   Invoice? @relation(fields: [appliedToInvoiceId], references: [id], onDelete: SetNull)
   /// The deposit policy as it stood when the client agreed to it.
   policySnapshotJson Json?
   refundableUntil DateTime? @db.Timestamptz(3)
+  /// Why a charge failed, in the provider's words, so the client can be told
+  /// something they can act on rather than "payment failed".
+  failureCode    String?
+  failureMessage String?
   createdAt DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt DateTime  @updatedAt @db.Timestamptz(3)
 
+  /// The provider is the source of truth for payment state, and a webhook is
+  /// how it says so. One live deposit per intent, so a redelivered event
+  /// reconciles the row it already wrote rather than a second one.
+  @@unique([providerIntentId])
   @@index([salonId, status])
   @@index([salonId, clientProfileId])
+}
+
+/// A card the client agreed we could keep.
+///
+/// Never a card number — only the provider's reference to one, plus the four
+/// digits and the brand a person needs to recognise which card they are
+/// looking at. Stealing every row of this table gets you nothing chargeable.
+model SavedCard {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+
+  providerRef String
+  brand    String
+  last4    String
+  expMonth Int
+  expYear  Int
+  isDefault Boolean @default(false)
+  /// Removed by the client rather than deleted, because a deposit already
+  /// charged against it still has to be explainable.
+  detachedAt DateTime? @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+
+  deposits Deposit[]
+
+  @@unique([salonId, providerRef])
+  @@index([salonId, clientProfileId, detachedAt])
 }
 
 model Invoice {
@@ -128,6 +180,7 @@ model Invoice {
 
   lines    InvoiceLine[]
   payments Payment[]
+  deposits Deposit[]
 
   @@unique([salonId, number])
   @@index([salonId, status, issuedAt])

@@ -7,6 +7,7 @@ import { buildSteps, completionRatio, missingRequired } from '@/domain/consultat
 import { requiredPhotoViews, suggestedPhotoViews } from '@/domain/consultation/photos'
 import type { EvaluationResult } from '@/domain/consultation/types'
 import type { ServiceFactSpec } from '@/domain/consultation/facts'
+import { chargeConsultationFee } from '@/server/services/deposits'
 
 /**
  * The consultation lifecycle.
@@ -518,6 +519,8 @@ export async function submitConsultation(input: {
   salonId: string
   consultationId: string
   clientNote?: string | null
+  /** Needed only to charge a corrective consultation, where one is charged. */
+  currency?: string
 }): Promise<EvaluationResult> {
   const view = await loadConsultation(input.salonId, input.consultationId)
 
@@ -541,5 +544,37 @@ export async function submitConsultation(input: {
     },
   })
 
-  return evaluateConsultation({ ...input, trigger: 'SUBMIT' })
+  const result = await evaluateConsultation({ ...input, trigger: 'SUBMIT' })
+
+  /*
+   * A corrective assessment is chargeable, if the salon has set a figure.
+   *
+   * Keyed on the engine's own band rather than a second definition of
+   * "corrective" — there is exactly one place that decides what corrective
+   * means (`complexityBand`, at score >= 70) and a fee that used its own
+   * threshold would charge clients the engine did not think were complicated.
+   *
+   * After the evaluation, never before: the client finds out what their hair
+   * needs first, and is charged second. And deliberately not fatal — a
+   * consultation that cannot be submitted because a card declined is a client
+   * left with damaged hair and no assessment.
+   */
+  if (result.complexity.band === 'CORRECTIVE') {
+    try {
+      const owner = await unsafeDb.consultation.findFirstOrThrow({
+        where: { id: input.consultationId, salonId: input.salonId },
+        select: { clientProfileId: true },
+      })
+      await chargeConsultationFee({
+        salonId: input.salonId,
+        consultationId: input.consultationId,
+        clientProfileId: owner.clientProfileId,
+        currency: input.currency ?? 'USD',
+      })
+    } catch {
+      // Recorded by the deposit itself when it lands; the desk picks it up.
+    }
+  }
+
+  return result
 }
