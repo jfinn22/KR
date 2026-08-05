@@ -1,0 +1,90 @@
+// ---------------------------------------------------------------------------
+// Coming from another platform
+// ---------------------------------------------------------------------------
+//
+// A salon's entire history arrives once, as a file somebody else's software
+// wrote, and the owner will get the first attempt wrong. That is the design
+// constraint the whole of this file exists to serve: every row an import
+// creates points back at the batch that created it, so undoing a bad import is
+// one operation rather than a support ticket.
+
+enum ImportSourcePlatform {
+  GENERIC
+  VAGARO
+  SQUARE
+  FRESHA
+  BOOKSY
+}
+
+enum ImportBatchStatus {
+  /// Uploaded and stored. Nothing has been read yet.
+  PENDING
+
+  /// Parsed. Waiting for a person to map services and answer what the file
+  /// could not settle — which way round the dates are, most of all.
+  REVIEWING
+
+  /// The commit job is writing. Nothing else may touch this batch.
+  COMMITTING
+
+  COMPLETED
+  FAILED
+
+  /// Undone. The batch row survives as the audit record of what happened; the
+  /// rows it created do not.
+  UNDONE
+}
+
+/// The parent of everything one import creates.
+model ImportBatch {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  /// Asked at upload, never inferred from the file. Multi-site salons are the
+  /// ones most likely to be switching platforms, and a silent wrong guess puts
+  /// a client's history at the wrong branch.
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  sourcePlatform ImportSourcePlatform @default(GENERIC)
+  status         ImportBatchStatus    @default(PENDING)
+
+  /// What the owner called the file. Kept after the upload itself is deleted,
+  /// because "which import was that" is the question the audit record answers.
+  filename String
+
+  /// Storage key of the raw upload, nulled when the file is deleted.
+  ///
+  /// A raw export holds more contact PII in one object than the platform stores
+  /// anywhere else — a salon's entire client list, in the clear — so it does not
+  /// live here indefinitely.
+  sourceAssetKey  String?
+  sourceDeletedAt DateTime? @db.Timestamptz(3)
+
+  /// The answers only a person can give: date order, calling code, and which
+  /// service each name in the file maps onto.
+  optionsJson Json?
+
+  /// What it did. Written on completion and never recomputed.
+  countsJson Json?
+
+  /// Why it stopped, in the owner's language.
+  problem String? @db.Text
+
+  createdByUserId String
+  startedAt       DateTime? @db.Timestamptz(3)
+  completedAt     DateTime? @db.Timestamptz(3)
+  undoneAt        DateTime? @db.Timestamptz(3)
+  undoneByUserId  String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  clients      ClientProfile[]
+  appointments Appointment[]
+  formulas     Formula[]
+
+  @@index([salonId, status])
+  @@index([salonId, createdAt])
+}

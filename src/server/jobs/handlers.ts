@@ -8,6 +8,15 @@ import type { NotificationTrigger } from '@prisma/client'
 import { DEFAULT_COPY, materialiseNotification } from '@/server/services/notifications'
 
 /**
+ * How long a finished import's source file survives.
+ *
+ * Seven days, counted from completion: long enough for an owner to come back
+ * on Monday and re-run something that went wrong on Friday, short enough that
+ * a salon's whole client list is not sitting in object storage indefinitely.
+ */
+const IMPORT_FILE_RETENTION_MS = 7 * 24 * 3_600_000
+
+/**
  * Job handlers.
  *
  * Each declares a zod schema for its payload, so a malformed job fails loudly
@@ -388,6 +397,47 @@ const consultationStaleNudge = define({
   },
 })
 
+/**
+ * Delete the raw files finished imports were built from.
+ *
+ * A salon's export holds more contact PII in one object than the platform
+ * stores anywhere else — the whole client list, in the clear — and once the
+ * rows are parsed the file has no further job. Retention runs from the batch
+ * reaching a terminal state rather than from upload, so an import somebody is
+ * still reviewing is never deleted out from under them.
+ */
+const importSourceReap = define({
+  schema: z.object({}).passthrough(),
+  timeoutMs: 120_000,
+  maxAttempts: 3,
+  handler: async () => {
+    const { batchesDueForFileDeletion, markSourceDeleted } = await import(
+      '@/server/services/migration/batch'
+    )
+    const cutoff = new Date(Date.now() - IMPORT_FILE_RETENTION_MS)
+
+    const salons = await unsafeDb.importBatch.findMany({
+      where: { sourceAssetKey: { not: null }, completedAt: { lt: cutoff } },
+      select: { salonId: true },
+      distinct: ['salonId'],
+      take: 50,
+    })
+
+    for (const { salonId } of salons) {
+      for (const batch of await batchesDueForFileDeletion(salonId, cutoff)) {
+        /*
+         * The row is marked first. A delete that fails leaves an object nobody
+         * can reach through the app, which is recoverable; a marked-but-present
+         * file that the sweep never revisits is a client list sitting in a
+         * bucket forever, which is not.
+         */
+        await markSourceDeleted(salonId, batch.id)
+        await storagePort().delete(batch.sourceAssetKey)
+      }
+    }
+  },
+})
+
 /** Expire consultations and plans nobody acted on. */
 const expireStale = define({
   schema: z.object({}).passthrough(),
@@ -655,6 +705,7 @@ export const JOB_REGISTRY: Record<string, AnyJobDefinition> = {
   'quoteaccuracy.capture': quoteAccuracyCapture,
   'calibration.recompute': calibrationRecompute,
   'system.reap': systemReap,
+  'import.source.reap': importSourceReap,
 }
 
 export type JobType = keyof typeof JOB_REGISTRY
@@ -669,6 +720,7 @@ export const RECURRING: { key: string; type: string; everyMinutes: number }[] = 
   { key: 'deposits', type: 'deposit.reauthorize', everyMinutes: 360 },
   { key: 'nudge', type: 'consultation.stale.nudge', everyMinutes: 720 },
   { key: 'calibration', type: 'calibration.recompute', everyMinutes: 1440 },
+  { key: 'import-files', type: 'import.source.reap', everyMinutes: 1440 },
 ]
 
 function renderTemplate(body: string, vars: Record<string, string>): string {

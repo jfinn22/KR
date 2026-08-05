@@ -1,0 +1,598 @@
+import type { Prisma } from '@prisma/client'
+import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
+import { DomainError } from '@/server/errors'
+import { localTimeToEpochMinutes, fromEpochMinutes } from '@/domain/scheduling/zoned'
+import type { RawImportRow } from '@/domain/migration/parse'
+import type { SourcePlatform } from '@/domain/migration/columns'
+
+/**
+ * An import, as one undoable event.
+ *
+ * The owner will get the first file wrong. They will pick the wrong export,
+ * or the wrong date order, or discover halfway down the review screen that
+ * their old platform put the stylist's name in the notes column — and if the
+ * only way back is a support ticket, they will not press the button at all.
+ *
+ * So every row an import writes carries `importBatchId`, and undo is a walk
+ * over three columns rather than a reconstruction. That single FK is the whole
+ * feature; the rest of this file is the care taken around it.
+ *
+ * The care that matters: **undo removes what the import created and nothing
+ * that has happened since.** A client who has claimed their record or booked an
+ * appointment in the meantime is kept, and named in the result, because
+ * deleting them would take the new booking with them through the cascade. An
+ * undo that eats a real Tuesday is a worse support ticket than the one it was
+ * meant to avoid.
+ */
+
+export interface CommitOptions {
+  /** File's service name -> Service id. A name absent here imports unmapped. */
+  serviceMap: Readonly<Record<string, string | null>>
+  /** File's stylist name -> StylistProfile id. */
+  stylistMap: Readonly<Record<string, string | null>>
+}
+
+export interface BatchCounts {
+  clientsCreated: number
+  /** Rows that found an existing client rather than making a second one. */
+  clientsMatched: number
+  appointmentsCreated: number
+  /** Rows with a date that could not become an appointment, and why. */
+  appointmentsSkipped: number
+  /** Appointments imported with no service line, because the name was unmapped. */
+  appointmentsUnmappedService: number
+  rowsWithProblems: number
+}
+
+export interface KeptClient {
+  id: string
+  name: string
+  /** Why this one survived the undo, in the owner's language. */
+  reason: string
+}
+
+export interface UndoResult {
+  clientsDeleted: number
+  appointmentsDeleted: number
+  formulasDeleted: number
+  /** Named, because "we kept 4 of them" without saying which is not an answer. */
+  clientsKept: KeptClient[]
+}
+
+/** A batch that has finished one way or another, and may not be touched again. */
+const TERMINAL = ['COMPLETED', 'FAILED', 'UNDONE'] as const
+
+export async function createBatch(
+  salonId: string,
+  input: {
+    locationId: string
+    filename: string
+    sourcePlatform: SourcePlatform
+    sourceAssetKey: string | null
+    createdByUserId: string
+  },
+) {
+  const db = dbFor(salonId)
+  return db.importBatch.create({
+    data: {
+      salonId,
+      locationId: input.locationId,
+      filename: input.filename,
+      sourcePlatform: input.sourcePlatform,
+      sourceAssetKey: input.sourceAssetKey,
+      createdByUserId: input.createdByUserId,
+      status: 'PENDING',
+    },
+  })
+}
+
+/**
+ * Write the rows.
+ *
+ * One transaction, so a failure halfway leaves no half-imported salon. A few
+ * thousand rows is real write volume, which is why the caller runs this from
+ * the job queue rather than a request — but the atomicity is not negotiable
+ * even so: a partial import is indistinguishable to an owner from a broken one,
+ * and they cannot tell which half arrived.
+ */
+export async function commitBatch(
+  salonId: string,
+  batchId: string,
+  rows: readonly RawImportRow[],
+  options: CommitOptions,
+): Promise<BatchCounts> {
+  const db = dbFor(salonId)
+
+  const batch = await db.importBatch.findFirst({
+    where: { id: batchId, salonId },
+    include: { location: { select: { id: true, timezone: true } } },
+  })
+  if (!batch) throw new DomainError('NOT_FOUND', 'That import is not here.')
+  if (batch.status !== 'REVIEWING' && batch.status !== 'PENDING') {
+    throw new DomainError('CONFLICT', 'That import has already been run.')
+  }
+
+  await db.importBatch.update({
+    where: { id: batchId },
+    data: { status: 'COMMITTING', startedAt: new Date() },
+  })
+
+  const timeZone = batch.location.timezone
+  const counts: BatchCounts = {
+    clientsCreated: 0,
+    clientsMatched: 0,
+    appointmentsCreated: 0,
+    appointmentsSkipped: 0,
+    appointmentsUnmappedService: 0,
+    rowsWithProblems: rows.filter((row) => row.problems.length > 0).length,
+  }
+
+  try {
+    await unsafeDb.$transaction(
+      async (tx: Prisma.TransactionClient) => {
+        /*
+         * Clients first, in one pass, because the same person appears on every
+         * one of their appointments. A file of four thousand appointment rows
+         * is usually six hundred people.
+         */
+        const clientIdFor = new Map<string, string>()
+
+        for (const row of rows) {
+          const key = identityKey(row)
+          if (key === null || clientIdFor.has(key)) continue
+
+          const existing = await findExistingClient(tx, salonId, row)
+          if (existing) {
+            clientIdFor.set(key, existing)
+            counts.clientsMatched += 1
+            continue
+          }
+
+          const created = await tx.clientProfile.create({
+            data: {
+              salonId,
+              firstName: row.firstName ?? 'Unnamed',
+              /*
+               * `ClientProfile.lastName` is required and plenty of people on a
+               * salon's books have one name. Empty rather than a placeholder —
+               * "Cher Unknown" is a worse thing to greet somebody by than
+               * "Cher", and every name the platform renders is already joined
+               * and trimmed.
+               */
+              lastName: row.lastName ?? '',
+              email: row.email,
+              phone: row.phone,
+              internalNotes: row.clientNotes,
+              source: 'IMPORT',
+              importBatchId: batchId,
+            },
+            select: { id: true },
+          })
+          clientIdFor.set(key, created.id)
+          counts.clientsCreated += 1
+        }
+
+        for (const row of rows) {
+          if (row.appointmentDate === null) continue
+
+          const key = identityKey(row)
+          const clientProfileId = key === null ? undefined : clientIdFor.get(key)
+          const stylistProfileId = row.stylistName
+            ? (options.stylistMap[row.stylistName] ?? null)
+            : null
+
+          /*
+           * No client, or no stylist we can name, and the appointment does not
+           * get written.
+           *
+           * `primaryStylistId` is not nullable, and the tempting fix — put it
+           * on whoever is first in the list — writes a false attribution into
+           * that stylist's own figures. This platform reports rebook rate per
+           * stylist; inventing the attribution is how a stylist gets appraised
+           * on somebody else's clients.
+           */
+          if (!clientProfileId || !stylistProfileId) {
+            counts.appointmentsSkipped += 1
+            continue
+          }
+
+          const serviceId = row.serviceName ? (options.serviceMap[row.serviceName] ?? null) : null
+          const durationMin = row.durationMin ?? 60
+          const startsAt = fromEpochMinutes(
+            localTimeToEpochMinutes(row.appointmentDate, row.appointmentTimeMin ?? 9 * 60, timeZone),
+          )
+          const endsAt = new Date(startsAt.getTime() + durationMin * 60_000)
+          const priceCents = Math.max(0, row.priceCents ?? 0)
+
+          /*
+           * History, not a booking. No AppointmentSegment rows: a segment is a
+           * claim on a stylist's time and participates in the exclusion
+           * constraint, so importing four thousand of them would let one
+           * overlap in a sloppy export fail the entire migration — and would
+           * fill a diary nobody is going to scroll back to.
+           */
+          const appointment = await tx.appointment.create({
+            data: {
+              salonId,
+              locationId: batch.locationId,
+              clientProfileId,
+              primaryStylistId: stylistProfileId,
+              status: row.status ?? 'COMPLETED',
+              source: 'IMPORT',
+              startsAt,
+              endsAt,
+              estimatedDurationMin: durationMin,
+              estimatedTotalCents: priceCents,
+              actualTotalCents: row.status === 'COMPLETED' || row.status === null ? priceCents : null,
+              internalNote: row.appointmentNotes,
+              checkedOutAt: row.status === 'CANCELLED' || row.status === 'NO_SHOW' ? null : endsAt,
+              cancelledAt: row.status === 'CANCELLED' ? startsAt : null,
+              noShowAt: row.status === 'NO_SHOW' ? startsAt : null,
+              importBatchId: batchId,
+            },
+            select: { id: true },
+          })
+          counts.appointmentsCreated += 1
+
+          if (serviceId) {
+            await tx.appointmentService.create({
+              data: {
+                salonId,
+                appointmentId: appointment.id,
+                serviceId,
+                stylistProfileId,
+                sequence: 0,
+                plannedDurationMin: durationMin,
+                priceCents,
+              },
+            })
+          } else {
+            counts.appointmentsUnmappedService += 1
+          }
+
+          if (row.formulaText) {
+            await tx.formula.create({
+              data: {
+                salonId,
+                clientProfileId,
+                appointmentId: appointment.id,
+                stylistProfileId,
+                purpose: 'GLOBAL_COLOR',
+                // Verbatim. Somebody else's shorthand is not ours to parse into
+                // components, and a wrongly-split formula is worse than one the
+                // stylist has to read.
+                applicationNotes: row.formulaText,
+                /*
+                 * When the colour went on, not when the row was written.
+                 *
+                 * `createdAt` defaults to now(), and left alone it would read
+                 * every migrated client as having been coloured on migration
+                 * day — which is the clock anything asking "how grown out is
+                 * this" would use. A whole salon's regrowth would come back
+                 * wrong on the morning they switched.
+                 */
+                createdAt: startsAt,
+                importBatchId: batchId,
+              },
+            })
+          }
+        }
+
+        /*
+         * Counters last, recomputed rather than incremented.
+         *
+         * `completedVisits === 0` is how nine places in this platform ask "is
+         * this a new client", so a migrated salon whose whole book reads as
+         * first-timers would fire its new-client welcome at every client it
+         * has. Recomputing from what is actually in the table — instead of
+         * incrementing as rows are written — also makes undo exact: the same
+         * function run afterwards gives the right answer with no rollback.
+         */
+        await recount(tx, salonId, [...clientIdFor.values()])
+      },
+      { timeout: 120_000 },
+    )
+  } catch (error) {
+    await db.importBatch.update({
+      where: { id: batchId },
+      data: {
+        status: 'FAILED',
+        completedAt: new Date(),
+        problem: 'Nothing was imported — the run stopped partway and was rolled back.',
+      },
+    })
+    throw error
+  }
+
+  await db.importBatch.update({
+    where: { id: batchId },
+    data: {
+      status: 'COMPLETED',
+      completedAt: new Date(),
+      countsJson: counts as unknown as Prisma.InputJsonValue,
+    },
+  })
+
+  return counts
+}
+
+/**
+ * Put it back.
+ *
+ * Deletes every appointment and formula the batch created, and every client it
+ * created that nobody has depended on since. The batch row survives as the
+ * record that this happened.
+ */
+export async function undoBatch(
+  salonId: string,
+  batchId: string,
+  undoneByUserId: string,
+): Promise<UndoResult> {
+  const db = dbFor(salonId)
+
+  const batch = await db.importBatch.findFirst({ where: { id: batchId, salonId } })
+  if (!batch) throw new DomainError('NOT_FOUND', 'That import is not here.')
+  if (batch.status === 'UNDONE') {
+    throw new DomainError('CONFLICT', 'That import has already been undone.')
+  }
+  if (batch.status === 'COMMITTING') {
+    throw new DomainError('CONFLICT', 'That import is still running. Wait for it to finish.')
+  }
+
+  const clients = await db.clientProfile.findMany({
+    where: { salonId, importBatchId: batchId },
+    select: { id: true, firstName: true, lastName: true, userId: true },
+  })
+  const clientIds = clients.map((client) => client.id)
+
+  const inUse = await stillInUse(salonId, batchId, clientIds)
+
+  /*
+   * Everyone this batch wrote an appointment for, including clients the salon
+   * already had. Their counters were raised by the import too, and recomputing
+   * only the rows the import created would leave a matched client permanently
+   * crediting history that no longer exists.
+   */
+  const touched = (
+    await db.appointment.findMany({
+      where: { salonId, importBatchId: batchId },
+      select: { clientProfileId: true },
+      distinct: ['clientProfileId'],
+    })
+  ).map((row) => row.clientProfileId)
+
+  const kept: KeptClient[] = []
+  const doomed: string[] = []
+  for (const client of clients) {
+    const reason = client.userId
+      ? 'They have signed in and claimed this record.'
+      : (inUse.get(client.id) ?? null)
+    if (reason) {
+      kept.push({ id: client.id, name: fullName(client), reason })
+    } else {
+      doomed.push(client.id)
+    }
+  }
+
+  const result = await unsafeDb.$transaction(async (tx: Prisma.TransactionClient) => {
+    /*
+     * Formulas, then appointments, then clients — children before parents, so
+     * nothing is deleted out from under a foreign key mid-transaction.
+     *
+     * Every imported appointment goes, including those of a client who is being
+     * kept: the client is the person, and the appointments are the history this
+     * import got wrong.
+     */
+    const formulas = await tx.formula.deleteMany({ where: { salonId, importBatchId: batchId } })
+    const appointments = await tx.appointment.deleteMany({
+      where: { salonId, importBatchId: batchId },
+    })
+    const removed = doomed.length
+      ? await tx.clientProfile.deleteMany({ where: { salonId, id: { in: doomed } } })
+      : { count: 0 }
+
+    /*
+     * The counters, recomputed against what is left.
+     *
+     * They were derived from history this undo has just deleted. Left alone a
+     * kept client says "42 visits" over an empty timeline, which reads as the
+     * platform having lost the data — precisely the fear undo exists to settle.
+     * Everyone the batch touched is recounted, not only the ones it created:
+     * a client the salon already had had their history added to as well.
+     */
+    await recount(tx, salonId, [...kept.map((client) => client.id), ...touched])
+
+    await tx.importBatch.update({
+      where: { id: batchId },
+      data: { status: 'UNDONE', undoneAt: new Date(), undoneByUserId },
+    })
+
+    return {
+      clientsDeleted: removed.count,
+      appointmentsDeleted: appointments.count,
+      formulasDeleted: formulas.count,
+      clientsKept: kept,
+    }
+  })
+
+  return result
+}
+
+/**
+ * Delete the uploaded file, keeping the audit record.
+ *
+ * A raw export holds more contact PII in one object than the platform stores
+ * anywhere else — a salon's entire client list, in the clear. Retention runs
+ * from the batch reaching a terminal state rather than from upload, so a
+ * stalled import is never deleted out from under an owner mid-review.
+ */
+export async function batchesDueForFileDeletion(
+  salonId: string,
+  olderThan: Date,
+): Promise<{ id: string; sourceAssetKey: string }[]> {
+  const db = dbFor(salonId)
+  const rows = await db.importBatch.findMany({
+    where: {
+      salonId,
+      status: { in: [...TERMINAL] },
+      sourceAssetKey: { not: null },
+      completedAt: { lt: olderThan },
+    },
+    select: { id: true, sourceAssetKey: true },
+  })
+  return rows.flatMap((row) =>
+    row.sourceAssetKey ? [{ id: row.id, sourceAssetKey: row.sourceAssetKey }] : [],
+  )
+}
+
+export async function markSourceDeleted(salonId: string, batchId: string): Promise<void> {
+  const db = dbFor(salonId)
+  await db.importBatch.updateMany({
+    where: { id: batchId, salonId },
+    data: { sourceAssetKey: null, sourceDeletedAt: new Date() },
+  })
+}
+
+// --- internals --------------------------------------------------------------
+
+/**
+ * Whether anything has happened to these clients since the import.
+ *
+ * Three questions, each a single indexed query, and each one a real reason a
+ * person now depends on the row: they have booked outside this import, they
+ * have been consulted, or they have been billed.
+ */
+async function stillInUse(
+  salonId: string,
+  batchId: string,
+  clientIds: readonly string[],
+): Promise<Map<string, string>> {
+  const reasons = new Map<string, string>()
+  if (clientIds.length === 0) return reasons
+
+  const db = dbFor(salonId)
+  const ids = [...clientIds]
+
+  const booked = await db.appointment.findMany({
+    where: {
+      salonId,
+      clientProfileId: { in: ids },
+      // Explicit rather than `not: batchId`: a row with a NULL batch is an
+      // appointment somebody made by hand, which is exactly the case that
+      // matters most here.
+      OR: [{ importBatchId: null }, { importBatchId: { not: batchId } }],
+    },
+    select: { clientProfileId: true },
+    distinct: ['clientProfileId'],
+  })
+  for (const row of booked) {
+    reasons.set(row.clientProfileId, 'They have an appointment that did not come from this import.')
+  }
+
+  const consulted = await db.consultation.findMany({
+    where: { salonId, clientProfileId: { in: ids } },
+    select: { clientProfileId: true },
+    distinct: ['clientProfileId'],
+  })
+  for (const row of consulted) {
+    if (!reasons.has(row.clientProfileId)) {
+      reasons.set(row.clientProfileId, 'They have been through a consultation since.')
+    }
+  }
+
+  const invoiced = await db.invoice.findMany({
+    where: { salonId, clientProfileId: { in: ids } },
+    select: { clientProfileId: true },
+    distinct: ['clientProfileId'],
+  })
+  for (const row of invoiced) {
+    if (!reasons.has(row.clientProfileId)) {
+      reasons.set(row.clientProfileId, 'They have been billed since.')
+    }
+  }
+
+  return reasons
+}
+
+/**
+ * Rebuild a client's visit counters from the appointments that exist.
+ *
+ * Derived numbers, recomputed rather than nudged. An import writes history in
+ * bulk and an undo takes it away in bulk, and neither is a place to be adding
+ * and subtracting from a running total — one missed decrement and a client
+ * carries a wrong lifetime figure forever, with nothing to compare it against.
+ */
+async function recount(
+  tx: Prisma.TransactionClient,
+  salonId: string,
+  clientIds: readonly string[],
+): Promise<void> {
+  const unique = [...new Set(clientIds)]
+  for (const clientProfileId of unique) {
+    const visits = await tx.appointment.findMany({
+      where: { salonId, clientProfileId, status: 'COMPLETED' },
+      select: { startsAt: true, actualTotalCents: true },
+      orderBy: { startsAt: 'asc' },
+    })
+
+    await tx.clientProfile.updateMany({
+      where: { salonId, id: clientProfileId },
+      data: {
+        completedVisits: visits.length,
+        lifetimeSpendCents: visits.reduce((total, visit) => total + (visit.actualTotalCents ?? 0), 0),
+        firstVisitAt: visits[0]?.startsAt ?? null,
+        lastVisitAt: visits.at(-1)?.startsAt ?? null,
+      },
+    })
+  }
+}
+
+/**
+ * Match against a client the salon already has.
+ *
+ * Phone first, then email, both exact on the normalised form the parser
+ * produced. Deliberately not fuzzy on names: a salon with two Sarah Joneses is
+ * ordinary, and merging them is a mistake nobody can unpick afterwards. A
+ * duplicate the owner merges later is recoverable; a wrong merge is not.
+ */
+async function findExistingClient(
+  tx: Prisma.TransactionClient,
+  salonId: string,
+  row: RawImportRow,
+): Promise<string | null> {
+  if (row.phone) {
+    const byPhone = await tx.clientProfile.findFirst({
+      where: { salonId, phone: row.phone, status: { not: 'ERASED' } },
+      select: { id: true },
+    })
+    if (byPhone) return byPhone.id
+  }
+  if (row.email) {
+    const byEmail = await tx.clientProfile.findFirst({
+      where: { salonId, email: row.email, status: { not: 'ERASED' } },
+      select: { id: true },
+    })
+    if (byEmail) return byEmail.id
+  }
+  return null
+}
+
+/**
+ * What makes two rows the same person, within one file.
+ *
+ * Phone, then email, then the name — in that order, because a phone number is
+ * the only one of the three that a salon's own front desk has never typed twice
+ * differently. A row with none of them cannot be deduplicated at all, and a row
+ * with no name is not a person.
+ */
+function identityKey(row: RawImportRow): string | null {
+  if (row.phone) return `p:${row.phone}`
+  if (row.email) return `e:${row.email}`
+  if (row.firstName) return `n:${row.firstName.toLowerCase()}|${(row.lastName ?? '').toLowerCase()}`
+  return null
+}
+
+function fullName(client: { firstName: string; lastName: string | null }): string {
+  return client.lastName ? `${client.firstName} ${client.lastName}` : client.firstName
+}

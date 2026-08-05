@@ -148,6 +148,7 @@ const MATRIX: Record<Action, RoleRow> = {
   'policy.manage': row(A, A, N, N, N),
   'automation.manage': row(A, A, N, N, N),
   'integration.manage': row(A, A, N, N, N),
+  'migration.import': row(A, A, N, N, N),
 
   // Team & business
   'team.invite': row(A, A, N, N, N),

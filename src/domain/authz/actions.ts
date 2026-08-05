@@ -109,6 +109,16 @@ export const ACTIONS = [
   'policy.manage',
   'automation.manage',
   'integration.manage',
+  /**
+   * Import a salon's history from the platform they are leaving, and undo it.
+   *
+   * One action for both directions on purpose. An import can create thousands
+   * of client records, touch consent state and write appointment history, so it
+   * is not a front-desk operation — but gating the undo any harder than the
+   * import defeats the point of having one. The owner is going to get the first
+   * file wrong, and they need to be able to retry without asking anybody.
+   */
+  'migration.import',
 
   // --- Team & business ----------------------------------------------------
   'team.invite',

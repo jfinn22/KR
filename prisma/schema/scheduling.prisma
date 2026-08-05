@@ -115,13 +115,13 @@ model TimeOff {
   stylistProfileId String
   stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
 
-  startsAt        DateTime      @db.Timestamptz(3)
-  endsAt          DateTime      @db.Timestamptz(3)
-  allDay          Boolean       @default(false)
-  reason          String?
-  status          TimeOffStatus @default(REQUESTED)
+  startsAt         DateTime      @db.Timestamptz(3)
+  endsAt           DateTime      @db.Timestamptz(3)
+  allDay           Boolean       @default(false)
+  reason           String?
+  status           TimeOffStatus @default(REQUESTED)
   approvedByUserId String?
-  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  createdAt        DateTime      @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, stylistProfileId, startsAt])
 }
@@ -133,8 +133,8 @@ model Appointment {
   locationId String
   location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  clientProfileId String
-  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  clientProfileId  String
+  clientProfile    ClientProfile  @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
   primaryStylistId String
   primaryStylist   StylistProfile @relation(fields: [primaryStylistId], references: [id], onDelete: Cascade)
 
@@ -147,17 +147,21 @@ model Appointment {
   status AppointmentStatus @default(BOOKED)
   source AppointmentSource @default(CLIENT_PORTAL)
 
+  /// The import that created this appointment, if one did.
+  importBatchId String?
+  importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+
   startsAt DateTime @db.Timestamptz(3)
   endsAt   DateTime @db.Timestamptz(3)
 
-  checkedInAt   DateTime? @db.Timestamptz(3)
-  chairStartedAt DateTime? @db.Timestamptz(3)
-  chairEndedAt  DateTime? @db.Timestamptz(3)
-  checkedOutAt  DateTime? @db.Timestamptz(3)
-  cancelledAt   DateTime? @db.Timestamptz(3)
+  checkedInAt        DateTime? @db.Timestamptz(3)
+  chairStartedAt     DateTime? @db.Timestamptz(3)
+  chairEndedAt       DateTime? @db.Timestamptz(3)
+  checkedOutAt       DateTime? @db.Timestamptz(3)
+  cancelledAt        DateTime? @db.Timestamptz(3)
   cancellationReason String?
   cancelledByUserId  String?
-  noShowAt      DateTime? @db.Timestamptz(3)
+  noShowAt           DateTime? @db.Timestamptz(3)
 
   estimatedDurationMin Int
   estimatedTotalCents  Int  @default(0)
@@ -170,53 +174,54 @@ model Appointment {
   createdByUserId String?
   /// Optimistic lock — reschedule writes fail loudly rather than silently
   /// clobbering a concurrent edit.
-  version   Int      @default(0)
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  version         Int      @default(0)
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
 
-  services      AppointmentService[]
-  segments      AppointmentSegment[]
-  photos        AppointmentPhoto[]
-  formulas      Formula[]
-  conditionChecks HairConditionAssessment[]
-  hairHistory   HairHistoryEvent[]
-  deposits      Deposit[]
-  invoice       Invoice?
-  payments      Payment[]
-  cancellationFee CancellationFee?
-  quoteAccuracy QuoteAccuracy?
-  noShowScores  NoShowScore[]
-  productUsage  ProductUsage[]
-  retailSales   RetailSale[]
-  productRecs   ProductRecommendation[]
+  services           AppointmentService[]
+  segments           AppointmentSegment[]
+  photos             AppointmentPhoto[]
+  formulas           Formula[]
+  conditionChecks    HairConditionAssessment[]
+  hairHistory        HairHistoryEvent[]
+  deposits           Deposit[]
+  invoice            Invoice?
+  payments           Payment[]
+  cancellationFee    CancellationFee?
+  quoteAccuracy      QuoteAccuracy?
+  noShowScores       NoShowScore[]
+  productUsage       ProductUsage[]
+  retailSales        RetailSale[]
+  productRecs        ProductRecommendation[]
   packageRedemptions PackageRedemption[]
-  formSubmissions FormSubmission[]
-  patchTests    PatchTest[]
-  messageThreads MessageThread[]
+  formSubmissions    FormSubmission[]
+  patchTests         PatchTest[]
+  messageThreads     MessageThread[]
 
   @@index([salonId, startsAt])
   @@index([salonId, primaryStylistId, startsAt])
   @@index([salonId, clientProfileId, startsAt])
   @@index([salonId, status, startsAt])
+  @@index([importBatchId])
 }
 
 model AppointmentService {
-  id            String      @id @default(cuid())
-  salonId       String
-  appointmentId String
-  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  serviceId     String
-  service       Service     @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  id               String          @id @default(cuid())
+  salonId          String
+  appointmentId    String
+  appointment      Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  serviceId        String
+  service          Service         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
   serviceVariantId String?
   serviceVariant   ServiceVariant? @relation(fields: [serviceVariantId], references: [id], onDelete: SetNull)
   stylistProfileId String
-  stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
+  stylistProfile   StylistProfile  @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
 
   sequence            Int
   plannedDurationMin  Int
   actualDurationMin   Int?
   priceCents          Int
-  depositAppliedCents Int @default(0)
+  depositAppliedCents Int  @default(0)
 
   segments AppointmentSegment[]
 
@@ -230,17 +235,17 @@ model AppointmentService {
 /// being special-cased in the solver. Both holds and bookings live here, which
 /// is why the exclusion constraint protects both.
 model AppointmentSegment {
-  id            String       @id @default(cuid())
-  salonId       String
-  salon         Salon        @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  locationId    String
-  location      Location     @relation(fields: [locationId], references: [id], onDelete: Cascade)
-  appointmentId String?
-  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  id                   String              @id @default(cuid())
+  salonId              String
+  salon                Salon               @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  locationId           String
+  location             Location            @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  appointmentId        String?
+  appointment          Appointment?        @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   appointmentServiceId String?
   appointmentService   AppointmentService? @relation(fields: [appointmentServiceId], references: [id], onDelete: Cascade)
-  bookingHoldId String?
-  bookingHold   BookingHold? @relation(fields: [bookingHoldId], references: [id], onDelete: Cascade)
+  bookingHoldId        String?
+  bookingHold          BookingHold?        @relation(fields: [bookingHoldId], references: [id], onDelete: Cascade)
 
   stylistProfileId String?
   stylistProfile   StylistProfile? @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
@@ -248,16 +253,16 @@ model AppointmentSegment {
   resource         Resource?       @relation(fields: [resourceId], references: [id], onDelete: SetNull)
 
   kind     SegmentKind
-  sequence Int          @default(0)
-  startsAt DateTime     @db.Timestamptz(3)
-  endsAt   DateTime     @db.Timestamptz(3)
+  sequence Int         @default(0)
+  startsAt DateTime    @db.Timestamptz(3)
+  endsAt   DateTime    @db.Timestamptz(3)
 
   blocksStylist  Boolean @default(true)
   blocksResource Boolean @default(false)
 
-  state          SegmentState @default(ACTIVE)
-  holdExpiresAt  DateTime?    @db.Timestamptz(3)
-  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  state         SegmentState @default(ACTIVE)
+  holdExpiresAt DateTime?    @db.Timestamptz(3)
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, startsAt, endsAt])
   @@index([salonId, stylistProfileId, startsAt])
@@ -275,23 +280,23 @@ model BookingHold {
   locationId String
   location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  clientProfileId String?
-  clientProfile   ClientProfile? @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  clientProfileId  String?
+  clientProfile    ClientProfile? @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
   primaryStylistId String
   primaryStylist   StylistProfile @relation(fields: [primaryStylistId], references: [id], onDelete: Cascade)
 
   servicePlanId        String?
   servicePlanSessionId String?
 
-  startsAt  DateTime   @db.Timestamptz(3)
-  endsAt    DateTime   @db.Timestamptz(3)
-  expiresAt DateTime   @db.Timestamptz(3)
-  status    HoldStatus @default(ACTIVE)
-  reason    String?
+  startsAt        DateTime   @db.Timestamptz(3)
+  endsAt          DateTime   @db.Timestamptz(3)
+  expiresAt       DateTime   @db.Timestamptz(3)
+  status          HoldStatus @default(ACTIVE)
+  reason          String?
   createdByUserId String?
-  idempotencyKey  String? @unique
+  idempotencyKey  String?    @unique
   payloadJson     Json?
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  createdAt       DateTime   @default(now()) @db.Timestamptz(3)
 
   segments AppointmentSegment[]
 
@@ -306,21 +311,21 @@ model WaitlistEntry {
   clientProfileId String
   clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
 
-  servicePlanId      String?
-  serviceIds         String[]
+  servicePlanId       String?
+  serviceIds          String[]
   preferredStylistIds String[]
-  anyStylist         Boolean  @default(true)
+  anyStylist          Boolean  @default(true)
   requiredDurationMin Int
 
-  earliestDate     DateTime @db.Date
-  latestDate       DateTime @db.Date
+  earliestDate      DateTime @db.Date
+  latestDate        DateTime @db.Date
   /// Bitmask, Sunday = bit 0. Lets a client say "Tuesdays and Thursdays only".
-  dayOfWeekMask    Int      @default(127)
-  windowStartMinute Int     @default(0)
-  windowEndMinute   Int     @default(1440)
+  dayOfWeekMask     Int      @default(127)
+  windowStartMinute Int      @default(0)
+  windowEndMinute   Int      @default(1440)
 
-  priority       Int            @default(0)
-  status         WaitlistStatus @default(OPEN)
+  priority        Int            @default(0)
+  status          WaitlistStatus @default(OPEN)
   offeredSlotJson Json?
   /// The hold standing behind an offer.
   ///
@@ -328,10 +333,10 @@ model WaitlistEntry {
   /// what they are doing, taps accept, and finds the slot gone. The hold does
   /// block the slot for everybody else, which is the cost — bounded by keeping
   /// it short and by offering to one person at a time.
-  offeredHoldId  String?
-  offerExpiresAt DateTime?      @db.Timestamptz(3)
-  notifiedAt     DateTime?      @db.Timestamptz(3)
-  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  offeredHoldId   String?
+  offerExpiresAt  DateTime?      @db.Timestamptz(3)
+  notifiedAt      DateTime?      @db.Timestamptz(3)
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, status, earliestDate])
   /// The sweep's query: offers that have run out, per salon.
