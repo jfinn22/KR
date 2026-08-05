@@ -118,6 +118,14 @@ model Invoice {
   paidAt        DateTime?     @db.Timestamptz(3)
   createdAt     DateTime      @default(now()) @db.Timestamptz(3)
 
+  /// Why this bill is less than the price list. Nullable because most are not.
+  discountReasonId String?
+  discountReason   DiscountReason? @relation(fields: [discountReasonId], references: [id], onDelete: SetNull)
+  /// Required by the policy layer when the discount exceeded the giver's cap,
+  /// and previously accepted by the action schema and read by nothing.
+  discountNote     String? @db.Text
+  discountApprovedByUserId String?
+
   lines    InvoiceLine[]
   payments Payment[]
 
@@ -140,7 +148,122 @@ model InvoiceLine {
   taxRateBps     Int @default(0)
   sequence       Int @default(0)
 
+  /// What was taken off this line, after clamping. Computed in pricing.ts and
+  /// previously thrown away — only the net survived, so a receipt could not
+  /// show "was 95, now 80" and a month-end could not tell a discounted line
+  /// from a cheap one.
+  discountCents Int @default(0)
+  /// What the client agreed to before anyone touched it at the till. Equal to
+  /// unitPriceCents unless the price was edited, which is what makes an edit
+  /// visible rather than merely effective.
+  agreedUnitPriceCents Int?
+
   @@index([salonId, invoiceId])
+}
+
+/// A reason a bill is less than the price list says.
+///
+/// The till had a free-text amount and nothing else, so "£30 off" went onto the
+/// record with no reason attached. A month later nobody could tell a staff
+/// discount from a goodwill gesture from a colour that had to be redone —
+/// three different facts about a salon, and only one of them a problem.
+model DiscountReason {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  label String
+  kind  DiscountKind @default(PERCENT)
+  /// PERCENT: basis points. FIXED: cents. OPEN: unused, the till names it.
+  value Int          @default(0)
+  /// The owner's ceiling for this reason, independent of the role cap.
+  maxCents Int?
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  invoices Invoice[]
+
+  @@unique([salonId, label])
+  @@index([salonId, isActive, sortOrder])
+}
+
+enum DiscountKind {
+  PERCENT
+  FIXED
+  /// The person at the till names the amount. Still needs a reason attached.
+  OPEN
+}
+
+/// Money taken now for a service taken later.
+///
+/// The balance is NOT a column. It is the sum of the ledger below, because a
+/// stored balance and a ledger that disagree is a fight with a customer holding
+/// a piece of card, and the ledger is the side that can be audited.
+model GiftCard {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  /// Shown to the buyer and typed in at redemption. Unique per salon, not
+  /// globally: a card is a promise by one salon and means nothing at another.
+  code String
+  initialCents Int
+  status GiftCardStatus @default(ACTIVE)
+  expiresAt DateTime? @db.Timestamptz(3)
+
+  /// Who bought it, when it was sold on a bill. Null for one issued by hand.
+  purchasedByClientId String?
+  purchasedBy         ClientProfile? @relation("GiftCardPurchaser", fields: [purchasedByClientId], references: [id], onDelete: SetNull)
+  issuedOnInvoiceId   String?
+
+  note      String?  @db.Text
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  entries GiftCardEntry[]
+
+  @@unique([salonId, code])
+  @@index([salonId, status])
+}
+
+enum GiftCardStatus {
+  ACTIVE
+  /// Spent to zero. Kept rather than deleted — it is still the record of a sale.
+  REDEEMED
+  EXPIRED
+  VOID
+}
+
+/// Every movement on a gift card. Append-only; the balance is their sum.
+model GiftCardEntry {
+  id         String   @id @default(cuid())
+  salonId    String
+  giftCardId String
+  giftCard   GiftCard @relation(fields: [giftCardId], references: [id], onDelete: Cascade)
+
+  /// Positive on issue and top-up, negative on redemption.
+  amountCents Int
+  kind        GiftCardEntryKind
+  invoiceId   String?
+  paymentId   String?
+  /// One entry per (card, idempotency key). A double-tapped redemption at the
+  /// till writes one row, not two, and the unique index is what enforces it
+  /// rather than a check-then-write that races.
+  idempotencyKey String
+  createdByUserId String?
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@unique([giftCardId, idempotencyKey])
+  @@index([salonId, giftCardId])
+}
+
+enum GiftCardEntryKind {
+  ISSUE
+  TOP_UP
+  REDEEM
+  REFUND
+  ADJUSTMENT
 }
 
 model Payment {

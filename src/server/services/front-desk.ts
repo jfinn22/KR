@@ -249,6 +249,9 @@ export async function checkoutView(salonId: string, appointmentId: string) {
     stylistName: appointment.primaryStylist.displayName,
     serviceNames: appointment.services.map((s) => s.service.name),
     lines: appointment.services.map((row) => ({
+      // The id, so a price edited at the till can be measured against what the
+      // client actually agreed to rather than against the catalogue.
+      appointmentServiceId: row.id,
       description: row.service.name,
       priceCents: row.priceCents,
     })),

@@ -99,6 +99,8 @@ model Salon {
   deposits           Deposit[]
   invoices           Invoice[]
   payments           Payment[]
+  discountReasons    DiscountReason[]
+  giftCards          GiftCard[]
   loyaltyAccounts    LoyaltyAccount[]
   membershipPlans    ClientMembershipPlan[]
   packages           PackageDefinition[]
@@ -456,6 +458,7 @@ model ClientProfile {
   deposits         Deposit[]
   invoices         Invoice[]
   payments         Payment[]
+  giftCardsBought  GiftCard[]      @relation("GiftCardPurchaser")
   messageThreads   MessageThread[]
   contactConsents  ContactConsent[]
   formSubmissions  FormSubmission[]

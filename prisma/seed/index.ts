@@ -206,6 +206,43 @@ async function main() {
     },
   })
 
+  /*
+   * Why a bill can be less than the price list.
+   *
+   * Four reasons a real salon actually uses, deliberately of different shapes:
+   * a percentage, a fixed amount, one with a ceiling, and one the till names.
+   * Without these the checkout dropdown demos as empty, which is the wrong
+   * lesson — the point of the feature is that the reason comes first.
+   */
+  await db.discountReason.createMany({
+    data: [
+      { salonId: salon.id, label: 'Staff discount', kind: 'PERCENT', value: 5000, sortOrder: 0 },
+      {
+        salonId: salon.id,
+        label: 'Friends & family',
+        kind: 'PERCENT',
+        value: 2000,
+        // A 20% cut of a £450 correction is more than most owners mean by it.
+        maxCents: 5000,
+        sortOrder: 1,
+      },
+      {
+        salonId: salon.id,
+        label: 'First visit',
+        kind: 'FIXED',
+        value: 1000,
+        sortOrder: 2,
+      },
+      {
+        salonId: salon.id,
+        label: 'Put right — our error',
+        kind: 'OPEN',
+        value: 0,
+        sortOrder: 3,
+      },
+    ],
+  })
+
   interface ServiceSeed {
     name: string
     slug: string

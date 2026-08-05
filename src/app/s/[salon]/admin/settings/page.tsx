@@ -1,11 +1,13 @@
 import { pageContextFor } from '@/server/auth/page'
 import { joinCodeFor, schedulingSettings } from '@/server/services/settings'
 import { brandingForSlug } from '@/server/services/branding'
+import { allDiscountReasons } from '@/server/services/commerce'
 import { hasFeature } from '@/domain/authz/plan-features'
 import { SectionHeading } from '@/components/ui/data'
 import { SchedulingSettingsForm } from './scheduling-form'
 import { BrandingForm } from './branding-form'
 import { JoinForm } from './join-form'
+import { DiscountForm } from './discount-form'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,10 +25,11 @@ export default async function SettingsPage({ params }: { params: Promise<{ salon
   const { salon } = await params
   const ctx = await pageContextFor(salon, 'settings.manage')
 
-  const [scheduling, branding, joinCode] = await Promise.all([
+  const [scheduling, branding, joinCode, discounts] = await Promise.all([
     schedulingSettings(ctx.salonId),
     brandingForSlug(salon),
     joinCodeFor(ctx.salonId),
+    allDiscountReasons(ctx.salonId),
   ])
 
   const mayBrand = hasFeature(ctx.plan, 'BRANDED_EXPERIENCE')
@@ -77,6 +80,16 @@ export default async function SettingsPage({ params }: { params: Promise<{ salon
             initialAccent={branding?.accentHex ?? null}
             available={mayBrand}
           />
+        </div>
+      </section>
+
+      <section>
+        <SectionHeading
+          title="Why a bill can be less"
+          description="The reasons your team can pick at the till. Everyone gets a limit by role — an owner can discount anything, a front desk 10% — and going over one is an escalation with a written reason rather than a refusal, because a system that only says no gets worked around with cash and no record."
+        />
+        <div className="mt-6">
+          <DiscountForm salonSlug={salon} currency={ctx.currency} initial={discounts} />
         </div>
       </section>
     </div>

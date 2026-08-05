@@ -180,13 +180,21 @@ export interface InvoiceLineInput {
   discountCents?: number
 }
 
+export interface PricedLine extends InvoiceLineInput {
+  /** What was actually taken off, after clamping. May be less than asked. */
+  appliedDiscountCents: number
+  totalCents: number
+  /** Already scaled by any order-level discount, so these sum to `taxCents`. */
+  taxCents: number
+}
+
 export interface InvoiceTotals {
   subtotalCents: number
   discountCents: number
   taxCents: number
   tipCents: number
   totalCents: number
-  lines: (InvoiceLineInput & { totalCents: number; taxCents: number })[]
+  lines: PricedLine[]
 }
 
 /**
@@ -207,28 +215,50 @@ export function computeInvoice(input: {
   tipCents?: number
 }): InvoiceTotals {
   const priced = input.lines.map((line) => {
-    const gross = line.unitPriceCents * Math.max(0, line.quantity)
-    const discount = Math.min(line.discountCents ?? 0, gross)
+    /*
+     * Rounded, because `quantity` is a bare number and 1.5 hours of something
+     * at 1999 a unit is 2998.5 — a fractional cent leaking into a module whose
+     * first promise is integer cents. Rounding here rather than trusting the
+     * caller means it cannot leak whatever the caller does.
+     */
+    const gross = Math.round(line.unitPriceCents * Math.max(0, line.quantity))
+
+    // A discount is never negative and never exceeds what there is to discount.
+    // Clamping against a negative gross would otherwise turn a credit line into
+    // its own discount and silently zero it.
+    const discount = Math.min(Math.max(0, line.discountCents ?? 0), Math.max(0, gross))
     const net = gross - discount
+
     return {
       ...line,
+      appliedDiscountCents: discount,
       totalCents: net,
       taxCents: percentOf(net, line.taxRateBps ?? 0),
     }
   })
 
   const subtotal = priced.reduce((sum, line) => sum + line.totalCents, 0)
-  const lineDiscounts = input.lines.reduce((sum, line) => sum + (line.discountCents ?? 0), 0)
-  const orderDiscount = Math.min(input.orderDiscountCents ?? 0, subtotal)
+  // The discounts actually given, not the ones asked for. Summing the raw
+  // inputs overstates the reduction whenever one was clamped, and that
+  // overstated figure is what gets written onto the invoice and read back as
+  // "how much did we give away this month".
+  const lineDiscounts = priced.reduce((sum, line) => sum + line.appliedDiscountCents, 0)
+  const orderDiscount = Math.min(Math.max(0, input.orderDiscountCents ?? 0), Math.max(0, subtotal))
 
   /*
    * An order-level discount reduces the taxable amount proportionally, so tax
    * is scaled by the same ratio. Discounting the total but taxing the
    * pre-discount lines would overcharge the client — quietly, and on every
    * bill with a voucher on it.
+   *
+   * The scaled figure is written back onto each line, not only summed. A
+   * receipt that itemises tax has to add up to the tax on the bill, and
+   * returning the unscaled per-line number meant the two disagreed by exactly
+   * the discount ratio on every discounted bill.
    */
   const ratio = subtotal > 0 ? (subtotal - orderDiscount) / subtotal : 1
-  const tax = priced.reduce((sum, line) => sum + Math.round(line.taxCents * ratio), 0)
+  const taxed = priced.map((line) => ({ ...line, taxCents: Math.round(line.taxCents * ratio) }))
+  const tax = taxed.reduce((sum, line) => sum + line.taxCents, 0)
 
   const tip = Math.max(0, input.tipCents ?? 0)
   const total = subtotal - orderDiscount + tax + tip
@@ -239,7 +269,7 @@ export function computeInvoice(input: {
     taxCents: tax,
     tipCents: tip,
     totalCents: Math.max(0, total),
-    lines: priced,
+    lines: taxed,
   }
 }
 

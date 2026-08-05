@@ -20,7 +20,7 @@ typechecks, lints and builds, then throws an opaque 500 with a digest and no
 stack at render time — nothing else in the pipeline catches it, and it cost
 real debugging time before the check existed.
 
-Counts: **557 unit**, **143 integration**, **70 end-to-end**.
+Counts: **589 unit**, **170 integration**, **70 end-to-end**.
 
 ---
 
@@ -36,6 +36,47 @@ followed, in dependency order. Each ends green on `pnpm verify` plus
 | **P1** Four primitives           | `withPublicAction` (a mutation path with no tenant context); a notification materialiser keyed on any trigger, which made the long-dead consultation nudge start working; the admin settings shell; white-label branding that cannot break AA contrast |
 | **P2** People can get in         | Front-desk "add client"; self-signup on the salon's own link plus a join code; walk-in claim; consent written at both doors; the approval notice; `notesToClient` surfaced to the client it was written for                                            |
 | **P3** The right questions       | Service-scoped consultation forms; first-visit photos; availability narrowing at approval, sharing one filter with the waitlist; reference pictures measured against the hair under them                                                               |
+| **P4** Money at the chair        | Ad-hoc invoice lines; editable prices; an owner-written discount catalogue with a real cap and an escalation path; gift cards on a ledger; and one authority for what a deposit costs                                                                  |
+
+### What P4 changed, specifically
+
+- **Commerce decides what money is.** Two `computeDeposit` implementations
+  existed. The rules engine computed a figure from percentages hardcoded in
+  its own file and that figure was persisted onto `ServicePlan`; the till
+  computed a different one from the salon's actual policy row. Nothing mapped
+  between them — one band is `0|1|2|3`, the other a string — so a client could
+  be quoted one number and asked for another with neither side knowing. The
+  engine now returns a band and nothing else. `Service.depositPolicyId`, in
+  the schema since it was written with zero references in `src/`, is finally
+  read; a chemical service at a salon that has configured nothing takes a $50
+  floor; and the risk band may raise the figure, never lower it.
+- **The till can change a bill.** `extraLines` was accepted by `buildInvoice`
+  and hidden by the action's schema. Lines can now be added and prices edited,
+  and a price edited _below_ what the client agreed counts toward the discount
+  cap — otherwise "edit the line to zero" is an unlimited discount with none
+  of the checks.
+- **A discount has a reason.** A typed catalogue the owner writes, a dropdown
+  at the till, and the amount computed server-side from the catalogue row —
+  a till that could post its own total could post any total. Over the cap is
+  an escalation with a written reason rather than a refusal, on the
+  `discount.applyOverCap` action that had been in the role matrix since it was
+  written and was held by nothing.
+- **Gift cards settle rather than discount.** Sold as a line, spent as a
+  payment. A card was revenue when it was bought; spending it is settlement,
+  and recording it as a negative line would count the same money twice. The
+  balance is the sum of an append-only ledger, never a column — and it is read
+  and spent under a row lock, because two tills reading a balance and then
+  writing against it both see the full amount.
+- **Four arithmetic defects in `computeInvoice`**, each reachable only once the
+  till could touch a bill: a per-line discount larger than its line was
+  reported at its full asking price; a fractional quantity produced fractional
+  cents in a module whose first promise is integer cents; the per-line tax
+  returned to the caller did not sum to the tax charged whenever an order
+  discount scaled it; and a negative line was silently zeroed by its own
+  clamp. All four now have tests.
+- **`takeDepositAction` took the risk band from its caller.** Anyone holding
+  `payment.take` could post `NONE` and be charged nothing. It reads the figure
+  frozen onto the plan — which is also the figure the client was shown.
 
 ### What P3 changed, specifically
 

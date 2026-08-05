@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { pageContextFor } from '@/server/auth/page'
 import { checkoutView } from '@/server/services/front-desk'
+import { discountReasons } from '@/server/services/commerce'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/feedback'
 import { Till } from './till'
@@ -23,7 +24,12 @@ export default async function CheckoutPage({
   const { salon, appointmentId } = await params
   const ctx = await pageContextFor(salon, 'payment.take')
 
-  const view = await checkoutView(ctx.salonId, appointmentId)
+  const [view, discountOptions] = await Promise.all([
+    checkoutView(ctx.salonId, appointmentId),
+    // The reasons the owner wrote. An empty list is an ordinary state — a salon
+    // that has configured none simply has no dropdown to offer.
+    discountReasons(ctx.salonId),
+  ])
   if (!view) {
     return (
       <EmptyState
@@ -60,6 +66,7 @@ export default async function CheckoutPage({
         lines={view.lines}
         agreedTotalCents={view.agreedTotalCents}
         depositHeldCents={view.depositHeldCents}
+        discountOptions={discountOptions}
         invoice={view.invoice}
       />
     </div>

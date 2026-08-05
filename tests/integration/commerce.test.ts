@@ -5,6 +5,7 @@ import {
   buildInvoice,
   loadInvoice,
   refundPayment,
+  quoteDeposit,
   takeDeposit,
   takePayment,
   waiveCancellationFee,
@@ -166,13 +167,31 @@ async function makeAppointment(clientId: string, startsAt: Date, totalCents = 22
 }
 
 describe('deposits', () => {
-  it('takes the policy percentage and authorises rather than captures', async () => {
+  /*
+   * Commerce is the money authority now. The rules engine returns a risk band
+   * and nothing else; `quoteDeposit` turns that into cents from the salon's own
+   * policy, and `takeDeposit` charges exactly the figure it was handed. Before
+   * this, the engine computed one number from hardcoded percentages nobody had
+   * seen and the till computed a different one from the policy row — a client
+   * quoted one figure and asked for another, with nothing comparing the two.
+   */
+  it('quotes the salon policy percentage against the basket', async () => {
+    const quote = await quoteDeposit({
+      salonId: S,
+      serviceIds: ['cm_svc'],
+      band: 2,
+      serviceTotalCents: 22000,
+    })
+    expect(quote.amountCents).toBe(4400)
+    expect(quote.source).toBe('SALON_POLICY')
+  })
+
+  it('authorises rather than captures', async () => {
     const client = await makeClient()
     const result = await takeDeposit({
       salonId: S,
       clientProfileId: client.id,
-      band: 'STANDARD',
-      serviceTotalCents: 22000,
+      amountCents: 4400,
       currency: 'USD',
     })
 
@@ -191,8 +210,7 @@ describe('deposits', () => {
     const args = {
       salonId: S,
       clientProfileId: client.id,
-      band: 'STANDARD' as const,
-      serviceTotalCents: 22000,
+      amountCents: 4400,
       currency: 'USD',
     }
 
@@ -203,17 +221,66 @@ describe('deposits', () => {
     expect(await unsafeDb.deposit.count({ where: { salonId: S } })).toBe(1)
   })
 
-  it('takes nothing when the band says nothing', async () => {
+  it('takes nothing when nothing is owed', async () => {
     const client = await makeClient()
     const result = await takeDeposit({
       salonId: S,
       clientProfileId: client.id,
-      band: 'NONE',
-      serviceTotalCents: 22000,
+      amountCents: 0,
       currency: 'USD',
     })
     expect(result.amountCents).toBe(0)
     expect(result.depositId).toBeNull()
+  })
+
+  /*
+   * The risk band may raise the figure and never lower it. A salon that says
+   * 20% means at least 20%; the engine deciding somebody is low-risk is not
+   * permission to charge them less than the salon's own terms.
+   */
+  it('never quotes below the salon policy, whatever the band says', async () => {
+    const low = await quoteDeposit({
+      salonId: S,
+      serviceIds: ['cm_svc'],
+      band: 1,
+      serviceTotalCents: 22000,
+    })
+    expect(low.amountCents).toBe(4400)
+    expect(low.raisedByRisk).toBe(false)
+  })
+
+  it('prefers the policy attached to the service over the salon default', async () => {
+    const policy = await unsafeDb.depositPolicy.create({
+      data: {
+        salonId: S,
+        name: 'Corrective',
+        mode: 'PERCENT',
+        percentBps: 5000,
+        minCents: 10000,
+        refundableUntilHours: 72,
+      },
+      select: { id: true },
+    })
+    // Read for the first time here: `Service.depositPolicyId` has been in the
+    // schema since it was written and had zero references in src/.
+    await unsafeDb.service.update({
+      where: { id: 'cm_svc' },
+      data: { depositPolicyId: policy.id },
+    })
+
+    try {
+      const quote = await quoteDeposit({
+        salonId: S,
+        serviceIds: ['cm_svc'],
+        band: 2,
+        serviceTotalCents: 22000,
+      })
+      expect(quote.amountCents).toBe(11000)
+      expect(quote.source).toBe('SERVICE_POLICY')
+    } finally {
+      await unsafeDb.service.update({ where: { id: 'cm_svc' }, data: { depositPolicyId: null } })
+      await unsafeDb.depositPolicy.delete({ where: { id: policy.id } })
+    }
   })
 })
 
@@ -243,8 +310,7 @@ describe('invoicing', () => {
       salonId: S,
       clientProfileId: client.id,
       appointmentId: appointment.id,
-      band: 'STANDARD',
-      serviceTotalCents: 22000,
+      amountCents: 4400,
       currency: 'USD',
     })
 
@@ -448,8 +514,7 @@ describe('cancellation', () => {
       salonId: S,
       clientProfileId: client.id,
       appointmentId: appointment.id,
-      band: 'STANDARD',
-      serviceTotalCents: 22000,
+      amountCents: 4400,
       currency: 'USD',
     })
 

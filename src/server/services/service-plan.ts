@@ -2,6 +2,7 @@ import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
 import { buildChain, chainDuration } from '@/domain/scheduling/chain'
 import { isNarrowed, type BookingWindow } from '@/domain/scheduling/window'
+import { quoteDeposit } from './commerce'
 import type { EvaluationResult } from '@/domain/consultation/types'
 import { capableStylists, getServices, toChainSpec } from './catalog'
 
@@ -184,7 +185,28 @@ export async function reviewConsultation(
 
   const totalMin = input.overrides?.durationMin ?? evaluation.duration.totalMin
   const totalCents = input.overrides?.priceCents ?? evaluation.price.estimatedTotalCents
-  const depositCents = input.overrides?.depositCents ?? evaluation.deposit.amountCents
+
+  /*
+   * The deposit comes from commerce, not from the engine.
+   *
+   * The engine still decides how risky this is — that is what it is for — but
+   * it no longer decides what that risk costs. It used to, from percentages
+   * hardcoded in `engine.ts` that no salon had ever seen, while the till
+   * computed a different figure from the salon's own policy row. The client
+   * was quoted one and asked for the other, and the two were never compared
+   * because nothing mapped the engine's 0–3 band onto the till's named one.
+   *
+   * This must be settled before any deposit is really charged: the figure is
+   * frozen onto the plan and every session below, so moving the authority
+   * later is a migration over live plans somebody has already agreed to.
+   */
+  const quoted = await quoteDeposit({
+    salonId: input.salonId,
+    serviceIds: consultation.requestedServiceIds,
+    band: evaluation.deposit.band,
+    serviceTotalCents: totalCents,
+  })
+  const depositCents = input.overrides?.depositCents ?? quoted.amountCents
 
   const planValidityDays = settings?.planValidityDays ?? 90
 
@@ -202,7 +224,12 @@ export async function reviewConsultation(
         estimatedTotalMin: totalMin,
         estimatedTotalCents: totalCents,
         depositCents,
-        depositPolicySnapshotJson: evaluation.deposit as never,
+        // What decided it, not merely what it came to — so "why £50?" has an
+        // answer a year later, after the policy has been edited twice.
+        depositPolicySnapshotJson: {
+          band: evaluation.deposit.band,
+          ...quoted,
+        } as never,
         rulesetVersion: evaluation.rulesetVersion,
         evaluationId: evaluationRow.id,
         // Multi-session correction should stay with one pair of hands.
