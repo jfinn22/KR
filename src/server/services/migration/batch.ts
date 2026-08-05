@@ -230,16 +230,9 @@ export async function commitBatch(
 
           const serviceId = row.serviceName ? (options.serviceMap[row.serviceName] ?? null) : null
           const durationMin = row.durationMin ?? 60
-          /*
-           * A row with a date and no readable time still imports, at nine in
-           * the morning, and says so. Refusing it would lose a real visit over
-           * a column the old platform did not export; letting it through
-           * silently puts a fictional time on a client's record that nobody can
-           * tell from a real one.
-           */
-          if (row.appointmentTimeMin === null) {
-            row.problems.push('No readable time on this row — imported as 9am.')
-          }
+          // The parse already recorded that it had to invent one, where the
+          // review screen can actually see it.
+          const timeInvented = row.appointmentTimeMin === null
           const startsAt = fromEpochMinutes(
             localTimeToEpochMinutes(row.appointmentDate, row.appointmentTimeMin ?? 9 * 60, timeZone),
           )
@@ -259,7 +252,16 @@ export async function commitBatch(
            * believes that chair is free — which turns a parallel run into the
            * cause of the double-booking it was meant to prevent.
            */
-          const isFuture = startsAt.getTime() > now.getTime()
+          /*
+           * A future row whose time had to be invented is a booking, but not a
+           * claim on a chair.
+           *
+           * Blocking 9am when the client is really coming at half past two is
+           * worse than blocking nothing: it holds an hour nobody wants AND
+           * leaves the hour they do want open to be sold twice — the exact
+           * double-booking a parallel run exists to prevent.
+           */
+          const isFuture = startsAt.getTime() > now.getTime() && !timeInvented
 
           if (isFuture) {
             /*

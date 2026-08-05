@@ -241,3 +241,47 @@ describe('the number that already had its country code', () => {
     expect(parsePhone('7700 900123', '44')).toBe('+447700900123')
   })
 })
+
+describe('the two ways a number arrives already international', () => {
+  it('reads the 00 prefix as the plus it stands for', () => {
+    /*
+     * `00` is what most of the world writes where a `+` belongs, and an export
+     * using it has already given a complete number. Treating it as national and
+     * adding the country code produces +4444… — fifteen digits, inside every
+     * length check, belonging to nobody.
+     */
+    expect(parsePhone('0044 7700 900123', '44')).toBe('+447700900123')
+    expect(parsePhone('00 1 415 555 2671', '1')).toBe('+14155552671')
+  })
+
+  it('drops the bracketed trunk zero off a printed international number', () => {
+    // `+44 (0)7700 900123` is how it appears on a business card. The zero
+    // applies only when dialling domestically.
+    expect(parsePhone('+44 (0)7700 900123', '44')).toBe('+447700900123')
+  })
+
+  it('leaves a genuine parenthesised area code alone', () => {
+    expect(parsePhone('(0161) 496 0123', '44')).toBe('+441614960123')
+  })
+})
+
+describe('times an export actually writes', () => {
+  it('reads the h separator half of Europe uses', () => {
+    expect(parseTimeOfDay('14h30')).toBe(870)
+    expect(parseTimeOfDay('9h00')).toBe(540)
+    // A bare hour with the separator is a whole hour.
+    expect(parseTimeOfDay('14h')).toBe(840)
+  })
+
+  it('reads a bare hour with a meridiem', () => {
+    expect(parseTimeOfDay('2pm')).toBe(720 + 120)
+    expect(parseTimeOfDay('9 AM')).toBe(540)
+    expect(parseTimeOfDay('12am')).toBe(0)
+  })
+
+  it('still refuses a bare number, which could be anything', () => {
+    // A duration that landed in the time column must not become an hour.
+    expect(parseTimeOfDay('90')).toBeNull()
+    expect(parseTimeOfDay('14')).toBeNull()
+  })
+})

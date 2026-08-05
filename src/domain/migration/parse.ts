@@ -158,6 +158,25 @@ export function parseImport(text: string, options: ParseOptions = {}): ParseResu
       problems.push(`Could not read the price "${rawPrice.trim()}".`)
     }
 
+    /*
+     * A time nobody could read is recorded HERE, not at commit.
+     *
+     * `summarise` counts `problems` off these rows and the review screen shows
+     * the count, so a problem pushed anywhere later is a problem nobody is ever
+     * told about — which is exactly what happened when this lived in the
+     * importer: the count had already been snapshotted, the array was discarded
+     * with the parse, and the comment claiming it "says so" was simply false.
+     */
+    const rawTime = read(record, 'appointmentTime')
+    const appointmentTimeMin = parseTimeOfDay(rawTime)
+    if (rawDate.trim() !== '' && appointmentTimeMin === null) {
+      problems.push(
+        rawTime.trim() === ''
+          ? 'No time on this row — it will import at 9am.'
+          : `Could not read the time "${rawTime.trim()}" — it will import at 9am.`,
+      )
+    }
+
     const rawStatus = read(record, 'appointmentStatus')
 
     return {
@@ -170,7 +189,7 @@ export function parseImport(text: string, options: ParseOptions = {}): ParseResu
       phone,
       clientNotes: blankToNull(read(record, 'clientNotes')),
       appointmentDate,
-      appointmentTimeMin: parseTimeOfDay(read(record, 'appointmentTime')),
+      appointmentTimeMin,
       serviceName: blankToNull(read(record, 'serviceName')),
       stylistName: blankToNull(read(record, 'stylistName')),
       durationMin: parseDurationMin(read(record, 'durationMin')),

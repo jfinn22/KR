@@ -4,6 +4,7 @@ import { pageContextFor } from '@/server/auth/page'
 import { importReview } from '@/server/services/migration/review'
 import { DomainError } from '@/server/errors'
 import { SectionHeading, Stat, Table, TableWrap, Td, Th, Tr } from '@/components/ui/data'
+import { formatMinuteOfDay } from '@/lib/format'
 import { Badge } from '@/components/ui/badge'
 import { ReviewForm, UndoPanel } from './review-form'
 
@@ -36,6 +37,7 @@ export default async function ImportReviewPage({
 
   const { batch, parsed, summary } = review
   const done = batch.status === 'COMPLETED' || batch.status === 'UNDONE'
+  const problemRows = parsed.rows.filter((row) => row.problems.length > 0)
 
   return (
     <div className="flex flex-col gap-12">
@@ -130,6 +132,7 @@ export default async function ImportReviewPage({
                   <Th>Client</Th>
                   <Th>Phone</Th>
                   <Th>When</Th>
+                  <Th>Time</Th>
                   <Th>Service</Th>
                   <Th>Who</Th>
                   <Th>Price</Th>
@@ -142,6 +145,15 @@ export default async function ImportReviewPage({
                     <Td>{[row.firstName, row.lastName].filter(Boolean).join(' ') || '—'}</Td>
                     <Td>{row.phone ?? <span className="text-ink-muted">could not read</span>}</Td>
                     <Td>{row.appointmentDate ?? '—'}</Td>
+                    {/* Shown, because "we moved every appointment to 9am" is not
+                        something to leave to a row count nobody expands. */}
+                    <Td>
+                      {row.appointmentTimeMin === null ? (
+                        <span className="text-ink-muted">—</span>
+                      ) : (
+                        formatMinuteOfDay(row.appointmentTimeMin)
+                      )}
+                    </Td>
                     <Td>{row.serviceName ?? '—'}</Td>
                     <Td>{row.stylistName ?? '—'}</Td>
                     <Td>{row.priceCents === null ? '—' : formatCents(row.priceCents)}</Td>
@@ -152,6 +164,27 @@ export default async function ImportReviewPage({
           </TableWrap>
         </div>
       </section>
+
+      {problemRows.length > 0 && (
+        <section>
+          <SectionHeading
+            title="Rows we could not read completely"
+            description="They will still import, without the field we could not read. Named by the line number your spreadsheet shows."
+          />
+          <ul className="mt-6 flex flex-col gap-2">
+            {problemRows.slice(0, 25).map((row) => (
+              <li key={row.line} className="text-secondary text-ink-muted">
+                <span className="text-ink">Line {row.line}</span> — {row.problems.join(' ')}
+              </li>
+            ))}
+            {problemRows.length > 25 && (
+              <li className="text-secondary text-ink-subtle">
+                …and {problemRows.length - 25} more.
+              </li>
+            )}
+          </ul>
+        </section>
+      )}
 
       {done ? (
         <section>

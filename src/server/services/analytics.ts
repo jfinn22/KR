@@ -9,6 +9,7 @@ import {
   type FunnelStep,
 } from '@/domain/analytics/metrics'
 import { dayBounds } from './front-desk'
+import { localDateOf } from '@/domain/scheduling/zoned'
 
 /**
  * What the owner sees.
@@ -127,23 +128,16 @@ export async function funnelReport(
 }> {
   const where = { salonId, createdAt: { gte: range.from, lt: range.to } }
 
-  const [started, withAnswers, submitted, approved, booked, chemical, chemicalWithPhotos] =
-    await Promise.all([
-      unsafeDb.consultation.count({ where }),
-      unsafeDb.consultation.count({ where: { ...where, answers: { some: {} } } }),
-      unsafeDb.consultation.count({ where: { ...where, submittedAt: { not: null } } }),
-      unsafeDb.consultation.count({ where: { ...where, status: 'APPROVED' } }),
-      unsafeDb.consultation.count({
-        where: { ...where, servicePlan: { sessions: { some: { appointment: { isNot: null } } } } },
-      }),
-      // Only chemical work actually needs photographs, so only those count
-      // toward a completion rate — measuring cuts against a photo requirement
-      // they never had would report a problem that does not exist.
-      unsafeDb.consultation.count({
-        where: { ...where, requestedServiceIds: { isEmpty: false } },
-      }),
-      unsafeDb.consultation.count({ where: { ...where, photos: { some: {} } } }),
-    ])
+  const [started, withAnswers, submitted, approved, booked, photos] = await Promise.all([
+    unsafeDb.consultation.count({ where }),
+    unsafeDb.consultation.count({ where: { ...where, answers: { some: {} } } }),
+    unsafeDb.consultation.count({ where: { ...where, submittedAt: { not: null } } }),
+    unsafeDb.consultation.count({ where: { ...where, status: 'APPROVED' } }),
+    unsafeDb.consultation.count({
+      where: { ...where, servicePlan: { sessions: { some: { appointment: { isNot: null } } } } },
+    }),
+    chemicalPhotoCompletion(salonId, range),
+  ])
 
   const steps = buildFunnel([
     { key: 'started', label: 'Started', count: started },
@@ -153,11 +147,56 @@ export async function funnelReport(
     { key: 'booked', label: 'Booked', count: booked },
   ])
 
-  return {
-    steps,
-    worst: worstDropOff(steps),
-    photos: { needed: chemical, provided: chemicalWithPhotos },
+  return { steps, worst: worstDropOff(steps), photos }
+}
+
+/**
+ * How many of the consultations that NEEDED a photograph had one.
+ *
+ * Two passes rather than one count, because `Consultation.requestedServiceIds`
+ * is a `String[]` with no foreign key — there is no join to `Service.isChemical`
+ * for Prisma to push down, and pretending otherwise is what produced the
+ * previous version.
+ *
+ * That version asked two unrelated questions and printed them as a fraction.
+ * Its denominator was "requested any service at all", so a dry cut counted
+ * towards a photo requirement it never had; its numerator was "has any photo",
+ * with no service filter whatsoever, so a consultation with photos and an empty
+ * service list raised the numerator without raising the denominator. The
+ * numerator was not a subset of the denominator, and the screen could read
+ * "12 of 9" — a fraction above one, next to copy about chemical work.
+ */
+async function chemicalPhotoCompletion(
+  salonId: string,
+  range: Range,
+): Promise<{ needed: number; provided: number }> {
+  const chemicalServices = await unsafeDb.service.findMany({
+    where: { salonId, isChemical: true },
+    select: { id: true },
+  })
+  if (chemicalServices.length === 0) return { needed: 0, provided: 0 }
+
+  const chemicalIds = new Set(chemicalServices.map((service) => service.id))
+
+  const consultations = await unsafeDb.consultation.findMany({
+    where: { salonId, createdAt: { gte: range.from, lt: range.to } },
+    select: {
+      requestedServiceIds: true,
+      _count: { select: { photos: true } },
+    },
+  })
+
+  let needed = 0
+  let provided = 0
+  for (const consultation of consultations) {
+    if (!consultation.requestedServiceIds.some((id) => chemicalIds.has(id))) continue
+    needed += 1
+    // A subset by construction: only rows already counted in `needed` can ever
+    // reach this line.
+    if (consultation._count.photos > 0) provided += 1
   }
+
+  return { needed, provided }
 }
 
 /**
@@ -166,7 +205,7 @@ export async function funnelReport(
  * Reported twice — raw and effective — so the difference makes the case for
  * interleaving in the salon's own numbers rather than in a marketing claim.
  */
-export async function utilisationReport(salonId: string, range: Range) {
+export async function utilisationReport(salonId: string, range: Range, timeZone: string) {
   const [stylists, segments] = await Promise.all([
     unsafeDb.stylistProfile.findMany({
       where: { salonId, isActive: true },
@@ -183,6 +222,7 @@ export async function utilisationReport(salonId: string, range: Range) {
         startsAt: true,
         endsAt: true,
         blocksStylist: true,
+        location: { select: { timezone: true } },
       },
     }),
   ])
@@ -209,8 +249,17 @@ export async function utilisationReport(salonId: string, range: Range) {
        * the real answer is "we only have data for a fortnight". Counting the
        * days with any segment at all makes the number mean "of the time you
        * were in, how much was chair time", which is the question being asked.
+       *
+       * Counted in the salon's own zone, not UTC. `toISOString()` rolls an
+       * evening appointment onto the next date for every salon west of
+       * Greenwich — so a stylist who worked one Tuesday until seven counts as
+       * having worked two days, the denominator inflates, and utilisation reads
+       * lower than it is. The further west the salon, the worse the error, and
+       * nothing about the number looks wrong.
        */
-      const workedDays = new Set(theirs.map((s) => s.startsAt.toISOString().slice(0, 10))).size
+      const workedDays = new Set(
+        theirs.map((s) => localDateOf(s.startsAt, s.location?.timezone ?? timeZone)),
+      ).size
 
       return {
         stylistId: stylist.id,
@@ -299,7 +348,7 @@ export async function ownerDashboard(salonId: string, timeZone: string, days = 3
   const [accuracy, funnel, utilisation, rules, revenue] = await Promise.all([
     accuracyReport(salonId, range),
     funnelReport(salonId, range),
-    utilisationReport(salonId, range),
+    utilisationReport(salonId, range, timeZone),
     ruleReport(salonId, range),
     revenueReport(salonId, range),
   ])

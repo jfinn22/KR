@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { unsafeDb } from '@/server/db/client'
-import { parseImport } from '@/domain/migration/parse'
+import { parseImport, summarise } from '@/domain/migration/parse'
 import {
   batchesDueForFileDeletion,
   commitBatch,
@@ -761,5 +761,56 @@ describe('what the review caught', () => {
 
     const due = await batchesDueForFileDeletion(S, new Date(Date.now() + 86_400_000))
     expect(due.map((row) => row.id)).toEqual([batch.id])
+  })
+})
+
+describe('a time nobody could read', () => {
+  const NO_TIME = [
+    'Client,Mobile,Date,Time,Service,Team member,Duration',
+    'Ada Rivera,07700 900123,20/09/2027,14h30,Balayage,Wren,60',
+  ].join('\n')
+
+  it('tells the owner, on the screen that counts problems', async () => {
+    /*
+     * The count comes off the parsed rows, so a problem pushed anywhere later
+     * is a problem nobody hears about — which is what happened when this lived
+     * in the importer: the count was already snapshotted and the array was
+     * thrown away with the parse.
+     */
+    const unreadable = [
+      'Client,Mobile,Date,Time,Service,Team member',
+      'Ada Rivera,07700 900123,03/04/2024,quarter past two,Balayage,Wren',
+    ].join('\n')
+
+    const parsed = parseImport(unreadable, { platform: 'FRESHA', defaultCallingCode: '44' })
+    expect(parsed.rows[0]?.problems.join(' ')).toContain('quarter past two')
+    expect(summarise(parsed).rowsWithProblems).toBe(1)
+    expect(summarise(parsed).warnings.join(' ')).toMatch(/could not read/)
+  })
+
+  it('reads the 14h30 half of Europe writes, so it is not a problem at all', async () => {
+    const parsed = parseImport(NO_TIME, { platform: 'FRESHA', defaultCallingCode: '44' })
+    expect(parsed.rows[0]?.appointmentTimeMin).toBe(870)
+    expect(parsed.rows[0]?.problems).toEqual([])
+  })
+
+  it('will not block a chair at an hour it invented', async () => {
+    /*
+     * Blocking 9am when the client is really coming at half past two holds an
+     * hour nobody wants AND leaves the hour they do want open to be sold twice
+     * — the exact double-booking a parallel run exists to prevent.
+     */
+    const noTime = [
+      'Client,Mobile,Date,Time,Service,Team member',
+      'Ada Rivera,07700 900123,20/09/2027,,Balayage,Wren',
+    ].join('\n')
+
+    const batch = await newBatch()
+    const counts = await commitBatch(S, batch.id, rowsOf(noTime), OPTIONS)
+
+    // The booking is recorded; the chair is not claimed at a fictional time.
+    expect(counts.appointmentsCreated).toBe(1)
+    expect(counts.appointmentsBooked).toBe(0)
+    expect(await unsafeDb.appointmentSegment.count({ where: { salonId: S } })).toBe(0)
   })
 })

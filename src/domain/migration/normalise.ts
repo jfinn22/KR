@@ -105,17 +105,34 @@ export function parseDate(raw: string, order: DateOrder = 'ISO'): string | null 
   return null
 }
 
-/** Minutes from local midnight, from whatever the export called a time. */
+/**
+ * Minutes from local midnight, from whatever the export called a time.
+ *
+ * Three shapes, tried in order and written out rather than folded into one
+ * clever pattern. The failure mode of a clever pattern here is a time that
+ * parses to the wrong hour, and nothing downstream can tell that from a right
+ * one — the appointment simply sits in the diary at ten past nothing.
+ *
+ * A bare number is refused. "14" in a time column probably means two in the
+ * afternoon and "90" is a duration that landed in the wrong column, and there
+ * is nothing in the value itself to tell them apart.
+ */
 export function parseTimeOfDay(raw: string): number | null {
-  const value = raw.trim()
+  const value = raw.trim().toLowerCase()
   if (value === '') return null
 
-  const match = value.match(/^(\d{1,2})[:.](\d{2})(?::\d{2})?\s*([AaPp])?\.?[Mm]?\.?/)
+  const meridiem = /(a|p)\.?m?\.?$/.exec(value)?.[1] ?? null
+
+  // 14:30, 14.30, and the 14h30 that half of Europe writes.
+  const clock = /^(\d{1,2})\s*[:.h]\s*(\d{2})?/.exec(value)
+  // 2pm, 9 AM — a whole hour, and only ever with a meridiem to prove it is one.
+  const bare = meridiem === null ? null : /^(\d{1,2})\s*(?:a|p)/.exec(value)
+
+  const match = clock ?? bare
   if (!match) return null
 
   let hours = Number(match[1])
-  const minutes = Number(match[2])
-  const meridiem = match[3]?.toLowerCase()
+  const minutes = clock?.[2] === undefined ? 0 : Number(clock[2])
 
   if (minutes > 59) return null
   if (meridiem === 'p' && hours < 12) hours += 12
@@ -183,7 +200,17 @@ export function parseMoneyCents(raw: string): number | null {
  * how a British salon's entire client list becomes unreachable.
  */
 export function parsePhone(raw: string, defaultCallingCode: string | null): string | null {
-  const value = raw.trim()
+  /*
+   * `+44 (0)7700 900123` is how these are printed on business cards across
+   * Europe. The bracketed zero is the trunk prefix, which applies only when
+   * dialling domestically — stripping the punctuation without stripping the
+   * zero leaves `+4407700900123`, one digit longer than the real number and
+   * comfortably inside every length check there is.
+   *
+   * Matched as the exact literal `(0)`, so a genuine parenthesised area code —
+   * `(0161) 496 0123` — is left alone.
+   */
+  const value = raw.trim().replace(/\(0\)/g, '')
   if (value === '') return null
 
   if (value.startsWith('+')) {
@@ -193,6 +220,18 @@ export function parsePhone(raw: string, defaultCallingCode: string | null): stri
 
   const digits = value.replace(/\D/g, '')
   if (digits.length < 7) return null
+
+  /*
+   * `00` is what most of the world writes where a `+` belongs, and an export
+   * using it has already given a complete international number. Treating it as
+   * national and adding the country code again produces `+4444…` — fifteen
+   * digits, inside every check, belonging to nobody.
+   */
+  if (digits.startsWith('00') && digits.length >= 10) {
+    const international = digits.slice(2)
+    return international.length >= 8 && international.length <= 15 ? `+${international}` : null
+  }
+
   if (!defaultCallingCode) return null
 
   const code = defaultCallingCode.replace(/\D/g, '')
@@ -217,9 +256,12 @@ export function parsePhone(raw: string, defaultCallingCode: string | null): stri
     return `+${digits}`
   }
 
-  // A national number written with its trunk prefix — 07700..., 0161... — drops
-  // the leading zero when it takes a country code.
-  const national = digits.replace(/^0+/, '')
+  /*
+   * The trunk prefix is one digit. Stripping a run of them mangles any number
+   * that legitimately begins 0-0-something after its own trunk zero, and the
+   * international `00` case above is now handled where it belongs.
+   */
+  const national = digits.replace(/^0/, '')
   const combined = `+${code}${national}`
 
   return combined.length >= 9 && combined.length <= 16 ? combined : null
