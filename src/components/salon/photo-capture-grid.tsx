@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { coachingFor } from '@/domain/hair/photo-quality'
 
 /**
  * Guided photo capture.
@@ -175,8 +176,16 @@ function PhotoTile({
           {!required && !photo && <Badge tone="outline">Optional</Badge>}
         </div>
 
+        {/*
+         * What is actually wrong with THIS photo, not a generic apology. The
+         * scorer produces five distinct issue codes and this used to render all
+         * of them as "too small or blurry" — true of one, unhelpful for three,
+         * and wrong for the one where the photo is neither.
+         */}
         {poor ? (
-          <p className="text-label text-warn">Too small or blurry to read — try another?</p>
+          <p className="text-label text-warn">
+            {coachingFor(photo?.qualityIssues ?? []) ?? 'Hard to read — try another?'}
+          </p>
         ) : (
           <p className="text-label text-ink-subtle">{copy.hint}</p>
         )}

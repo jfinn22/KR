@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { SectionHeading } from '@/components/ui/data'
 import { formatDayHeading, formatMinutes, formatMoney } from '@/lib/format'
 import { describeShade, readShadeAnswer } from '@/domain/hair/tone'
+import { JourneyLadder } from '@/components/salon/journey-ladder'
 import { ReviewFlags } from './review-flags'
 import { DecisionPanel } from './decision-panel'
 import { AiSummaryCard } from './ai-summary'
@@ -34,7 +35,17 @@ export default async function ReviewDetailPage({
   const ctx = await pageContextFor(salon, 'consultation.review')
 
   const detail = await reviewDetail(ctx.salonId, id)
-  const { consultation, services, photos, inspiration, flags, evaluation, priorVisits } = detail
+  const {
+    consultation,
+    services,
+    photos,
+    inspiration,
+    flags,
+    evaluation,
+    priorVisits,
+    journey,
+    videos,
+  } = detail
 
   const stylists = await capableStylists(ctx.salonId, consultation.requestedServiceIds)
 
@@ -103,7 +114,14 @@ export default async function ReviewDetailPage({
 
       {/* --- The client's own words ----------------------------------------- */}
       <section>
-        <SectionHeading title="What they told us" />
+        <SectionHeading
+          title={consultation.startedInChair ? 'What the stylist recorded' : 'What they told us'}
+          description={
+            consultation.startedInChair
+              ? 'Filled in at the salon, with the hair in front of whoever answered — so these are observations rather than recollections.'
+              : undefined
+          }
+        />
         <dl className="mt-4 grid gap-x-10 gap-y-4 sm:grid-cols-2">
           {detail.answered.map((entry) => (
             <div key={entry.key} className="border-b border-line pb-3">
@@ -181,6 +199,43 @@ export default async function ReviewDetailPage({
                 </div>
               </article>
             ))}
+          </div>
+        </section>
+      )}
+
+      {/* --- The hair, moving -------------------------------------------------- */}
+      {videos.length > 0 && (
+        <section>
+          <SectionHeading
+            title="How it moves"
+            description="Banding reads as a line in a photograph and as a stripe travelling down the length when the head turns. Worth thirty seconds before you decide."
+          />
+          <div className="mt-4 flex flex-col gap-4">
+            {videos.map((video) => (
+              <figure key={video.id} className="overflow-hidden rounded-lg border border-line">
+                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                <video src={video.url} controls playsInline className="w-full" />
+                <figcaption className="p-3">
+                  {video.prompt && <p className="text-secondary text-ink">{video.prompt}</p>}
+                  {video.clientNote && (
+                    <p className="mt-1 text-secondary text-ink-muted">{video.clientNote}</p>
+                  )}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* --- What the client was shown ---------------------------------------- */}
+      {journey?.worthShowing && (
+        <section>
+          <SectionHeading
+            title="The journey they have seen"
+            description="Exactly what is on their screen. If visit two leaves somebody copper, this is where you find that out before you approve it."
+          />
+          <div className="mt-4">
+            <JourneyLadder journey={journey} audience="staff" />
           </div>
         </section>
       )}

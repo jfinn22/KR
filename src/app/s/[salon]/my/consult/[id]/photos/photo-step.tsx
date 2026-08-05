@@ -10,6 +10,7 @@ import {
   type PhotoView,
 } from '@/components/salon/photo-capture-grid'
 import { Button } from '@/components/ui/button'
+import { CAPTURE_ADVICE } from '@/domain/hair/photo-quality'
 import { ProgressRail } from '@/components/ui/feedback'
 import { removePhotoAction } from '@/server/actions/consultation'
 
@@ -116,10 +117,30 @@ export function PhotoStep({
         <div>
           <h1 className="font-display text-display-lg text-ink">Show us your hair</h1>
           <p className="mt-2 max-w-prose text-body text-ink-muted">
-            Daylight if you can, no filter, hair down and dry. This is what turns a rough guess into
-            a real quote — and it takes about a minute.
+            This is what turns a rough guess into a real quote — and it takes about a minute.
           </p>
         </div>
+
+        {/*
+         * Said before the shot, not after it.
+         *
+         * Feedback on a bad photo costs the client a second trip to the mirror
+         * and costs us their patience; four lines up front costs a glance. Every
+         * one of them changes what a colourist can actually read off the
+         * picture — none of it is photography advice for its own sake.
+         */}
+        <details className="rounded-lg border border-line bg-canvas p-4">
+          <summary className="cursor-pointer text-secondary font-medium text-ink">
+            What makes a photo we can actually read
+          </summary>
+          <ul className="mt-3 flex list-disc flex-col gap-2 pl-5">
+            {CAPTURE_ADVICE.map((line) => (
+              <li key={line} className="text-secondary text-ink-muted">
+                {line}
+              </li>
+            ))}
+          </ul>
+        </details>
       </header>
 
       <PhotoCaptureGrid

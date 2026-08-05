@@ -9,6 +9,7 @@ import {
   consultationOwner,
   type PhotoView,
 } from '@/server/services/photos'
+import { addConsultationVideo } from '@/server/services/consultation-video'
 
 /**
  * Photo upload.
@@ -27,6 +28,15 @@ export const dynamic = 'force-dynamic'
 
 /** Comfortably above a phone photo, well below anything worth streaming. */
 const MAX_BYTES = 15 * 1024 * 1024
+
+/**
+ * A short clip is a bigger file than a still, and a different risk.
+ *
+ * A photo cap is about somebody accidentally sending a 40MP raw. A video cap is
+ * the only thing between a salon's storage bill and a two-minute 4K upload, so
+ * it is generous enough for a real phone clip and no more.
+ */
+const MAX_VIDEO_BYTES = 60 * 1024 * 1024
 
 const VIEWS = new Set<PhotoView>([
   'FRONT',
@@ -57,21 +67,49 @@ export async function POST(request: Request) {
 
     // Ownership is resolved from the row, so a client cannot upload into
     // somebody else's consultation by editing the form field.
-    authorize(ctx, 'consultation.create', await consultationOwner(ctx.salonId, consultationId))
+    const owner = await consultationOwner(ctx.salonId, consultationId)
+    authorize(ctx, 'consultation.create', owner)
+
+    const kind = str(form.get('kind')) ?? 'consultation'
 
     const file = form.get('file')
     if (!(file instanceof File)) {
-      throw new DomainError('INVALID_INPUT', 'No photo was attached.')
+      throw new DomainError('INVALID_INPUT', 'No file was attached.')
     }
-    if (file.size > MAX_BYTES) {
-      throw new DomainError('INVALID_INPUT', 'That photo is too large — please use one under 15MB.')
+
+    const cap = kind === 'video' ? MAX_VIDEO_BYTES : MAX_BYTES
+    if (file.size > cap) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        kind === 'video'
+          ? 'That video is too large — a shorter clip will do, and will be quicker to send.'
+          : 'That photo is too large — please use one under 15MB.',
+      )
     }
 
     const bytes = Buffer.from(await file.arrayBuffer())
     const contentType = file.type || 'application/octet-stream'
     const uploadedByUserId = ctx.principal.kind === 'system' ? null : ctx.principal.userId
 
-    const kind = str(form.get('kind')) ?? 'consultation'
+    if (kind === 'video') {
+      /*
+       * The client profile comes from the row the authorization check already
+       * resolved, never from the form — a client cannot file their video under
+       * somebody else's record.
+       */
+      const result = await addConsultationVideo({
+        salonId: ctx.salonId,
+        consultationId,
+        clientProfileId: owner.clientProfileId,
+        bytes,
+        contentType,
+        prompt: str(form.get('prompt')),
+        clientNote: str(form.get('note')),
+        durationSec: numberOf(form.get('durationSec')),
+        uploadedByUserId,
+      })
+      return NextResponse.json(result)
+    }
 
     if (kind === 'inspiration') {
       const result = await addInspiration({
@@ -107,6 +145,13 @@ export async function POST(request: Request) {
 
 function str(value: FormDataEntryValue | null): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function numberOf(value: FormDataEntryValue | null): number | null {
+  const raw = str(value)
+  if (raw == null) return null
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) ? Math.round(parsed) : null
 }
 
 function statusFor(code: string): number {

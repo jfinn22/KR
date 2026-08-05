@@ -5,6 +5,13 @@ const BASE_URL = process.env.E2E_BASE_URL ?? `http://127.0.0.1:${PORT}`
 
 export default defineConfig({
   testDir: './tests/e2e',
+  /*
+   * Reseed before the suite. The tests write to the seeded salon — they check
+   * people in, mark no-shows and book into gaps — so a second run without this
+   * reads the wreckage of the first and fails on stale state rather than on
+   * code, which points at the wrong file.
+   */
+  globalSetup: './tests/e2e/global-setup.ts',
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

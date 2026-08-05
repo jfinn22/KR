@@ -4,6 +4,9 @@ import { DomainError } from '@/server/errors'
 import { storagePort } from '@/ports/registry'
 import { enqueue } from '@/server/jobs/queue'
 import { readShadeAnswer } from '@/domain/hair/tone'
+import { planJourney, type HairJourney } from '@/domain/hair/journey'
+import type { Level } from '@/domain/consultation/facts'
+import type { EvaluationResult } from '@/domain/consultation/types'
 
 /**
  * Client photographs.
@@ -340,6 +343,74 @@ export async function currentColourOf(
   // becomes a bare level. `compareToReference` takes either.
   const profile = consultation.clientProfile.hairProfile
   return { shadeKey: null, level: profile?.currentLevelMids ?? profile?.naturalLevel ?? null }
+}
+
+/**
+ * Where the client wants to get to, off the reference pictures.
+ *
+ * `TARGET_TONE` carries a shade key from the chart and `TARGET_LEVEL` a bare
+ * number, and either is enough — every shade knows its own level. The most
+ * recently added picture wins, because a client who adds a second reference
+ * has changed their mind rather than added a footnote.
+ */
+export async function targetColourOf(
+  salonId: string,
+  consultationId: string,
+): Promise<{ shadeKey: string | null; level: Level | null }> {
+  const attributes = await unsafeDb.inspirationAttribute.findMany({
+    where: {
+      salonId,
+      key: { in: ['TARGET_TONE', 'TARGET_LEVEL'] },
+      inspirationPhoto: { consultationId },
+    },
+    orderBy: { inspirationPhoto: { sequence: 'desc' } },
+    select: { key: true, value: true },
+  })
+
+  const tone = attributes.find((a) => a.key === 'TARGET_TONE')?.value ?? null
+  const raw = attributes.find((a) => a.key === 'TARGET_LEVEL')?.value
+  const parsed = raw != null && raw !== '' ? Number(raw) : null
+  const level = parsed != null && Number.isFinite(parsed) ? clampLevel(parsed) : null
+
+  return { shadeKey: tone, level }
+}
+
+/**
+ * The way there, assembled from what has already been decided.
+ *
+ * Deliberately reads rather than decides. Where the client is comes from
+ * `currentColourOf`, which the reference board already uses; where they want to
+ * be is the shade they tagged on a reference picture; and how many visits it
+ * takes is the engine's plan and nothing else. A second opinion about any of
+ * the three would eventually disagree with the first, and the version the
+ * client saw is the one they will hold the salon to.
+ *
+ * Lives here rather than in the portal because the stylist's review screen
+ * needs the same answer — whoever is approving the plan should be able to see
+ * exactly what the client was shown.
+ */
+export async function journeyFor(
+  salonId: string,
+  consultationId: string,
+  evaluation: EvaluationResult,
+): Promise<HairJourney | null> {
+  const [current, target] = await Promise.all([
+    currentColourOf(salonId, consultationId),
+    targetColourOf(salonId, consultationId),
+  ])
+
+  return planJourney({
+    currentShadeKey: current.shadeKey,
+    currentLevel: current.level == null ? null : (clampLevel(current.level) as Level),
+    targetShadeKey: target.shadeKey,
+    targetLevel: target.level,
+    visits: evaluation.plan.sessionCount,
+    sessionLabels: evaluation.plan.sessions.map((session) => session.label),
+  })
+}
+
+function clampLevel(value: number): Level {
+  return Math.min(10, Math.max(1, Math.round(value))) as Level
 }
 
 export async function inspirationPhotos(salonId: string, consultationId: string) {

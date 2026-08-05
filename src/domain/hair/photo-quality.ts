@@ -192,3 +192,73 @@ function ratio(value: number, min: number, good: number): number {
 
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n))
 const round3 = (n: number) => Math.round(n * 1000) / 1000
+
+// ---------------------------------------------------------------------------
+// Coaching
+// ---------------------------------------------------------------------------
+
+/**
+ * What to do about it, in the client's language.
+ *
+ * The scorer produces five distinct issue codes and the capture grid rendered
+ * all of them as "too small or blurry to read — try another?". That sentence is
+ * true of one of the five, unhelpful for three, and wrong for one: a heavily
+ * recompressed screenshot of somebody else's hair is neither small nor blurry,
+ * and telling its sender to retake it teaches them the software is guessing.
+ *
+ * A person asked to fix something will fix it if told what. Told "try another",
+ * they take the same photo again.
+ *
+ * Lives beside the scorer rather than in the component, so the words and the
+ * codes that produce them cannot drift apart — a new issue code that nobody
+ * wrote a line for shows up as a missing case here rather than as a silent
+ * fallback in a component nobody thought to update.
+ */
+const COACHING: Record<QualityIssue, string> = {
+  TOO_SMALL:
+    'This one is too small to read the tone. If you sent it through a messaging app, try the original from your camera roll instead — apps shrink pictures on the way.',
+  HEAVILY_COMPRESSED:
+    'This has been compressed so far that the colour has gone flat. A screenshot or a saved-from-chat copy usually does that; the original is much better.',
+  EXTREME_ASPECT:
+    'This is cropped very long and thin. A shot with the whole head in it tells us more.',
+  TINY_FILE:
+    'The file is tiny, which usually means a screenshot rather than a photo. The original will show the colour properly.',
+  UNREADABLE:
+    'We could not read this file at all. A normal JPEG or PNG from your camera should work.',
+}
+
+/**
+ * The one thing most worth saying, or nothing.
+ *
+ * One line, not a list. A client shown three problems with one photo deletes
+ * the photo and gives up; a client shown the biggest one fixes it. Ordered by
+ * how likely the fix is to also fix the others.
+ */
+const COACHING_PRIORITY: readonly QualityIssue[] = [
+  'UNREADABLE',
+  'TINY_FILE',
+  'TOO_SMALL',
+  'HEAVILY_COMPRESSED',
+  'EXTREME_ASPECT',
+]
+
+export function coachingFor(issues: readonly string[]): string | null {
+  for (const issue of COACHING_PRIORITY) {
+    if (issues.includes(issue)) return COACHING[issue]
+  }
+  return null
+}
+
+/**
+ * What makes a usable photo, said before the client takes one.
+ *
+ * Cheaper than any amount of feedback afterwards. Every line here is something
+ * that actually changes what a colourist can read off the picture — none of it
+ * is photography advice for its own sake.
+ */
+export const CAPTURE_ADVICE: readonly string[] = [
+  'Daylight if you can — near a window, facing it. Bathroom bulbs turn everything warm and hide exactly what we need to see.',
+  'No filters, and turn off any "beauty" or auto-enhance mode. They smooth out the banding and brassiness we are looking for.',
+  'Dry and unstyled beats freshly blow-dried. We need the hair as it actually behaves.',
+  'Send the original rather than a screenshot. A screenshot of a photo has lost most of the colour information.',
+]

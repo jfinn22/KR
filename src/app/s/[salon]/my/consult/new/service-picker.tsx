@@ -41,11 +41,16 @@ export function ServicePicker({
   categories,
   currency,
   preselected = [],
+  clientProfileId = null,
+  inChair = false,
 }: {
   salonSlug: string
   categories: PickableCategory[]
   currency: string
   preselected?: string[]
+  /** Set when a stylist is starting this for somebody in their chair. */
+  clientProfileId?: string | null
+  inChair?: boolean
 }) {
   const router = useRouter()
   const all = React.useMemo(() => categories.flatMap((c) => c.services), [categories])
@@ -72,7 +77,11 @@ export function ServicePicker({
     setPending(true)
     setError(null)
 
-    const result = await startConsultationAction(salonSlug, { serviceIds: selected })
+    const result = await startConsultationAction(salonSlug, {
+      serviceIds: selected,
+      ...(clientProfileId ? { clientProfileId } : {}),
+      ...(inChair ? { inChair: true } : {}),
+    })
 
     if (!result.ok) {
       setError(result.error)

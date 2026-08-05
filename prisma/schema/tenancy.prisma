@@ -89,6 +89,7 @@ model Salon {
   waitlistEntries    WaitlistEntry[]
   consultTemplates   ConsultationTemplate[]
   consultations      Consultation[]
+  consultationVideos ConsultationVideo[]
   photoAssets        PhotoAsset[]
   ruleEvaluations    RuleEvaluation[]
   servicePlans       ServicePlan[]

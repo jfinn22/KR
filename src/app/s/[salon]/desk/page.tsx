@@ -176,7 +176,17 @@ function Group({
                 <span className="tabular text-body font-medium text-ink">
                   {formatTime(row.startsAt.toISOString(), timeZone)}
                 </span>
-                <span className="text-body text-ink">{row.clientName}</span>
+                {/*
+                 * The name is the way in. A stylist about to do somebody's hair
+                 * wants everything the consultation found, and the client's own
+                 * name is where they will look for it.
+                 */}
+                <Link
+                  href={`/s/${salon}/desk/appointment/${row.id}`}
+                  className="text-body text-ink underline-offset-4 hover:underline"
+                >
+                  {row.clientName}
+                </Link>
                 {row.clientIsNew && <Badge tone="info">New</Badge>}
                 {row.hasOpenFlags && <Badge tone="warn">Open flag</Badge>}
                 {row.depositCents > 0 && !row.depositPaid && (

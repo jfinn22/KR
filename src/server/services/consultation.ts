@@ -156,6 +156,8 @@ export async function startConsultation(input: {
   serviceIds: string[]
   stylistProfileId?: string | null
   templateKey?: string
+  /** A stylist filling this in with the client in the chair. */
+  inChair?: boolean
 }): Promise<string> {
   const template = await pickTemplate(input.salonId, input.serviceIds, input.templateKey)
   if (!template) {
@@ -174,6 +176,7 @@ export async function startConsultation(input: {
       requestedServiceIds: input.serviceIds,
       requestedStylistId: input.stylistProfileId ?? null,
       status: 'DRAFT',
+      startedInChair: input.inChair ?? false,
       expiresAt: new Date(Date.now() + expiryDays * 86_400_000),
     },
   })

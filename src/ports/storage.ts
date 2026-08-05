@@ -38,10 +38,27 @@ export interface StoragePort {
 }
 
 const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'application/pdf'])
+
+/**
+ * Short clips, for the consultations a still photograph genuinely cannot serve.
+ *
+ * Separate from the image set with its own, larger cap, because the two are not
+ * the same risk. An image cap is about a client accidentally sending a 40MP
+ * raw; a video cap is the only thing standing between a salon's storage bill
+ * and somebody uploading a two-minute 4K clip of their hair.
+ *
+ * `video/quicktime` is here because that is what an iPhone produces, and a
+ * platform that accepts video but not the format half its clients' phones
+ * record in has not accepted video.
+ */
+const ALLOWED_VIDEO = new Set(['video/mp4', 'video/quicktime', 'video/webm'])
+
 const MAX_BYTES = 15 * 1024 * 1024
+const MAX_VIDEO_BYTES = 60 * 1024 * 1024
 
 export function assertUploadable(port: string, input: PutObjectInput): void {
-  if (!ALLOWED.has(input.contentType)) {
+  const isVideo = ALLOWED_VIDEO.has(input.contentType)
+  if (!ALLOWED.has(input.contentType) && !isVideo) {
     throw new AdapterError(
       port,
       'UNSUPPORTED_TYPE',
@@ -51,8 +68,9 @@ export function assertUploadable(port: string, input: PutObjectInput): void {
   if (input.body.length === 0) {
     throw new AdapterError(port, 'EMPTY_BODY', 'Refusing to store an empty object.')
   }
-  if (input.body.length > MAX_BYTES) {
-    throw new AdapterError(port, 'TOO_LARGE', `Object exceeds ${MAX_BYTES} bytes.`)
+  const cap = isVideo ? MAX_VIDEO_BYTES : MAX_BYTES
+  if (input.body.length > cap) {
+    throw new AdapterError(port, 'TOO_LARGE', `Object exceeds ${cap} bytes.`)
   }
   if (input.key.includes('..') || input.key.startsWith('/')) {
     throw new AdapterError(

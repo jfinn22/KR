@@ -192,6 +192,25 @@ export default async function CalendarPage({
                       fillable && 'cursor-pointer transition-colors hover:border-gold-500',
                     )
 
+                    /*
+                     * A booked block opens the handoff card. The diary is where
+                     * a stylist looks at their day, so it is where they will
+                     * try to click through to what an appointment actually is.
+                     */
+                    if (segment.blocksStylist && segment.appointmentId) {
+                      return (
+                        <Link
+                          key={segment.id}
+                          href={`/s/${salon}/desk/appointment/${segment.appointmentId}`}
+                          title={`${segment.clientName} · ${segment.kind.toLowerCase()}`}
+                          className={cn(shell, 'cursor-pointer hover:border-blue-500')}
+                          style={{ top, height: blockHeight }}
+                        >
+                          {body}
+                        </Link>
+                      )
+                    }
+
                     if (fillable) {
                       return (
                         <Link

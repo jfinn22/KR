@@ -1,5 +1,6 @@
 import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
+import { journeyFor } from './photos'
 import type { EvaluationResult } from '@/domain/consultation/types'
 import type { TimelineEntry } from '@/components/salon/hair-timeline'
 
@@ -164,8 +165,11 @@ export async function consultationContext(salonId: string, consultationId: strin
     evaluation,
     servicePlanId: consultation.servicePlan?.id ?? null,
     notesToClient: consultation.servicePlan?.notesToClient ?? null,
+    journey: evaluation ? await journeyFor(salonId, consultation.id, evaluation) : null,
   }
 }
+
+
 
 /**
  * The hair history, assembled from the rows that actually record what happened.

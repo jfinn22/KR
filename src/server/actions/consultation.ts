@@ -68,6 +68,14 @@ export const startConsultationAction = withAuthz(
       serviceIds: z.array(cuid).min(1, 'Choose at least one service.'),
       stylistProfileId: cuid.nullish(),
       clientProfileId: cuid.nullish(),
+      /**
+       * A stylist filling this in with the client in the chair.
+       *
+       * Ignored for a client acting on their own record — somebody at home
+       * cannot be in the chair, and a flag that says otherwise would make a
+       * reviewer trust an answer more than it deserves.
+       */
+      inChair: z.boolean().optional(),
     }),
     /*
      * A create has no row to point at yet, so the resource is the client the
@@ -101,6 +109,13 @@ export const startConsultationAction = withAuthz(
       clientProfileId,
       serviceIds: input.serviceIds,
       stylistProfileId: input.stylistProfileId ?? null,
+      /*
+       * Only staff can claim this. A client acting on their own record is at
+       * home by definition, and a flag saying otherwise would make a reviewer
+       * trust an answer more than it deserves — the whole value of the marker
+       * is that it means somebody was looking at the hair.
+       */
+      inChair: input.inChair === true && ctx.principal.kind === 'staff',
     })
     return { consultationId }
   },

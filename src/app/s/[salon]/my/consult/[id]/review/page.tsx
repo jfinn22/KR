@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { pageContext } from '@/server/auth/page'
 import { consultationContext } from '@/server/services/client-portal'
 import { PlanSummary } from '@/components/salon/plan-summary'
+import { JourneyLadder } from '@/components/salon/journey-ladder'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -28,7 +29,7 @@ export default async function ReviewPage({
   const { salon, id } = await params
   const ctx = await pageContext(salon)
 
-  const { consultation, evaluation, serviceNames, servicePlanId, notesToClient } =
+  const { consultation, evaluation, serviceNames, servicePlanId, notesToClient, journey } =
     await consultationContext(ctx.salonId, id)
 
   if (!evaluation) {
@@ -82,6 +83,46 @@ export default async function ReviewPage({
           <CardContent className="flex flex-col gap-2">
             <p className="label-caps">From your stylist</p>
             <p className="whitespace-pre-line text-body text-ink">{notesToClient}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/*
+       * The engine asked for a clip and there is not one yet.
+       *
+       * `pickMode` has returned VIDEO since it was written and there was
+       * nowhere for the client to go, so the mode was a decision nobody could
+       * act on. Placed above the plan because it changes the plan.
+       */}
+      {evaluation.mode === 'VIDEO' && (
+        <Card>
+          <CardContent className="flex flex-col gap-3">
+            <p className="label-caps">One more thing</p>
+            <p className="text-body text-ink">
+              This one needs to be seen moving — a still cannot show what your hair actually does.
+              Thirty seconds is plenty.
+            </p>
+            <div>
+              <Button asChild>
+                <Link href={`/s/${salon}/my/consult/${id}/video`}>Send a short video</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/*
+       * Before the numbers, and before the button.
+       *
+       * "Three visits, £560" is a quote. A ladder showing that visit one leaves
+       * them copper is the thing that actually changes a decision — and the
+       * only moment it can is while the client is still deciding, not on the
+       * day with the foils already in.
+       */}
+      {journey?.worthShowing && (
+        <Card>
+          <CardContent>
+            <JourneyLadder journey={journey} />
           </CardContent>
         </Card>
       )}

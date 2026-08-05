@@ -607,3 +607,45 @@ test.describe('the waiting list', () => {
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   })
 })
+
+test.describe('the handoff card', () => {
+  test('a stylist can reach everything the consultation found, from the day', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk`)
+
+    /*
+     * The client's name is the way in. A stylist about to do somebody's hair
+     * wants what the consultation found, and their name is where they look.
+     */
+    await page.getByRole('listitem').first().getByRole('link').first().click()
+    await expect(page).toHaveURL(/\/desk\/appointment\//)
+
+    /*
+     * "Last time" is the assertion worth making: it is the single most useful
+     * thing on the screen, and it is assembled from a table the day view never
+     * touches — so its presence proves the card really did go and look.
+     */
+    await expect(page.getByRole('heading', { name: /last time/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /full client record/i })).toBeVisible()
+  })
+})
+
+test.describe('in-chair consultations', () => {
+  test('a stylist can start one from the client record', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk/clients?q=Ada`)
+    await page.getByRole('listitem').first().getByRole('link').first().click()
+
+    await expect(page.getByRole('link', { name: /start a consultation here/i })).toBeVisible()
+    await page.getByRole('link', { name: /start a consultation here/i }).click()
+
+    /*
+     * Two things change with the client in the chair: the wording addresses the
+     * stylist rather than the client, and the catalog stops being the
+     * online-bookable subset — a service kept off the public page is usually
+     * one the salon wants a conversation about, and this IS that conversation.
+     */
+    await expect(page.getByRole('heading', { name: /what are they having/i })).toBeVisible()
+    await expect(page.getByText(/you are looking at the hair/i)).toBeVisible()
+  })
+})

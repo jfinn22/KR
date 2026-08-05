@@ -1,7 +1,8 @@
 import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
 import type { EvaluationResult } from '@/domain/consultation/types'
-import { consultationPhotos, inspirationPhotos } from './photos'
+import { consultationPhotos, inspirationPhotos, journeyFor } from './photos'
+import { consultationVideos } from './consultation-video'
 
 /**
  * The stylist review queue.
@@ -219,6 +220,8 @@ export async function reviewDetail(salonId: string, consultationId: string) {
 
   const answers = new Map(consultation.answers.map((a) => [a.questionKey, a.valueJson]))
 
+  const evaluation = (evaluationRow?.outputSnapshotJson as EvaluationResult | undefined) ?? null
+
   return {
     consultation,
     services,
@@ -226,7 +229,20 @@ export async function reviewDetail(salonId: string, consultationId: string) {
     inspiration,
     flags,
     priorVisits,
-    evaluation: (evaluationRow?.outputSnapshotJson as EvaluationResult | undefined) ?? null,
+    evaluation,
+    /*
+     * The same ladder the client is shown. A stylist approving a plan should be
+     * able to see what was promised in their name — and if visit two is going
+     * to leave somebody copper, the person signing it off is the one who ought
+     * to have looked at that first.
+     */
+    journey: evaluation ? await journeyFor(salonId, consultationId, evaluation) : null,
+    /*
+     * Hair in motion shows what a still cannot: banding reads as a line in a
+     * photograph and as a stripe travelling down the length when the head
+     * turns, and porosity shows in how the ends move.
+     */
+    videos: await consultationVideos(salonId, consultationId),
     evaluationMeta: evaluationRow
       ? {
           id: evaluationRow.id,

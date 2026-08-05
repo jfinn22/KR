@@ -60,6 +60,26 @@ export default async function ClientRecordPage({
         <p className="mt-2 text-body text-ink-muted">
           {[client.email, client.phone].filter(Boolean).join(' · ') || 'No contact details on file'}
         </p>
+
+        {/*
+         * With them in the chair, on the stylist's own device.
+         *
+         * The consultation flow always existed and only a client could start
+         * one — so a walk-in either got no consultation at all or got a link
+         * emailed to them to fill in later, at home, from memory. The person
+         * best placed to answer "how porous are the ends" is the one holding
+         * them.
+         */}
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Button asChild>
+            <Link href={`/s/${salon}/my/consult/new?client=${client.id}`}>
+              Start a consultation here
+            </Link>
+          </Button>
+          <Button variant="secondary" asChild>
+            <Link href={`/s/${salon}/desk/book?client=${client.id}`}>Book them in</Link>
+          </Button>
+        </div>
       </header>
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

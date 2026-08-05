@@ -39,6 +39,48 @@ followed, in dependency order. Each ends green on `pnpm verify` plus
 | **P4** Money at the chair        | Ad-hoc invoice lines; editable prices; an owner-written discount catalogue with a real cap and an escalation path; gift cards on a ledger; and one authority for what a deposit costs                                                                  |
 | **P5** Cards on file             | A card kept at the provider and never here; the deposit lifecycle made real, from owed through held, taken, spent or kept; a signed webhook that reconciles what the provider says; cancellations and no-shows that settle the money; paid corrective consultations, credited against the work |
 | **P6** Filling the calendar      | A slot search with no plan behind it; one decision about when a consultation is actually needed, with an audited way past it; booking from the desk; the gold processing gaps made bookable; "come in and let me look at it" turned into an appointment the client picks; a waitlist that honours what people asked for and holds what it offers; and every visit of a plan booked in one pass |
+| **P7** The differentiator        | The middle of the journey, drawn honestly — including the visits that leave somebody orange; a handoff card carrying everything the consultation found onto one screen; photo coaching that names the actual problem; consultations filled in with the client in the chair; and a short clip of the hair moving, for the assessments a still cannot serve |
+
+### What P7 changed, specifically
+
+- **The middle of the journey.** Every competitor shows a before and an after.
+  The middle is where the disappointment lives: a client going from a level 4
+  brown to platinum is not shown three visits of orange, so the first time they
+  see orange is in the mirror, halfway through, having paid for it. The ladder
+  draws every stage, and marks the ones nobody finishes on — because gold at
+  level 8 is exactly what is supposed to happen, and being surprised by it is
+  the software's fault rather than the colourist's. Built from the underlying
+  pigment chart, which is physics rather than a promise.
+- **No generated imagery, deliberately.** A generated picture of *this
+  client's* hair reads as a promise about their hair specifically, which is the
+  one thing this product exists not to do — and it would need a new port,
+  generated-asset storage, cost accounting and a liability story to say
+  something less true than a row of swatches.
+- **The handoff card.** A consultation is done once, by whoever was free,
+  possibly six weeks earlier and possibly by somebody who is off that day. What
+  they learned was spread across nine tables, so the stylist at the chair had
+  none of it unless they went looking in nine places. They will not — they will
+  ask the client, who will say "just a bit off the ends" and not mention the box
+  dye. The ORDER of the screen is the design: what stops the appointment, then
+  what was on the hair last time, then what they are asking for.
+- **Photo coaching that says which problem.** The scorer produces five distinct
+  issue codes and the capture grid rendered all of them as "too small or blurry
+  to read" — true of one, unhelpful for three, and wrong for the one where the
+  photo is neither small nor blurry. Somebody told "try another" takes the same
+  photo again.
+- **Consultations filled in with the client in the chair.** The flow always
+  existed and only a client could start one, so a walk-in either got no
+  consultation or got a link emailed to fill in later, at home, from memory.
+  The person best placed to answer "how porous are the ends" is the one holding
+  them. Recorded separately from `mode`, which the engine overwrites — this is a
+  fact about how it happened, and a reviewer is entitled to know which kind of
+  answers they are reading.
+- **A clip of the hair moving.** `ConsultationMode.VIDEO` has been one of four
+  modes since the schema was written and `pickMode` has had a branch returning
+  it, with nowhere for the client to go once it did. Async on purpose: a live
+  call needs scheduling, a provider and two people free at once, and it is worse
+  at the job — a stylist watching a recording can scrub back to the frame where
+  the light catches the banding, and on a call they can only ask again and hope.
 
 ### What P6 changed, specifically
 
@@ -287,6 +329,14 @@ Nothing here is a stub pretending to be a feature.
   CI. The fallback calls `attachTestCard`, which the Stripe adapter does not
   implement — so configuring a real key makes it structurally unreachable
   rather than merely discouraged.
+- **The journey ladder needs both ends levelled.** It draws nothing unless the
+  client's own colour is known and their reference picture was tagged with a
+  target. That is an ordinary case rather than an error — most references are
+  never levelled — and the rest of the screen is unaffected.
+- **Video carries no EXIF scrub.** The stripper runs on JPEG segments and does
+  not apply to a video container, so `exifStripped` is recorded as false rather
+  than claiming a pass that never happened. A clip's own metadata can carry
+  location; nothing is marketing-approved automatically.
 - **A waitlist offer blocks the slot.** Deliberately: an offer with no hold
   behind it is a promise the salon cannot keep, so the client drops what they
   are doing, taps accept, and finds it gone. The cost is that one slot is off
