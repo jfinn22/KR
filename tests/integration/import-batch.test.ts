@@ -8,6 +8,7 @@ import {
   markSourceDeleted,
   undoBatch,
 } from '@/server/services/migration/batch'
+import { commitStaffImport, previewStaffImport } from '@/server/services/migration/staff'
 
 /**
  * An import, and the way back out of it.
@@ -436,5 +437,189 @@ describe('the file the owner uploaded', () => {
     expect(after.sourceDeletedAt).not.toBeNull()
     expect(after.filename).toBe('clients.csv')
     expect(await batchesDueForFileDeletion(S, new Date(Date.now() + 86_400_000))).toEqual([])
+  })
+})
+
+describe('a parallel run', () => {
+  /*
+   * Between import and go-live the old platform is still the system of record
+   * and staff poke at the new one. A future appointment written as a plain
+   * history row leaves this platform believing that chair is free — which turns
+   * the parallel run into the cause of the double-booking it existed to prevent.
+   */
+  const FUTURE = [
+    'Client,Mobile,Date,Time,Service,Team member,Duration',
+    'Ada Rivera,07700 900123,20/09/2027,14:00,Balayage,Wren,60',
+  ].join('\n')
+
+  it('books an upcoming appointment for real, holding the chair', async () => {
+    const batch = await newBatch()
+    const counts = await commitBatch(S, batch.id, rowsOf(FUTURE), OPTIONS)
+
+    expect(counts.appointmentsBooked).toBe(1)
+    const segments = await unsafeDb.appointmentSegment.findMany({ where: { salonId: S } })
+    expect(segments).toHaveLength(1)
+    expect(segments[0]).toMatchObject({ stylistProfileId: 'ib_sty', blocksStylist: true })
+  })
+
+  it('still leaves history without segments', async () => {
+    // Four thousand historical segments under the exclusion constraint would
+    // let one overlap in a sloppy export fail the whole migration.
+    const batch = await newBatch()
+    const counts = await commitBatch(S, batch.id, rowsOf(), OPTIONS)
+
+    expect(counts.appointmentsBooked).toBe(0)
+    expect(await unsafeDb.appointmentSegment.count({ where: { salonId: S } })).toBe(0)
+  })
+
+  it('refuses one whose chair is already taken, without losing the rest', async () => {
+    /*
+     * Checked before the insert rather than caught after it: the exclusion
+     * constraint aborts the whole transaction, and a clash on one Tuesday is
+     * not a reason to refuse a salon's entire history.
+     */
+    await unsafeDb.appointment.create({
+      data: {
+        id: 'ib_taken',
+        salonId: S,
+        locationId: 'ib_loc',
+        clientProfileId: (
+          await unsafeDb.clientProfile.create({
+            data: { id: 'ib_other', salonId: S, firstName: 'Bea', lastName: 'Chen' },
+          })
+        ).id,
+        primaryStylistId: 'ib_sty',
+        startsAt: new Date('2027-09-20T13:00:00Z'),
+        endsAt: new Date('2027-09-20T14:00:00Z'),
+        estimatedDurationMin: 60,
+        segments: {
+          create: {
+            salonId: S,
+            locationId: 'ib_loc',
+            stylistProfileId: 'ib_sty',
+            kind: 'ACTIVE',
+            startsAt: new Date('2027-09-20T13:00:00Z'),
+            endsAt: new Date('2027-09-20T14:00:00Z'),
+          },
+        },
+      },
+    })
+
+    const batch = await newBatch()
+    const counts = await commitBatch(S, batch.id, rowsOf(FUTURE), OPTIONS)
+
+    expect(counts.appointmentsClashed).toBe(1)
+    expect(counts.appointmentsBooked).toBe(0)
+    // The client still comes across — only the clashing booking is refused.
+    expect(counts.clientsCreated).toBe(1)
+  })
+
+  it('takes the booking back out again on undo', async () => {
+    const batch = await newBatch()
+    await commitBatch(S, batch.id, rowsOf(FUTURE), OPTIONS)
+    await undoBatch(S, batch.id, BY)
+
+    expect(await unsafeDb.appointmentSegment.count({ where: { salonId: S } })).toBe(0)
+  })
+})
+
+describe('consent an import can honestly claim', () => {
+  it('grants transactional and refuses marketing', async () => {
+    /*
+     * Transactional is defensible — these are the salon's own clients and the
+     * messages are about appointments they made. Marketing is not: a CSV column
+     * saying "yes" is somebody else's software's word for a conversation this
+     * salon cannot produce.
+     *
+     * Written rather than left absent, which is the part that matters: the send
+     * path treats a missing row as permission for transactional messages, so an
+     * imported client with no rows is being messaged on an omission rather than
+     * a decision, with nothing afterwards to say which.
+     */
+    const batch = await newBatch()
+    await commitBatch(S, batch.id, rowsOf(), OPTIONS)
+
+    const ada = await unsafeDb.clientProfile.findFirstOrThrow({
+      where: { salonId: S, phone: '+447700900123' },
+    })
+    const consents = await unsafeDb.contactConsent.findMany({
+      where: { clientProfileId: ada.id },
+      orderBy: [{ channel: 'asc' }, { purpose: 'asc' }],
+    })
+
+    expect(consents).toHaveLength(4)
+    expect(consents.filter((c) => c.purpose === 'MARKETING').every((c) => c.status === 'REVOKED')).toBe(
+      true,
+    )
+    expect(
+      consents.filter((c) => c.purpose === 'TRANSACTIONAL').every((c) => c.status === 'GRANTED'),
+    ).toBe(true)
+    expect(consents.every((c) => c.capturedVia === 'IMPORT')).toBe(true)
+  })
+})
+
+describe('bringing the team across', () => {
+  const STAFF = [
+    'Name,Email,Title,Skills',
+    'Wren Ashby,wren@ib.test,Senior colourist,"Balayage; Colour correction"',
+    'Jo Marlow,jo@ib.test,Stylist,"Highlights, Nail art"',
+    'Nameless,,,Balayage',
+  ].join('\n')
+
+  it('reads names and skills, and says which skills it did not know', async () => {
+    /*
+     * A stylist wrongly credited with COLOR_CORRECTION is one the solver will
+     * happily book a corrective on. A name the list does not recognise is
+     * reported, never guessed at.
+     */
+    const preview = await previewStaffImport(S, STAFF)
+
+    expect(preview.rows[0]).toMatchObject({
+      displayName: 'Wren Ashby',
+      email: 'wren@ib.test',
+      skills: ['BALAYAGE', 'COLOR_CORRECTION'],
+      unknownSkills: [],
+    })
+    expect(preview.rows[1]?.skills).toEqual(['FOILS'])
+    expect(preview.rows[1]?.unknownSkills).toEqual(['Nail art'])
+  })
+
+  it('creates the ones it can and skips the ones with nothing to hang a login on', async () => {
+    const preview = await previewStaffImport(S, STAFF)
+    const result = await commitStaffImport(S, preview.rows, 'ib_loc')
+
+    expect(result).toMatchObject({ created: 2, skipped: 1 })
+    const wren = await unsafeDb.stylistProfile.findFirstOrThrow({
+      where: { salonId: S, displayName: 'Wren Ashby' },
+      include: { skills: true },
+    })
+    // Competent, not expert — the file said they do balayage, not that they are
+    // the best in the building.
+    expect(wren.skills.map((s) => s.level)).toEqual([3, 3])
+  })
+
+  it('never imports a rota', async () => {
+    /*
+     * The one thing in a salon that changes weekly and is remembered by
+     * everybody in the building. A confidently wrong rota is worse than an
+     * empty one, because an empty one gets filled in.
+     */
+    const preview = await previewStaffImport(
+      S,
+      'Name,Email,Working Hours\nWren Ashby,wren@ib.test,Mon-Fri 9-5',
+    )
+    await commitStaffImport(S, preview.rows, 'ib_loc')
+
+    expect(await unsafeDb.workingHours.count({ where: { salonId: S } })).toBe(0)
+  })
+
+  it('updates somebody already on the team rather than duplicating them', async () => {
+    await previewStaffImport(S, STAFF).then((p) => commitStaffImport(S, p.rows, 'ib_loc'))
+    const again = await previewStaffImport(S, STAFF)
+
+    expect(again.existing['Wren Ashby']).toBeDefined()
+    const result = await commitStaffImport(S, again.rows, 'ib_loc')
+    expect(result).toMatchObject({ created: 0, updated: 2, skipped: 1 })
+    expect(await unsafeDb.stylistProfile.count({ where: { salonId: S } })).toBe(3)
   })
 })

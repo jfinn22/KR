@@ -42,6 +42,18 @@ export interface BatchCounts {
   appointmentsSkipped: number
   /** Appointments imported with no service line, because the name was unmapped. */
   appointmentsUnmappedService: number
+  /**
+   * Future appointments imported as real bookings, holding real chair time.
+   *
+   * The whole point of a parallel run: between import and go-live the old
+   * system is still the system of record, and staff poke at the new one. A
+   * future appointment written as a plain history row leaves this platform
+   * believing that chair is free — so the parallel run causes the
+   * double-booking it existed to prevent.
+   */
+  appointmentsBooked: number
+  /** Future appointments refused because the chair was already taken. */
+  appointmentsClashed: number
   rowsWithProblems: number
 }
 
@@ -101,6 +113,7 @@ export async function commitBatch(
   batchId: string,
   rows: readonly RawImportRow[],
   options: CommitOptions,
+  now = new Date(),
 ): Promise<BatchCounts> {
   const db = dbFor(salonId)
 
@@ -125,6 +138,8 @@ export async function commitBatch(
     appointmentsCreated: 0,
     appointmentsSkipped: 0,
     appointmentsUnmappedService: 0,
+    appointmentsBooked: 0,
+    appointmentsClashed: 0,
     rowsWithProblems: rows.filter((row) => row.problems.length > 0).length,
   }
 
@@ -169,6 +184,7 @@ export async function commitBatch(
             },
             select: { id: true },
           })
+          await writeImportedConsent(tx, salonId, created.id)
           clientIdFor.set(key, created.id)
           counts.clientsCreated += 1
         }
@@ -206,12 +222,44 @@ export async function commitBatch(
           const priceCents = Math.max(0, row.priceCents ?? 0)
 
           /*
-           * History, not a booking. No AppointmentSegment rows: a segment is a
-           * claim on a stylist's time and participates in the exclusion
-           * constraint, so importing four thousand of them would let one
-           * overlap in a sloppy export fail the entire migration — and would
-           * fill a diary nobody is going to scroll back to.
+           * Past and future are not the same import.
+           *
+           * History gets a plain row and no segments: a segment is a claim on a
+           * stylist's time under the exclusion constraint, so importing four
+           * thousand of them would let one overlap in a sloppy export fail the
+           * whole migration, and would fill a diary nobody scrolls back to.
+           *
+           * A FUTURE appointment is a different thing entirely. It is a chair
+           * somebody is expected to sit in, and without a segment this platform
+           * believes that chair is free — which turns a parallel run into the
+           * cause of the double-booking it was meant to prevent.
            */
+          const isFuture = startsAt.getTime() > now.getTime()
+
+          if (isFuture) {
+            /*
+             * Checked before the insert rather than caught after it. The
+             * exclusion constraint would abort the entire transaction and take
+             * four thousand good rows with it, and a clash on one Tuesday is not
+             * a reason to refuse a salon's whole history.
+             */
+            const clash = await tx.appointmentSegment.findFirst({
+              where: {
+                salonId,
+                stylistProfileId,
+                blocksStylist: true,
+                state: 'ACTIVE',
+                startsAt: { lt: endsAt },
+                endsAt: { gt: startsAt },
+              },
+              select: { id: true },
+            })
+            if (clash) {
+              counts.appointmentsClashed += 1
+              continue
+            }
+          }
+
           const appointment = await tx.appointment.create({
             data: {
               salonId,
@@ -249,6 +297,27 @@ export async function commitBatch(
             })
           } else {
             counts.appointmentsUnmappedService += 1
+          }
+
+          if (isFuture) {
+            await tx.appointmentSegment.create({
+              data: {
+                salonId,
+                locationId: batch.locationId,
+                appointmentId: appointment.id,
+                stylistProfileId,
+                kind: 'ACTIVE',
+                sequence: 0,
+                startsAt,
+                endsAt,
+                // One block, not the real phase chain. The old platform did not
+                // record where the processing was, and inventing an interleave
+                // gap would sell time this salon has already promised somebody.
+                blocksStylist: true,
+                state: 'ACTIVE',
+              },
+            })
+            counts.appointmentsBooked += 1
           }
 
           if (row.formulaText) {
@@ -513,6 +582,47 @@ async function stillInUse(
   }
 
   return reasons
+}
+
+/**
+ * What an imported client has and has not agreed to.
+ *
+ * The decision, stated: transactional yes, marketing no.
+ *
+ * Transactional is defensible — these are the salon's own clients and the
+ * messages are about appointments they made. Marketing is not: nobody can
+ * migrate a permission they cannot evidence, and a CSV column that says "yes"
+ * is somebody else's software's word for a conversation this salon cannot
+ * produce. A client who wants the offers can opt in from their own account.
+ *
+ * Written rather than left absent, which is the part that matters. The send
+ * path treats a missing row as permission for transactional messages, so an
+ * imported client without rows is currently being messaged on the strength of
+ * an omission rather than a decision — and there is no record afterwards of
+ * which it was.
+ */
+async function writeImportedConsent(
+  tx: Prisma.TransactionClient,
+  salonId: string,
+  clientProfileId: string,
+): Promise<void> {
+  const rows = (['SMS', 'EMAIL'] as const).flatMap((channel) => [
+    { channel, purpose: 'TRANSACTIONAL' as const, status: 'GRANTED' as const },
+    { channel, purpose: 'MARKETING' as const, status: 'REVOKED' as const },
+  ])
+
+  for (const row of rows) {
+    await tx.contactConsent.create({
+      data: {
+        salonId,
+        clientProfileId,
+        channel: row.channel,
+        purpose: row.purpose,
+        status: row.status,
+        capturedVia: 'IMPORT',
+      },
+    })
+  }
 }
 
 /**

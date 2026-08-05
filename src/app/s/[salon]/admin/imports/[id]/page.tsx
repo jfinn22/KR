@@ -199,6 +199,8 @@ function CountsPanel({ counts }: { counts: unknown }) {
     ['Clients created', value.clientsCreated],
     ['Matched to clients you already had', value.clientsMatched],
     ['Appointments imported', value.appointmentsCreated],
+    ['Upcoming ones booked in', value.appointmentsBooked],
+    ['Upcoming ones the chair was taken for', value.appointmentsClashed],
     ['Appointments skipped', value.appointmentsSkipped],
     ['Imported without one of your services', value.appointmentsUnmappedService],
   ]
