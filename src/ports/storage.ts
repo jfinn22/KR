@@ -53,12 +53,29 @@ const ALLOWED = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 
  */
 const ALLOWED_VIDEO = new Set(['video/mp4', 'video/quicktime', 'video/webm'])
 
+/**
+ * The file a salon brings with them when they switch platforms.
+ *
+ * Three types for one thing, because a browser labels a `.csv` whatever the
+ * operating system last told it to: Windows with Excel installed reports
+ * `application/vnd.ms-excel`, and plenty of setups report nothing better than
+ * `text/plain`. Refusing on the label would turn away the correct file.
+ */
+const ALLOWED_DATA = new Set(['text/csv', 'text/plain', 'application/vnd.ms-excel'])
+
 const MAX_BYTES = 15 * 1024 * 1024
 const MAX_VIDEO_BYTES = 60 * 1024 * 1024
+/**
+ * Larger than an image, because this is a whole salon's history in one object
+ * and there is no second attempt if it is truncated. Ten years of a busy
+ * three-chair salon is still comfortably inside this.
+ */
+const MAX_DATA_BYTES = 30 * 1024 * 1024
 
 export function assertUploadable(port: string, input: PutObjectInput): void {
   const isVideo = ALLOWED_VIDEO.has(input.contentType)
-  if (!ALLOWED.has(input.contentType) && !isVideo) {
+  const isData = ALLOWED_DATA.has(input.contentType)
+  if (!ALLOWED.has(input.contentType) && !isVideo && !isData) {
     throw new AdapterError(
       port,
       'UNSUPPORTED_TYPE',
@@ -68,7 +85,7 @@ export function assertUploadable(port: string, input: PutObjectInput): void {
   if (input.body.length === 0) {
     throw new AdapterError(port, 'EMPTY_BODY', 'Refusing to store an empty object.')
   }
-  const cap = isVideo ? MAX_VIDEO_BYTES : MAX_BYTES
+  const cap = isVideo ? MAX_VIDEO_BYTES : isData ? MAX_DATA_BYTES : MAX_BYTES
   if (input.body.length > cap) {
     throw new AdapterError(port, 'TOO_LARGE', `Object exceeds ${cap} bytes.`)
   }
