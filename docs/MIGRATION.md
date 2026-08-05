@@ -178,19 +178,44 @@ CSV is even uploaded.
 reminders on the old platform, that consent list is not silently portable —
 opt-in consent is generally tied to the sender and context it was given in,
 and importing 2,000 phone numbers as pre-consented is a liability, not a
-convenience. Re-confirm on first contact after cutover. The schema already
-has `ContactConsent` and `SuppressionEntry` for exactly this distinction; the
-import path should feed them deliberately rather than bypass them.
+convenience.
 
-**Staff import stays shallow on purpose.** Bring staff over as `StylistProfile`
-shells the owner assigns real logins to afterwards. An earlier draft of this
-document said "via the existing `Invitation` flow" — there is no such flow. The
-`Invitation` model exists and has zero references anywhere in `src/`, so
-building it is part of this work rather than something to lean on.
-Do **not** auto-import skill/capability data — no competitor platform models
-stylist capability against a phase chain, so there is nothing correct to
-import. Five minutes of deliberate setup beats a wrong guess that silently
-routes a colour-correction to someone who does not do colour corrections.
+_Built, and decided:_ an imported client gets four `ContactConsent` rows —
+transactional GRANTED, marketing REVOKED, `capturedVia: 'IMPORT'`. Transactional
+is defensible, because these are the salon's own clients and the messages are
+about appointments they made. Marketing is not: nobody can migrate a permission
+they cannot evidence, and a CSV column reading "yes" is another vendor's word
+for a conversation this salon cannot produce. A client who wants the offers opts
+in from their own account.
+
+Writing the rows at all is the part that mattered. `notificationSend` treats an
+absent consent row as permission for a transactional message, so an imported
+client with no rows was being messaged on the strength of an omission rather
+than a decision — with nothing afterwards to say which it had been.
+
+**Staff import stays shallow on purpose.** _Built._ `previewStaffImport` and
+`commitStaffImport` bring names, titles and skills across and nothing else. No
+rota: working hours change weekly and are remembered by everybody in the
+building, so importing last month's produces a diary that is confidently wrong
+about who is in on Thursday — and a wrong rota is worse than an empty one,
+because an empty one gets filled in.
+
+An earlier draft of this document said staff arrive "via the existing
+`Invitation` flow". There is no such flow: the `Invitation` model exists and has
+zero references anywhere in `src/`. What was built instead is simpler — a row
+with an email address becomes a `User`, a `Membership` and a `StylistProfile`
+directly, and a row without one is counted as skipped rather than invented
+around, because a placeholder address puts an account nobody can sign into and
+nobody can clean up in the team list forever.
+
+Skills **are** imported, against the earlier advice, but only the four codes the
+platform actually reasons about and only at level 3 of 5. The original concern
+stands and is what the level guards: the file said the stylist does balayage, it
+did not say they are the best in the building, and seeding everybody at 5 would
+make the solver's skill matching meaningless on day one. A skill name the
+platform does not recognise is reported to the owner rather than guessed at,
+because a stylist wrongly credited with `COLOR_CORRECTION` is one the solver
+will happily book a corrective on.
 
 ---
 

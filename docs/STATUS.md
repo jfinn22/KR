@@ -39,7 +39,56 @@ followed, in dependency order. Each ends green on `pnpm verify` plus
 | **P4** Money at the chair        | Ad-hoc invoice lines; editable prices; an owner-written discount catalogue with a real cap and an escalation path; gift cards on a ledger; and one authority for what a deposit costs                                                                  |
 | **P5** Cards on file             | A card kept at the provider and never here; the deposit lifecycle made real, from owed through held, taken, spent or kept; a signed webhook that reconciles what the provider says; cancellations and no-shows that settle the money; paid corrective consultations, credited against the work |
 | **P6** Filling the calendar      | A slot search with no plan behind it; one decision about when a consultation is actually needed, with an audited way past it; booking from the desk; the gold processing gaps made bookable; "come in and let me look at it" turned into an appointment the client picks; a waitlist that honours what people asked for and holds what it offers; and every visit of a plan booked in one pass |
+| **P8** Retention and migration   | A salon's whole history brought across from the platform they are leaving, with one-operation undo; upcoming appointments booked for real rather than inserted, so a parallel run cannot cause the double-booking it exists to prevent; aftercare written at the chair with the reason attached; the clients a salon is quietly losing, listed while somebody can still ring them; a 72-hour check-in that is one tap from a text; and what the colour in the bowl actually cost |
 | **P7** The differentiator        | The middle of the journey, drawn honestly — including the visits that leave somebody orange; a handoff card carrying everything the consultation found onto one screen; photo coaching that names the actual problem; consultations filled in with the client in the chair; and a short clip of the hair moving, for the assessments a still cannot serve |
+
+### What P8 changed, specifically
+
+- **The first CSV is always wrong.** Everything in the migration track is built
+  around that. Every row an import writes carries `importBatchId`, so undo is a
+  walk over three foreign keys rather than a reconstruction — and it will not
+  delete somebody who has come to depend on the row. A client who has signed in,
+  booked outside the import, been consulted or been billed is kept and named in
+  the result. An undo that eats a real Tuesday is a worse outcome than the one it
+  exists to avoid.
+- **The screen shows the work before it does any.** What each column was taken
+  to mean, what could not be read and on which line, and the first few rows
+  exactly as they came out. Mapping is one decision per distinct name, not per
+  row: a salon with four thousand appointments has fourteen services, and asking
+  on every line is how a migration gets abandoned at 3pm on a Tuesday.
+- **Dates are the one question it refuses to answer for you.** A file of 03/04,
+  05/06, 07/08 could be either way round and nothing in it settles which;
+  guessing moves a salon's entire history by up to eleven months. Where the file
+  proves itself — a 13th in the column — it is read without asking.
+- **Two things an import must get right that stay invisible for months.**
+  Imported formulas are dated from when the colour went on rather than when the
+  row was written, because `createdAt` defaults to now() and that is the clock
+  anything asking "how grown out is this" reads. And visit counters are computed
+  from the imported history rather than left at zero: `completedVisits === 0` is
+  how nine places in this platform ask "is this a new client", so a migrated
+  salon would otherwise fire its new-client welcome at its entire book.
+- **A live double-count, fixed.** `completedVisits` incremented on both
+  `END_CHAIR` and `CHECK_OUT`, which is exactly the desk's normal two-tap
+  sequence — so the counter roughly doubled at salons that used both buttons and
+  was correct at salons that skipped straight to checkout. Wrong, and
+  inconsistent between salons, and invisible because the only thing that read it
+  asks `=== 0`.
+- **A trigger with finished copy and no producer, wired.**
+  `NotificationTrigger.APPOINTMENT_AFTER` has said "How is it sitting?" since the
+  schema was written and nothing had ever created a row for it. It now carries a
+  one-tap link — a link rather than a reply, because `MessageDirection.INBOUND`
+  exists and nothing writes it, and a salon that asks a question it does not read
+  has done worse than not asking.
+- **The check-in never mutates on GET.** Message-app unfurlers and email
+  security scanners fetch any URL they see; a check-in that consumed itself on
+  page load would be answered by a robot before the client opened it. It is also
+  rate-limited on the link rather than the caller's address, because a few
+  hundred clients tapping from phones behind one carrier's egress IP would
+  otherwise lock each other out — and be refused before the handler runs, so
+  their answer is lost with no record it happened.
+- **What the colour cost.** `ProductUsage` had grams, waste grams and a cost in
+  cents since the beginning and nothing had ever written one. Waste is kept
+  separate from spend because it is the only half a salon can change this week.
 
 ### What P7 changed, specifically
 
@@ -317,9 +366,35 @@ Nothing here is a stub pretending to be a feature.
   are real and applied; they simply cannot be proven by the test suite as it
   stands. The tenancy tests exercise the application layer, which is what
   actually runs in production too.
-- **Utilisation is approximate.** It divides chair time by days each stylist
-  had any segment at all, at eight hours a day. The exact answer needs working
-  hours minus time off, which is a heavier query than the screen justifies.
+- **Utilisation is approximate, and its denominator is computed in UTC.** It
+  divides chair time by days each stylist had any segment at all, at eight hours
+  a day. The exact answer needs working hours minus time off, which is a heavier
+  query than the screen justifies. Separately, the distinct-day count uses
+  `startsAt.toISOString()` rather than the salon's timezone, so for any salon
+  west of UTC an evening appointment rolls onto the next UTC date, inflating the
+  day count and deflating utilisation. `dayBounds` already does the zone-aware
+  arithmetic and is imported in that file; `utilisationReport` simply does not
+  take a timezone. Not fixed here because it changes a number owners have been
+  reading, and that deserves its own change with its own note.
+- **The consultation funnel's photo figure can read "12 of 9".** Its denominator
+  is "requested any service at all" rather than "requested a chemical one", and
+  its numerator counts any consultation with photos regardless of service — so
+  the numerator is not a subset of the denominator. `Service.isChemical` exists
+  and is not consulted. Fixing it needs a join through the service, which
+  `requestedServiceIds` — a `String[]` with no foreign key — cannot express in
+  one Prisma count.
+- **Fade and regrowth prediction is not built.** It was in the plan for this
+  phase and was deliberately dropped after mapping what it would rest on. Four
+  separate problems: nothing in the application writes `HairProfile` except one
+  compliance field, so any new input would be a column of nulls; `monthsSince`
+  has two "unknown" sentinels and neither is null, so a fade formula silently
+  produces `Infinity` or twenty years for most clients; `SALON_COLOR` is never
+  pushed into the history array at all, so the obvious call for "when was their
+  last professional colour" returns `Infinity` unconditionally; and
+  `Formula.createdAt` is when the mix was recorded rather than when the colour
+  went on. It would demo perfectly on the seeded salon and render an em dash for
+  every real client — which is worse than not shipping it, because it looks
+  personalised.
 - **Photo quality is mechanical.** Resolution and compression, from the file
   header. Whether the lighting is any good is the AI port's job, and it is off
   by default.
