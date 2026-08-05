@@ -87,12 +87,20 @@ export function rebookRates(
     const cameBack = times.some((time) => time > at && time <= returnedBy)
 
     /*
-     * Mature, or already answered. A visit whose window has not closed is only
-     * counted if the client has ALREADY come back — that is a fact, not a
-     * prediction, and dropping it would understate a salon that is doing well
-     * right now.
+     * Only visits whose window has actually closed.
+     *
+     * The tempting version keeps a recent visit when the client has already
+     * come back, on the grounds that a return is a fact rather than a
+     * prediction — and it is, but keeping only the successes from the recent
+     * half of the window is a straight upward bias on every stylist's rate. A
+     * cohort has to be all-or-nothing: either the visit has had its full
+     * chance, or it is not in the denominator.
+     *
+     * The cost is that a salon doing well right now sees it late. That is what
+     * "not enough mature data" honestly means, and a number that flatters is
+     * worse than a number that waits.
      */
-    if (!cameBack && returnedBy > asOf.getTime()) continue
+    if (returnedBy > asOf.getTime()) continue
 
     const row = tally.get(visit.stylistProfileId) ?? { eligible: 0, returned: 0 }
     row.eligible += 1

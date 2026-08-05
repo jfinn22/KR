@@ -217,8 +217,17 @@ export async function rememberOptions(
   batchId: string,
   options: ReviewOptions,
 ): Promise<void> {
+  /*
+   * Only a batch that has not run yet.
+   *
+   * Without the status guard this quietly resurrects a COMPLETED batch back to
+   * REVIEWING — and `commitBatch`'s "that import has already been run" refusal
+   * then passes, so a salon's whole history imports a second time. The commit
+   * action calls this immediately before committing, which is exactly where
+   * that would have happened.
+   */
   await unsafeDb.importBatch.updateMany({
-    where: { id: batchId, salonId },
+    where: { id: batchId, salonId, status: { in: ['PENDING', 'REVIEWING'] } },
     data: { optionsJson: options as object, status: 'REVIEWING' },
   })
 }

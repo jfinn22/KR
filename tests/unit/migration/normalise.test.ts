@@ -223,3 +223,21 @@ describe('the small ones', () => {
     expect(parseDurationMin('a while')).toBeNull()
   })
 })
+
+describe('the number that already had its country code', () => {
+  it('does not add it twice', () => {
+    /*
+     * Fresha and Booksy both export `447700900123` for a UK mobile. Adding the
+     * code again produces +44447700900123 — fifteen digits, inside every length
+     * check, and belonging to nobody. A silently wrong number is exactly the
+     * failure this function exists to avoid.
+     */
+    expect(parsePhone('447700900123', '44')).toBe('+447700900123')
+    expect(parsePhone('1 415 555 0123', '1')).toBe('+14155550123')
+  })
+
+  it('still adds it to a genuinely national number', () => {
+    expect(parsePhone('07700 900123', '44')).toBe('+447700900123')
+    expect(parsePhone('7700 900123', '44')).toBe('+447700900123')
+  })
+})

@@ -47,11 +47,17 @@ describe('did they come back', () => {
     expect(rebookRates(visits, visits, NOW)).toEqual([])
   })
 
-  it('still counts a recent visit the client has already returned from', () => {
-    // Not a prediction — a fact. Dropping it understates a salon doing well now.
+  it('excludes an immature visit even when the client has already come back', () => {
+    /*
+     * Tempting to keep it — a return is a fact rather than a prediction. But
+     * keeping only the successes from the recent half of the window is a
+     * straight upward bias on every stylist's rate, and a cohort has to be
+     * all-or-nothing. A salon doing well right now sees it late, which is what
+     * "not enough mature data" honestly means.
+     */
     const visits = [visit('ada', 'wren', 20)]
     const all = [...visits, visit('ada', 'wren', 2)]
-    expect(rebookRates(visits, all, NOW)[0]).toMatchObject({ eligible: 1, returned: 1 })
+    expect(rebookRates(visits, all, NOW)).toEqual([])
   })
 
   it('counts a return to anybody in the salon', () => {

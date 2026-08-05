@@ -2,7 +2,8 @@
 
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
-import { withAuthz } from './guard'
+import { withAuthz, DomainError } from './guard'
+import { unsafeDb } from '@/server/db/client'
 import { recordAftercare } from '@/server/services/retention'
 
 /**
@@ -26,9 +27,42 @@ export const recordAftercareAction = withAuthz(
         .array(z.object({ retailProductId: cuid, reason: z.string().max(500).nullable() }))
         .max(20),
     }),
+    /*
+     * `formula.write` is an OWN grant for stylists and assistants, and without a
+     * resource the guard sees only a salon id — so the ownership test can never
+     * be satisfied and the exact people who write aftercare are locked out of
+     * writing it.
+     */
+    resource: async (input, ctx) => {
+      const appointment = await ctx.db.appointment.findFirst({
+        where: { id: input.appointmentId, salonId: ctx.salonId },
+        select: { primaryStylistId: true, clientProfileId: true, locationId: true },
+      })
+      return {
+        salonId: ctx.salonId,
+        ownerStylistId: appointment?.primaryStylistId ?? null,
+        clientProfileId: appointment?.clientProfileId ?? null,
+        locationId: appointment?.locationId ?? null,
+      }
+    },
     auditAs: (input) => ({ entityType: 'Appointment', entityId: input.appointmentId }),
   },
   async (input, ctx) => {
+    /*
+     * Product ids arrive from the browser and are written to a foreign key that
+     * carries no salon. Another salon's catalogue would be accepted, and then
+     * read back and rendered on this client's record.
+     */
+    if (input.products.length > 0) {
+      const ids = [...new Set(input.products.map((p) => p.retailProductId))]
+      const ours = await unsafeDb.retailProduct.count({
+        where: { salonId: ctx.salonId, id: { in: ids } },
+      })
+      if (ours !== ids.length) {
+        throw new DomainError('INVALID_INPUT', 'One of those products is not one of yours.')
+      }
+    }
+
     const result = await recordAftercare({
       salonId: ctx.salonId,
       appointmentId: input.appointmentId,

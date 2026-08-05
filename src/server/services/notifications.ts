@@ -54,7 +54,31 @@ const ALWAYS_SEND: ReadonlySet<NotificationTrigger> = new Set([
   'CONSULT_DECISION',
   'WAITLIST_OFFER',
   'DEPOSIT_DUE',
+  /*
+   * The post-visit check-in, which nothing in the product can configure.
+   *
+   * `NotificationSchedule` has exactly one writer in the whole repo — the seed —
+   * and there is no screen that creates one. Left out of this set, the check-in
+   * materialises zero rows for every real salon, which is the same dead-on-
+   * arrival shape this trigger has had since the schema was written. It is part
+   * of the service rather than the salon's marketing cadence: the client had the
+   * appointment, and asking whether it worked is not selling to them.
+   */
+  'APPOINTMENT_AFTER',
 ] as NotificationTrigger[])
+
+/**
+ * How long after the anchor an always-send trigger goes out with no schedule.
+ *
+ * Most of them are immediate — an approval or a waitlist offer is stale the
+ * moment it waits. The check-in is the opposite: sent at the till it is asking
+ * somebody how their hair is while they are still standing in front of the
+ * mirror, and the whole value of the question is that it is asked once the
+ * colour has been washed a couple of times.
+ */
+const DEFAULT_OFFSET_MINUTES: Partial<Record<NotificationTrigger, number>> = {
+  APPOINTMENT_AFTER: 72 * 60,
+}
 
 export interface MaterialiseResult {
   scheduled: number
@@ -78,7 +102,7 @@ export async function materialiseNotification(input: MaterialiseInput): Promise<
       refType: input.refType,
       refId: input.refId,
       channel: input.fallbackChannel ?? 'EMAIL',
-      sendAt: anchor,
+      sendAt: new Date(anchor.getTime() + (DEFAULT_OFFSET_MINUTES[input.trigger] ?? 0) * 60_000),
       dedupeKey: `notify:${input.trigger}:${input.refId}`,
     })
     return { scheduled: 1 }

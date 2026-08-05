@@ -141,3 +141,21 @@ describe('files that are barely files', () => {
     expect(table.rows).toEqual([])
   })
 })
+
+describe('headers that repeat', () => {
+  it('does not let the second one erase the first', () => {
+    /*
+     * Two columns called "Notes" is ordinary: one is the client's and one is
+     * the visit's, and the export named them the same. Keyed naively the second
+     * overwrites the first and a populated column vanishes with nothing to say
+     * it did — the one failure nobody ever catches during a migration.
+     */
+    const records = toRecords(parseCsv('Notes,Notes\nallergic to PPD,went well'))
+    expect(records[0]).toEqual({ Notes: 'allergic to PPD', 'Notes (2)': 'went well' })
+  })
+
+  it('leaves the first occurrence alone, so column matching still works', () => {
+    const records = toRecords(parseCsv('Phone,Phone\n123,456'))
+    expect(records[0]!.Phone).toBe('123')
+  })
+})

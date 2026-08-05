@@ -29,6 +29,19 @@ export const recordUsageAction = withAuthz(
       anchorGrams: z.number().positive().max(2000),
       wasteGrams: z.number().min(0).max(2000),
     }),
+    // Same OWN grant, same need for a resource — see the aftercare action.
+    resource: async (input, ctx) => {
+      const appointment = await ctx.db.appointment.findFirst({
+        where: { id: input.appointmentId, salonId: ctx.salonId },
+        select: { primaryStylistId: true, clientProfileId: true, locationId: true },
+      })
+      return {
+        salonId: ctx.salonId,
+        ownerStylistId: appointment?.primaryStylistId ?? null,
+        clientProfileId: appointment?.clientProfileId ?? null,
+        locationId: appointment?.locationId ?? null,
+      }
+    },
     auditAs: (input) => ({ entityType: 'Appointment', entityId: input.appointmentId }),
   },
   async (input, ctx) => {

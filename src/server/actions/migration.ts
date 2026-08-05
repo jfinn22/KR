@@ -135,6 +135,16 @@ export const commitImportAction = withAuthz(
     })
     if (!batch) throw new DomainError('NOT_FOUND', 'That import is not here.')
 
+    /*
+     * The maps come from the browser, and their values are written straight
+     * onto `AppointmentService.serviceId` and `Appointment.primaryStylistId`.
+     * Neither foreign key carries a salon, so an id belonging to another salon
+     * would be accepted by the database and would put this salon's imported
+     * history against somebody else's stylist — visible to them, and counted in
+     * their figures. Checked here, once, against what this salon actually has.
+     */
+    await assertOurs(ctx.salonId, input.serviceMap, input.stylistMap)
+
     const text = await sourceTextOf(batch.sourceAssetKey)
     const parsed = parseImport(text, {
       platform: batch.sourcePlatform,
@@ -188,3 +198,26 @@ export const undoImportAction = withAuthz(
     return result
   },
 )
+
+/** Refuses any mapped id that is not this salon's. */
+async function assertOurs(
+  salonId: string,
+  serviceMap: Record<string, string | null>,
+  stylistMap: Record<string, string | null>,
+): Promise<void> {
+  const serviceIds = [...new Set(Object.values(serviceMap).filter((id): id is string => !!id))]
+  const stylistIds = [...new Set(Object.values(stylistMap).filter((id): id is string => !!id))]
+
+  const [services, stylists] = await Promise.all([
+    serviceIds.length
+      ? unsafeDb.service.count({ where: { salonId, id: { in: serviceIds } } })
+      : Promise.resolve(0),
+    stylistIds.length
+      ? unsafeDb.stylistProfile.count({ where: { salonId, id: { in: stylistIds } } })
+      : Promise.resolve(0),
+  ])
+
+  if (services !== serviceIds.length || stylists !== stylistIds.length) {
+    throw new DomainError('INVALID_INPUT', 'One of those choices is not one of yours.')
+  }
+}

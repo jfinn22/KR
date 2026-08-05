@@ -204,6 +204,19 @@ export function parsePhone(raw: string, defaultCallingCode: string | null): stri
    */
   if (code === '') return null
 
+  /*
+   * Already carrying its own country code, just without the plus.
+   *
+   * Fresha and Booksy both export `447700900123` for a UK mobile, and adding
+   * the code again produces `+44447700900123` — fifteen digits, inside every
+   * length check, and belonging to nobody. A silently wrong number is the
+   * failure this whole function exists to avoid, so a value that already starts
+   * with the calling code and is long enough to be complete is taken as it is.
+   */
+  if (digits.startsWith(code) && digits.length >= code.length + 7) {
+    return `+${digits}`
+  }
+
   // A national number written with its trunk prefix — 07700..., 0161... — drops
   // the leading zero when it takes a country code.
   const national = digits.replace(/^0+/, '')

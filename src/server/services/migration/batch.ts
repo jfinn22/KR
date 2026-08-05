@@ -3,6 +3,7 @@ import { unsafeDb } from '@/server/db/client'
 import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { localTimeToEpochMinutes, fromEpochMinutes } from '@/domain/scheduling/zoned'
+import { invalidateAvailabilityCache } from '@/server/services/scheduling/loader'
 import type { RawImportRow } from '@/domain/migration/parse'
 import type { SourcePlatform } from '@/domain/migration/columns'
 
@@ -152,14 +153,22 @@ export async function commitBatch(
          * is usually six hundred people.
          */
         const clientIdFor = new Map<string, string>()
+        /** Every handle a row gives us, tried in turn against what we have. */
+        const lookup = (row: RawImportRow): string | undefined => {
+          for (const key of identityKeys(row)) {
+            const found = clientIdFor.get(key)
+            if (found) return found
+          }
+          return undefined
+        }
 
         for (const row of rows) {
-          const key = identityKey(row)
-          if (key === null || clientIdFor.has(key)) continue
+          const keys = identityKeys(row)
+          if (keys.length === 0 || lookup(row)) continue
 
           const existing = await findExistingClient(tx, salonId, row)
           if (existing) {
-            clientIdFor.set(key, existing)
+            for (const key of keys) clientIdFor.set(key, existing)
             counts.clientsMatched += 1
             continue
           }
@@ -185,15 +194,21 @@ export async function commitBatch(
             select: { id: true },
           })
           await writeImportedConsent(tx, salonId, created.id)
-          clientIdFor.set(key, created.id)
+          /*
+           * Registered under every handle the row gave, not just the best one.
+           * A client whose phone is on one line and only their email on the
+           * next would otherwise be two people — which is the single most
+           * visible way an import can be wrong, and the one an owner spots on
+           * the first screen.
+           */
+          for (const key of keys) clientIdFor.set(key, created.id)
           counts.clientsCreated += 1
         }
 
         for (const row of rows) {
           if (row.appointmentDate === null) continue
 
-          const key = identityKey(row)
-          const clientProfileId = key === null ? undefined : clientIdFor.get(key)
+          const clientProfileId = lookup(row)
           const stylistProfileId = row.stylistName
             ? (options.stylistMap[row.stylistName] ?? null)
             : null
@@ -215,6 +230,16 @@ export async function commitBatch(
 
           const serviceId = row.serviceName ? (options.serviceMap[row.serviceName] ?? null) : null
           const durationMin = row.durationMin ?? 60
+          /*
+           * A row with a date and no readable time still imports, at nine in
+           * the morning, and says so. Refusing it would lose a real visit over
+           * a column the old platform did not export; letting it through
+           * silently puts a fictional time on a client's record that nobody can
+           * tell from a real one.
+           */
+          if (row.appointmentTimeMin === null) {
+            row.problems.push('No readable time on this row — imported as 9am.')
+          }
           const startsAt = fromEpochMinutes(
             localTimeToEpochMinutes(row.appointmentDate, row.appointmentTimeMin ?? 9 * 60, timeZone),
           )
@@ -247,8 +272,19 @@ export async function commitBatch(
               where: {
                 salonId,
                 stylistProfileId,
+                /*
+                 * The same predicate the exclusion constraint uses, exactly.
+                 *
+                 * `segment_stylist_no_overlap` covers state IN ('ACTIVE','HOLD')
+                 * — a slot somebody is midway through booking counts. Checking
+                 * only ACTIVE leaves the constraint able to fire on a live hold,
+                 * and the constraint aborts the whole transaction rather than
+                 * one row, so a member of staff clicking around the new system
+                 * during a parallel run would take a salon's entire migration
+                 * down with them.
+                 */
                 blocksStylist: true,
-                state: 'ACTIVE',
+                state: { in: ['ACTIVE', 'HOLD'] },
                 startsAt: { lt: endsAt },
                 endsAt: { gt: startsAt },
               },
@@ -260,23 +296,38 @@ export async function commitBatch(
             }
           }
 
+          /*
+           * A visit that has not happened yet is not a completed one.
+           *
+           * `mapStatus` defaults an unrecognised or empty status column to
+           * COMPLETED, which is right for history and catastrophic for the
+           * future: an upcoming appointment written as COMPLETED and checked
+           * out counts towards the client's visit total, reports revenue nobody
+           * has taken, and — worst of all — is invisible to every upcoming-
+           * appointment query in the platform, which is the one thing a
+           * parallel run exists to populate.
+           */
+          const status = isFuture ? 'CONFIRMED' : (row.status ?? 'COMPLETED')
+          const settled = status === 'COMPLETED'
+
           const appointment = await tx.appointment.create({
             data: {
               salonId,
               locationId: batch.locationId,
               clientProfileId,
               primaryStylistId: stylistProfileId,
-              status: row.status ?? 'COMPLETED',
+              status,
               source: 'IMPORT',
               startsAt,
               endsAt,
               estimatedDurationMin: durationMin,
               estimatedTotalCents: priceCents,
-              actualTotalCents: row.status === 'COMPLETED' || row.status === null ? priceCents : null,
+              // Only money that has actually changed hands.
+              actualTotalCents: settled ? priceCents : null,
               internalNote: row.appointmentNotes,
-              checkedOutAt: row.status === 'CANCELLED' || row.status === 'NO_SHOW' ? null : endsAt,
-              cancelledAt: row.status === 'CANCELLED' ? startsAt : null,
-              noShowAt: row.status === 'NO_SHOW' ? startsAt : null,
+              checkedOutAt: settled ? endsAt : null,
+              cancelledAt: status === 'CANCELLED' ? startsAt : null,
+              noShowAt: status === 'NO_SHOW' ? startsAt : null,
               importBatchId: batchId,
             },
             select: { id: true },
@@ -383,6 +434,14 @@ export async function commitBatch(
     },
   })
 
+  /*
+   * The solver caches who is busy. An import that booked upcoming appointments
+   * has changed exactly that, and a stale cache would offer a slot the database
+   * will then refuse at hold time — the worst possible first impression of a
+   * newly migrated salon.
+   */
+  if (counts.appointmentsBooked > 0) invalidateAvailabilityCache(salonId)
+
   return counts
 }
 
@@ -415,8 +474,6 @@ export async function undoBatch(
   })
   const clientIds = clients.map((client) => client.id)
 
-  const inUse = await stillInUse(salonId, batchId, clientIds)
-
   /*
    * Everyone this batch wrote an appointment for, including clients the salon
    * already had. Their counters were raised by the import too, and recomputing
@@ -431,20 +488,25 @@ export async function undoBatch(
     })
   ).map((row) => row.clientProfileId)
 
-  const kept: KeptClient[] = []
-  const doomed: string[] = []
-  for (const client of clients) {
-    const reason = client.userId
-      ? 'They have signed in and claimed this record.'
-      : (inUse.get(client.id) ?? null)
-    if (reason) {
-      kept.push({ id: client.id, name: fullName(client), reason })
-    } else {
-      doomed.push(client.id)
-    }
-  }
-
   const result = await unsafeDb.$transaction(async (tx: Prisma.TransactionClient) => {
+    /*
+     * Who is spared is decided inside the transaction, not before it. Deciding
+     * on a snapshot and acting a moment later is how a client who books in
+     * between the two gets deleted by an undo that had already concluded they
+     * were unused — taking their brand-new appointment with them.
+     */
+    const inUse = await stillInUse(tx, salonId, batchId, clientIds)
+
+    const kept: KeptClient[] = []
+    const doomed: string[] = []
+    for (const client of clients) {
+      const reason = client.userId
+        ? 'They have signed in and claimed this record.'
+        : (inUse.get(client.id) ?? null)
+      if (reason) kept.push({ id: client.id, name: fullName(client), reason })
+      else doomed.push(client.id)
+    }
+
     /*
      * Formulas, then appointments, then clients — children before parents, so
      * nothing is deleted out from under a foreign key mid-transaction.
@@ -455,7 +517,31 @@ export async function undoBatch(
      */
     const formulas = await tx.formula.deleteMany({ where: { salonId, importBatchId: batchId } })
     const appointments = await tx.appointment.deleteMany({
+      where: {
+        salonId,
+        importBatchId: batchId,
+        /*
+         * The same rule as for clients: undo removes what the import created
+         * and nothing that has happened since.
+         *
+         * Status is the wrong discriminator here, because imported history is
+         * COMPLETED by definition and sparing that would undo nothing at all.
+         * What separates the two is whether a person did something: the import
+         * never sets `chairStartedAt` and never raises an invoice, so either one
+         * means a booking this import made has since been sat through or billed.
+         * Deleting that takes the invoice with it through the cascade and leaves
+         * the salon's takings short with nothing to explain it.
+         */
+        invoice: null,
+        chairStartedAt: null,
+      },
+    })
+
+    // Anything spared keeps its history and loses its provenance, so a second
+    // sweep can never mistake it for the import's to remove.
+    await tx.appointment.updateMany({
       where: { salonId, importBatchId: batchId },
+      data: { importBatchId: null },
     })
     const removed = doomed.length
       ? await tx.clientProfile.deleteMany({ where: { salonId, id: { in: doomed } } })
@@ -474,7 +560,13 @@ export async function undoBatch(
 
     await tx.importBatch.update({
       where: { id: batchId },
-      data: { status: 'UNDONE', undoneAt: new Date(), undoneByUserId },
+      data: {
+        status: 'UNDONE',
+        undoneAt: new Date(),
+        undoneByUserId,
+        // So the retention sweep can find it even if it never completed.
+        completedAt: batch.completedAt ?? new Date(),
+      },
     })
 
     return {
@@ -484,6 +576,9 @@ export async function undoBatch(
       clientsKept: kept,
     }
   })
+
+  // Chair time has been handed back; the solver has to be told.
+  if (result.appointmentsDeleted > 0) invalidateAvailabilityCache(salonId)
 
   return result
 }
@@ -506,7 +601,12 @@ export async function batchesDueForFileDeletion(
       salonId,
       status: { in: [...TERMINAL] },
       sourceAssetKey: { not: null },
-      completedAt: { lt: olderThan },
+      /*
+       * Either terminal timestamp. A batch undone from a state that never set
+       * `completedAt` would otherwise never match, and its raw upload — a
+       * salon's whole client list in the clear — would sit in storage forever.
+       */
+      OR: [{ completedAt: { lt: olderThan } }, { undoneAt: { lt: olderThan } }],
     },
     select: { id: true, sourceAssetKey: true },
   })
@@ -533,6 +633,7 @@ export async function markSourceDeleted(salonId: string, batchId: string): Promi
  * have been consulted, or they have been billed.
  */
 async function stillInUse(
+  db: Prisma.TransactionClient,
   salonId: string,
   batchId: string,
   clientIds: readonly string[],
@@ -540,7 +641,6 @@ async function stillInUse(
   const reasons = new Map<string, string>()
   if (clientIds.length === 0) return reasons
 
-  const db = dbFor(salonId)
   const ids = [...clientIds]
 
   const booked = await db.appointment.findMany({
@@ -557,6 +657,31 @@ async function stillInUse(
   })
   for (const row of booked) {
     reasons.set(row.clientProfileId, 'They have an appointment that did not come from this import.')
+  }
+
+  /*
+   * And an appointment that DID come from this import but has since been sat
+   * through or billed.
+   *
+   * Without this the client looks untouched — their only appointment still
+   * carries the batch id — so they are deleted, and the visit somebody actually
+   * did goes with them through the cascade. The appointment's own guard never
+   * gets a chance to run.
+   */
+  const worked = await db.appointment.findMany({
+    where: {
+      salonId,
+      clientProfileId: { in: ids },
+      importBatchId: batchId,
+      OR: [{ chairStartedAt: { not: null } }, { invoice: { isNot: null } }],
+    },
+    select: { clientProfileId: true },
+    distinct: ['clientProfileId'],
+  })
+  for (const row of worked) {
+    if (!reasons.has(row.clientProfileId)) {
+      reasons.set(row.clientProfileId, 'They have been in since, on an appointment this import made.')
+    }
   }
 
   const consulted = await db.consultation.findMany({
@@ -689,18 +814,25 @@ async function findExistingClient(
 }
 
 /**
- * What makes two rows the same person, within one file.
+ * Every handle a row gives for the person on it.
  *
- * Phone, then email, then the name — in that order, because a phone number is
- * the only one of the three that a salon's own front desk has never typed twice
- * differently. A row with none of them cannot be deduplicated at all, and a row
- * with no name is not a person.
+ * All of them, not the best one. Exports are ragged: the same client's phone
+ * appears on their colour appointment and not on their blow-dry, and keying on
+ * a single preferred handle turns one person into two — the most visible way an
+ * import can be wrong, and the one an owner notices on the first screen.
+ *
+ * Ordered by how much each is worth. A phone number is the only one a salon's
+ * own front desk has never typed two different ways; a name alone is a guess,
+ * and it is last because two Sarah Joneses are ordinary.
  */
-function identityKey(row: RawImportRow): string | null {
-  if (row.phone) return `p:${row.phone}`
-  if (row.email) return `e:${row.email}`
-  if (row.firstName) return `n:${row.firstName.toLowerCase()}|${(row.lastName ?? '').toLowerCase()}`
-  return null
+function identityKeys(row: RawImportRow): string[] {
+  const keys: string[] = []
+  if (row.phone) keys.push(`p:${row.phone}`)
+  if (row.email) keys.push(`e:${row.email}`)
+  if (row.firstName) {
+    keys.push(`n:${row.firstName.toLowerCase()}|${(row.lastName ?? '').toLowerCase()}`)
+  }
+  return keys
 }
 
 function fullName(client: { firstName: string; lastName: string | null }): string {

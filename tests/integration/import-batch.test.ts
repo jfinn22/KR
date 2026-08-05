@@ -9,6 +9,7 @@ import {
   undoBatch,
 } from '@/server/services/migration/batch'
 import { commitStaffImport, previewStaffImport } from '@/server/services/migration/staff'
+import { rememberOptions } from '@/server/services/migration/review'
 
 /**
  * An import, and the way back out of it.
@@ -514,6 +515,49 @@ describe('a parallel run', () => {
     expect(counts.clientsCreated).toBe(1)
   })
 
+  it('sees a slot somebody is midway through booking', async () => {
+    /*
+     * `segment_stylist_no_overlap` covers state IN ('ACTIVE','HOLD'). Checking
+     * only ACTIVE leaves the constraint able to fire on a live hold — and the
+     * constraint aborts the whole transaction, so one member of staff clicking
+     * around during a parallel run would take the entire migration down.
+     */
+    await unsafeDb.bookingHold.create({
+      data: {
+        id: 'ib_hold',
+        salonId: S,
+        locationId: 'ib_loc',
+        clientProfileId: (
+          await unsafeDb.clientProfile.create({
+            data: { id: 'ib_holder', salonId: S, firstName: 'Cleo', lastName: 'Diaz' },
+          })
+        ).id,
+        primaryStylistId: 'ib_sty',
+        startsAt: new Date('2027-09-20T13:00:00Z'),
+        endsAt: new Date('2027-09-20T14:00:00Z'),
+        expiresAt: new Date('2027-09-20T14:00:00Z'),
+        segments: {
+          create: {
+            salonId: S,
+            locationId: 'ib_loc',
+            stylistProfileId: 'ib_sty',
+            kind: 'ACTIVE',
+            state: 'HOLD',
+            startsAt: new Date('2027-09-20T13:00:00Z'),
+            endsAt: new Date('2027-09-20T14:00:00Z'),
+          },
+        },
+      },
+    })
+
+    const batch = await newBatch()
+    const counts = await commitBatch(S, batch.id, rowsOf(FUTURE), OPTIONS)
+
+    expect(counts.appointmentsClashed).toBe(1)
+    // And the rest of the import survived, which is the whole point.
+    expect(counts.clientsCreated).toBe(1)
+  })
+
   it('takes the booking back out again on undo', async () => {
     const batch = await newBatch()
     await commitBatch(S, batch.id, rowsOf(FUTURE), OPTIONS)
@@ -621,5 +665,101 @@ describe('bringing the team across', () => {
     const result = await commitStaffImport(S, again.rows, 'ib_loc')
     expect(result).toMatchObject({ created: 0, updated: 2, skipped: 1 })
     expect(await unsafeDb.stylistProfile.count({ where: { salonId: S } })).toBe(3)
+  })
+})
+
+describe('what the review caught', () => {
+  const FUTURE_ROW = [
+    'Client,Mobile,Date,Time,Service,Team member,Duration,Status',
+    'Ada Rivera,07700 900123,20/09/2027,14:00,Balayage,Wren,60,',
+  ].join('\n')
+
+  it('does not import an upcoming appointment as one that already happened', async () => {
+    /*
+     * `mapStatus` defaults an empty status column to COMPLETED, which is right
+     * for history and catastrophic for the future: an upcoming appointment
+     * written as COMPLETED counts towards the client's visits, reports revenue
+     * nobody has taken, and is invisible to every upcoming-appointment query —
+     * which is the one thing a parallel run exists to populate.
+     */
+    const batch = await newBatch()
+    await commitBatch(S, batch.id, rowsOf(FUTURE_ROW), OPTIONS)
+
+    const appointment = await unsafeDb.appointment.findFirstOrThrow({ where: { salonId: S } })
+    expect(appointment.status).toBe('CONFIRMED')
+    expect(appointment.checkedOutAt).toBeNull()
+    expect(appointment.actualTotalCents).toBeNull()
+
+    const ada = await unsafeDb.clientProfile.findFirstOrThrow({
+      where: { salonId: S, phone: '+447700900123' },
+    })
+    expect(ada.completedVisits).toBe(0)
+  })
+
+  it('will not run a finished import a second time', async () => {
+    /*
+     * `rememberOptions` used to set the batch back to REVIEWING unconditionally,
+     * and the commit action calls it immediately before committing — so the
+     * "already been run" refusal passed and a salon's whole history imported
+     * twice.
+     */
+    const batch = await newBatch()
+    await commitBatch(S, batch.id, rowsOf(), OPTIONS)
+
+    await rememberOptions(S, batch.id, { dateOrder: 'DMY' })
+
+    const after = await unsafeDb.importBatch.findUniqueOrThrow({ where: { id: batch.id } })
+    expect(after.status).toBe('COMPLETED')
+    await expect(commitBatch(S, batch.id, rowsOf(), OPTIONS)).rejects.toThrow(/already been run/)
+  })
+
+  it('keeps a booking somebody has since sat in the chair for', async () => {
+    const batch = await newBatch()
+    await commitBatch(S, batch.id, rowsOf(FUTURE_ROW), OPTIONS)
+
+    const booked = await unsafeDb.appointment.findFirstOrThrow({ where: { salonId: S } })
+    await unsafeDb.appointment.update({
+      where: { id: booked.id },
+      data: { status: 'COMPLETED', chairStartedAt: new Date(), chairEndedAt: new Date() },
+    })
+
+    const result = await undoBatch(S, batch.id, BY)
+
+    expect(result.appointmentsDeleted).toBe(0)
+    const survivor = await unsafeDb.appointment.findUniqueOrThrow({ where: { id: booked.id } })
+    // Kept, and no longer the import's to remove on any later sweep.
+    expect(survivor.importBatchId).toBeNull()
+  })
+
+  it('still takes imported history back out, which is COMPLETED by definition', async () => {
+    const batch = await newBatch()
+    await commitBatch(S, batch.id, rowsOf(), OPTIONS)
+    const result = await undoBatch(S, batch.id, BY)
+
+    expect(result.appointmentsDeleted).toBe(3)
+    expect(await unsafeDb.appointment.count({ where: { salonId: S } })).toBe(0)
+  })
+
+  it('says so when it had to invent a time', async () => {
+    const batch = await newBatch()
+    const rows = rowsOf(
+      ['Client,Mobile,Date,Service,Team member', 'Ada Rivera,07700 900123,03/04/2024,Balayage,Wren'].join(
+        '\n',
+      ),
+    )
+    await commitBatch(S, batch.id, rows, OPTIONS)
+
+    expect(rows[0]?.problems.join(' ')).toContain('9am')
+  })
+
+  it('sweeps the raw file of a batch that was undone without ever completing', async () => {
+    // A salon's whole client list, in the clear. It does not get to sit in
+    // storage forever because a status field never got set.
+    const batch = await newBatch()
+    await commitBatch(S, batch.id, rowsOf(), OPTIONS)
+    await undoBatch(S, batch.id, BY)
+
+    const due = await batchesDueForFileDeletion(S, new Date(Date.now() + 86_400_000))
+    expect(due.map((row) => row.id)).toEqual([batch.id])
   })
 })

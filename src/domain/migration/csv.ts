@@ -202,14 +202,37 @@ function countUnquoted(line: string, char: string): number {
  * catches, and an unmapped extra column is at least visible in the review.
  */
 export function toRecords(table: CsvTable): Record<string, string>[] {
+  const keys = uniqueHeaders(table.header)
+
   return table.rows.map((row) => {
     const record: Record<string, string> = {}
-    for (const [index, key] of table.header.entries()) {
+    for (const [index, key] of keys.entries()) {
       record[key] = row[index] ?? ''
     }
-    for (let index = table.header.length; index < row.length; index += 1) {
+    for (let index = keys.length; index < row.length; index += 1) {
       record[`column${index + 1}`] = row[index] ?? ''
     }
     return record
+  })
+}
+
+/**
+ * Make repeated headers distinguishable.
+ *
+ * Two columns called "Notes" is ordinary — one is the client's and one is the
+ * visit's, and the export named them both the same. Keyed naively the second
+ * overwrites the first and a populated column vanishes with nothing to say it
+ * did, which is the one failure nobody ever catches during a migration.
+ *
+ * The first occurrence keeps the plain name, so everything that matches on the
+ * header still matches; later ones are suffixed and surface as unrecognised
+ * columns the owner is told about.
+ */
+function uniqueHeaders(header: readonly string[]): string[] {
+  const seen = new Map<string, number>()
+  return header.map((name) => {
+    const count = seen.get(name) ?? 0
+    seen.set(name, count + 1)
+    return count === 0 ? name : `${name} (${count + 1})`
   })
 }

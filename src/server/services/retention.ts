@@ -5,6 +5,7 @@ import { materialiseNotification } from './notifications'
 import {
   firstTimersAtRisk,
   rebookRates,
+  FIRST_TIMER_GRACE_DAYS,
   REBOOK_WINDOW_DAYS,
   type AtRisk,
   type RebookRate,
@@ -93,13 +94,24 @@ export async function firstTimerInterventions(
 ): Promise<FirstTimerAtRisk[]> {
   const db = dbFor(salonId)
 
+  /*
+   * The window is applied in the query, not after the row cap.
+   *
+   * `take` without it takes 500 arbitrary one-visit clients and then filters
+   * them by date — so a salon with a few thousand lapsed first-timers gets 500
+   * rows from 2019 and an empty list, every day, with nothing to say why.
+   */
+  const oldest = new Date(now.getTime() - FIRST_TIMER_GRACE_DAYS * 3 * 86_400_000)
+  const newest = new Date(now.getTime() - FIRST_TIMER_GRACE_DAYS * 86_400_000)
+
   const clients = await db.clientProfile.findMany({
     where: {
       salonId,
       status: 'ACTIVE',
       completedVisits: 1,
-      firstVisitAt: { not: null },
+      firstVisitAt: { gte: oldest, lte: newest },
     },
+    orderBy: { firstVisitAt: 'desc' },
     select: {
       id: true,
       firstName: true,
@@ -322,11 +334,20 @@ export async function nudgeRebookDue(
   })
 
   for (const client of due) {
+    /*
+     * The reference carries the visit it is about, not just the client.
+     *
+     * `materialiseNotification` dedupes on the ref id, so a bare client id
+     * means a client can be nudged exactly once for the lifetime of their
+     * account — the second time their colour is due, nothing happens, silently
+     * and forever.
+     */
+    const anchor = client.lastVisitAt?.toISOString().slice(0, 10) ?? 'unknown'
     await materialiseNotification({
       salonId,
       trigger: 'REBOOK_DUE',
       refType: 'ClientProfile',
-      refId: client.id,
+      refId: `${client.id}:${anchor}`,
       clientProfileId: client.id,
     })
   }

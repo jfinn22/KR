@@ -125,7 +125,8 @@ export function withPublicAction<I, O>(
        * unlimited tries precisely because they keep getting them wrong.
        */
       const limit = opts.limit ?? DEFAULT_LIMIT
-      const fingerprint = await fingerprintFor(salon.id, opts.subject?.(input) ?? null)
+      const subject = opts.subject?.(input) ?? null
+      const fingerprint = await fingerprintFor(salon.id, subject)
       const since = new Date(Date.now() - limit.windowMinutes * 60_000)
 
       const recent = await unsafeDb.publicActionAttempt.count({
@@ -137,6 +138,39 @@ export function withPublicAction<I, O>(
           code: 'RATE_LIMITED',
           error: 'That is a lot of tries in a short time. Please wait a few minutes and try again.',
         }
+      }
+
+      /*
+       * A subject NARROWS the bucket, it does not replace the ceiling.
+       *
+       * Counting only against a token is exactly what somebody guessing tokens
+       * would want: every attempt is a fresh bucket, so there is no limit at
+       * all. The per-subject count above is what stops one client hammering
+       * their own link; this is what stops one address hammering the endpoint.
+       * Generous, because hundreds of real people do share a carrier's egress
+       * address and must not lock each other out.
+       */
+      if (subject) {
+        const byAddress = await fingerprintFor(salon.id, null)
+        const flood = await unsafeDb.publicActionAttempt.count({
+          where: {
+            salonId: salon.id,
+            name: opts.name,
+            fingerprint: byAddress,
+            createdAt: { gte: since },
+          },
+        })
+        if (flood >= limit.attempts * 40) {
+          return {
+            ok: false,
+            code: 'RATE_LIMITED',
+            error: 'That is a lot of tries in a short time. Please wait a few minutes and try again.',
+          }
+        }
+        // Recorded under both, so neither count can be evaded by using the other.
+        await unsafeDb.publicActionAttempt.create({
+          data: { salonId: salon.id, name: opts.name, fingerprint: byAddress },
+        })
       }
 
       await unsafeDb.publicActionAttempt.create({
