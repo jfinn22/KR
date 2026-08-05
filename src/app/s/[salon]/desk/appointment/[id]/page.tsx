@@ -2,7 +2,9 @@ import Link from 'next/link'
 import { pageContextFor } from '@/server/auth/page'
 import { handoffCard } from '@/server/services/handoff'
 import { aftercareFor } from '@/server/services/retention'
+import { costOfService } from '@/server/services/backbar'
 import { AftercareForm } from './aftercare-form'
+import { BackbarForm } from './backbar-form'
 import { JourneyLadder } from '@/components/salon/journey-ladder'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -50,9 +52,20 @@ export default async function HandoffPage({
   const { salon, id } = await params
   const ctx = await pageContextFor(salon, 'appointment.viewAny')
 
-  const [card, aftercare, products] = await Promise.all([
+  const [card, aftercare, cost, todaysFormula, products] = await Promise.all([
     handoffCard(ctx.salonId, id),
     aftercareFor(ctx.salonId, id),
+    costOfService(ctx.salonId, id),
+    /*
+     * This appointment's own formula, not the handoff card's `lastFormula` —
+     * that one is deliberately the most recent mix from any visit, which is the
+     * right thing to read before starting and the wrong thing to cost.
+     */
+    ctx.db.formula.findFirst({
+      where: { salonId: ctx.salonId, appointmentId: id },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    }),
     ctx.db.retailProduct.findMany({
       where: { salonId: ctx.salonId, isActive: true },
       select: { id: true, name: true, brand: true },
@@ -313,6 +326,32 @@ export default async function HandoffPage({
           </div>
         </section>
       )}
+
+      <section>
+        <h2 className="font-display text-display-sm text-ink">What it cost</h2>
+        <p className="mt-1 max-w-prose text-secondary text-ink-muted">
+          Two numbers at the bowl. Everything else comes off the formula, and what was left over is
+          the half a salon can actually do something about.
+        </p>
+        <div className="mt-5">
+          <BackbarForm
+            salonSlug={salon}
+            appointmentId={appointment.id}
+            formulaId={todaysFormula?.id ?? null}
+            cost={
+              cost
+                ? {
+                    lines: cost.lines,
+                    totalCents: cost.totalCents,
+                    wasteCents: cost.wasteCents,
+                    marginPct: cost.margin?.marginPct ?? null,
+                    incomplete: cost.incomplete,
+                  }
+                : null
+            }
+          />
+        </div>
+      </section>
 
       <section>
         <h2 className="font-display text-display-sm text-ink">Afterwards</h2>

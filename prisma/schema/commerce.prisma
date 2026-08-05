@@ -500,6 +500,15 @@ model RetailProduct {
   category String?
   priceCents Int
   costCents  Int    @default(0)
+  /// Grams in one unit, for anything mixed at the bowl.
+  ///
+  /// Backbar cost is per gram and a purchase is per tube, and nothing else in
+  /// the schema bridges the two. Null rather than a default: a guessed tube
+  /// size reports a made-up margin, and an owner acts on a margin they believe.
+  backbarGramsPerUnit Int?
+  /// Used on clients rather than sold to them. Both is common — the same
+  /// shampoo goes on the shelf and in the basin.
+  isBackbar  Boolean @default(false)
   stockQty   Int    @default(0)
   reorderLevel Int  @default(0)
   attributesJson Json?

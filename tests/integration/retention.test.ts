@@ -14,6 +14,7 @@ import {
   respondToCheckIn,
   unhappyCheckIns,
 } from '@/server/services/check-in'
+import { backbarSummary, costOfService, recordUsage } from '@/server/services/backbar'
 
 /**
  * Keeping the clients a salon already has.
@@ -403,5 +404,169 @@ describe('the 72-hour check-in', () => {
 
     await resolveCheckIn(S, queue[0]!.id, 'rt_user')
     expect(await unhappyCheckIns(S)).toEqual([])
+  })
+})
+
+describe('what the colour cost', () => {
+  async function mixOn(appointmentId: string, clientProfileId: string) {
+    const formula = await unsafeDb.formula.create({
+      data: {
+        salonId: S,
+        clientProfileId,
+        appointmentId,
+        stylistProfileId: 'rt_sty',
+        purpose: 'GLOBAL_COLOR',
+        components: {
+          create: [
+            {
+              salonId: S,
+              sequence: 0,
+              productName: 'Shade 7.1',
+              parts: 1,
+              retailProductId: 'rt_colour',
+            },
+            {
+              salonId: S,
+              sequence: 1,
+              productName: 'Developer 20vol',
+              parts: 1.5,
+              retailProductId: 'rt_dev',
+            },
+          ],
+        },
+      },
+      select: { id: true },
+    })
+    return formula.id
+  }
+
+  beforeEach(async () => {
+    // £12.00 for 60g is 20c a gram; £6.00 for 1000ml is 0.6c a gram.
+    await unsafeDb.retailProduct.createMany({
+      data: [
+        {
+          id: 'rt_colour',
+          salonId: S,
+          sku: 'COL-71',
+          name: 'Shade 7.1',
+          priceCents: 0,
+          costCents: 1_200,
+          backbarGramsPerUnit: 60,
+          isBackbar: true,
+        },
+        {
+          id: 'rt_dev',
+          salonId: S,
+          sku: 'DEV-20',
+          name: 'Developer 20vol',
+          priceCents: 0,
+          costCents: 600,
+          backbarGramsPerUnit: 1_000,
+          isBackbar: true,
+        },
+      ],
+    })
+  })
+
+  it('costs the bowl from the formula the stylist already wrote', async () => {
+    /*
+     * Reading the formula rather than asking for the mix again: anything that
+     * makes a stylist type the same thing twice gets typed once, and the second
+     * copy is the one with the money in it.
+     */
+    await makeClient('rt_c20')
+    await makeAppointment('rt_a22', 'rt_c20', day(1))
+    const formulaId = await mixOn('rt_a22', 'rt_c20')
+
+    // 60g of colour at 20c and 90g of developer at 0.6c.
+    const { totalCents } = await recordUsage({
+      salonId: S,
+      appointmentId: 'rt_a22',
+      formulaId,
+      anchorGrams: 60,
+      wasteGrams: 0,
+    })
+    expect(totalCents).toBe(1_200 + 54)
+
+    const cost = await costOfService(S, 'rt_a22')
+    expect(cost?.lines.map((l) => l.grams)).toEqual([60, 90])
+    expect(cost?.incomplete).toBe(false)
+  })
+
+  it('keeps waste separate, because it is the half anyone can change', async () => {
+    await makeClient('rt_c21')
+    await makeAppointment('rt_a23', 'rt_c21', day(1))
+    const formulaId = await mixOn('rt_a23', 'rt_c21')
+
+    await recordUsage({
+      salonId: S,
+      appointmentId: 'rt_a23',
+      formulaId,
+      anchorGrams: 60,
+      wasteGrams: 50,
+    })
+
+    const cost = await costOfService(S, 'rt_a23')
+    expect(cost!.wasteCents).toBeGreaterThan(0)
+    expect(cost!.wasteCents).toBeLessThan(cost!.totalCents)
+  })
+
+  it('replaces the record rather than logging a second bowl', async () => {
+    // A stylist correcting 60g to 90g is fixing a mistake.
+    await makeClient('rt_c22')
+    await makeAppointment('rt_a24', 'rt_c22', day(1))
+    const formulaId = await mixOn('rt_a24', 'rt_c22')
+
+    await recordUsage({ salonId: S, appointmentId: 'rt_a24', formulaId, anchorGrams: 60, wasteGrams: 0 })
+    await recordUsage({ salonId: S, appointmentId: 'rt_a24', formulaId, anchorGrams: 90, wasteGrams: 0 })
+
+    const cost = await costOfService(S, 'rt_a24')
+    expect(cost?.lines).toHaveLength(2)
+    expect(cost?.lines[0]?.grams).toBe(90)
+  })
+
+  it('says so when a product has no costed tube size behind it', async () => {
+    /*
+     * A margin quietly computed as if a product were free is the number an
+     * owner would price against. Better to show the gap.
+     */
+    await unsafeDb.retailProduct.update({
+      where: { id: 'rt_dev' },
+      data: { backbarGramsPerUnit: null },
+    })
+    await makeClient('rt_c23')
+    await makeAppointment('rt_a25', 'rt_c23', day(1))
+    const formulaId = await mixOn('rt_a25', 'rt_c23')
+
+    await recordUsage({ salonId: S, appointmentId: 'rt_a25', formulaId, anchorGrams: 60, wasteGrams: 0 })
+
+    const cost = await costOfService(S, 'rt_a25')
+    expect(cost?.incomplete).toBe(true)
+    // The half it does know is still reported.
+    expect(cost?.totalCents).toBe(1_200)
+  })
+
+  it('refuses to cost a bowl nobody wrote down', async () => {
+    await makeClient('rt_c24')
+    await makeAppointment('rt_a26', 'rt_c24', day(1))
+
+    await expect(
+      recordUsage({ salonId: S, appointmentId: 'rt_a26', formulaId: null, anchorGrams: 60, wasteGrams: 0 }),
+    ).rejects.toThrow(/formula/i)
+  })
+
+  it('adds up a period, with waste beside the spend', async () => {
+    await makeClient('rt_c25')
+    await makeAppointment('rt_a27', 'rt_c25', day(1))
+    const formulaId = await mixOn('rt_a27', 'rt_c25')
+    await recordUsage({ salonId: S, appointmentId: 'rt_a27', formulaId, anchorGrams: 60, wasteGrams: 30 })
+
+    const summary = await backbarSummary(S, {
+      from: new Date(Date.now() - 86_400_000),
+      to: new Date(Date.now() + 86_400_000),
+    })
+    expect(summary.appointments).toBe(1)
+    expect(summary.spentCents).toBe(1_254)
+    expect(summary.wasteCents).toBeGreaterThan(0)
   })
 })
