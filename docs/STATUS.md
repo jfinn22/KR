@@ -366,35 +366,23 @@ Nothing here is a stub pretending to be a feature.
   are real and applied; they simply cannot be proven by the test suite as it
   stands. The tenancy tests exercise the application layer, which is what
   actually runs in production too.
-- **Utilisation is approximate, and its denominator is computed in UTC.** It
-  divides chair time by days each stylist had any segment at all, at eight hours
-  a day. The exact answer needs working hours minus time off, which is a heavier
-  query than the screen justifies. Separately, the distinct-day count uses
-  `startsAt.toISOString()` rather than the salon's timezone, so for any salon
-  west of UTC an evening appointment rolls onto the next UTC date, inflating the
-  day count and deflating utilisation. `dayBounds` already does the zone-aware
-  arithmetic and is imported in that file; `utilisationReport` simply does not
-  take a timezone. Not fixed here because it changes a number owners have been
-  reading, and that deserves its own change with its own note.
-- **The consultation funnel's photo figure can read "12 of 9".** Its denominator
-  is "requested any service at all" rather than "requested a chemical one", and
-  its numerator counts any consultation with photos regardless of service — so
-  the numerator is not a subset of the denominator. `Service.isChemical` exists
-  and is not consulted. Fixing it needs a join through the service, which
-  `requestedServiceIds` — a `String[]` with no foreign key — cannot express in
-  one Prisma count.
-- **Fade and regrowth prediction is not built.** It was in the plan for this
-  phase and was deliberately dropped after mapping what it would rest on. Four
-  separate problems: nothing in the application writes `HairProfile` except one
-  compliance field, so any new input would be a column of nulls; `monthsSince`
-  has two "unknown" sentinels and neither is null, so a fade formula silently
-  produces `Infinity` or twenty years for most clients; `SALON_COLOR` is never
-  pushed into the history array at all, so the obvious call for "when was their
-  last professional colour" returns `Infinity` unconditionally; and
-  `Formula.createdAt` is when the mix was recorded rather than when the colour
-  went on. It would demo perfectly on the seeded salon and render an em dash for
-  every real client — which is worse than not shipping it, because it looks
-  personalised.
+- **Utilisation is still approximate.** It divides chair time by the days each
+  stylist had any segment at all, at eight hours a day. The exact answer needs
+  working hours minus time off, which is a heavier query than the screen
+  justifies. The day count itself is now made in the location's own timezone —
+  it used to be UTC, which for any salon west of Greenwich rolled an evening
+  appointment onto the next date, inflated the denominator and deflated the
+  figure. Owners who have been tracking utilisation will see it move.
+- **Fade and regrowth prediction is a model, not a measurement.** Every constant
+  in `src/domain/hair/fade.ts` is a colourist's rule of thumb somebody should be
+  able to argue with, which is why each one is named rather than buried in an
+  expression. It refuses rather than guesses: with no date for the last colour
+  it returns nothing and names what it would need, and it will not project
+  forward from a colour more than a year old, because that is a fact about
+  history rather than a basis for advice. Its four prerequisites were built
+  alongside it — a `HairProfile` writer, `SALON_COLOR` and `TONER` in the
+  history array, `BLEACH` carrying a real date instead of a hardcoded null, and
+  a `monthsSinceOrNull` that can tell "we do not know" from "a long time ago".
 - **Photo quality is mechanical.** Resolution and compression, from the file
   header. Whether the lighting is any good is the AI port's job, and it is off
   by default.

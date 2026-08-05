@@ -3,8 +3,10 @@ import { pageContextFor } from '@/server/auth/page'
 import { handoffCard } from '@/server/services/handoff'
 import { aftercareFor } from '@/server/services/retention'
 import { costOfService } from '@/server/services/backbar'
+import { formulaFor } from '@/server/services/formulas'
 import { AftercareForm } from './aftercare-form'
 import { BackbarForm } from './backbar-form'
+import { FormulaForm } from './formula-form'
 import { JourneyLadder } from '@/components/salon/journey-ladder'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -61,11 +63,7 @@ export default async function HandoffPage({
      * that one is deliberately the most recent mix from any visit, which is the
      * right thing to read before starting and the wrong thing to cost.
      */
-    ctx.db.formula.findFirst({
-      where: { salonId: ctx.salonId, appointmentId: id },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true },
-    }),
+    formulaFor(ctx.salonId, id),
     ctx.db.retailProduct.findMany({
       where: { salonId: ctx.salonId, isActive: true },
       select: { id: true, name: true, brand: true },
@@ -326,6 +324,38 @@ export default async function HandoffPage({
           </div>
         </section>
       )}
+
+      <section>
+        <h2 className="font-display text-display-sm text-ink">What you mixed</h2>
+        <p className="mt-1 max-w-prose text-secondary text-ink-muted">
+          Written here, it reaches three places at once: the next person to do this hair, the
+          client&rsquo;s own record, and the cost below.
+        </p>
+        <div className="mt-5">
+          <FormulaForm
+            salonSlug={salon}
+            appointmentId={appointment.id}
+            products={products}
+            initial={
+              todaysFormula
+                ? {
+                    purpose: todaysFormula.purpose,
+                    developerVolume: todaysFormula.developerVolume,
+                    ratio: todaysFormula.ratio,
+                    processingTimeMin: todaysFormula.processingTimeMin,
+                    applicationNotes: todaysFormula.applicationNotes,
+                    components: todaysFormula.components.map((c) => ({
+                      productName: c.productName ?? '',
+                      shadeCode: c.shadeCode,
+                      parts: c.parts === null ? null : Number(c.parts),
+                      retailProductId: c.retailProductId,
+                    })),
+                  }
+                : null
+            }
+          />
+        </div>
+      </section>
 
       <section>
         <h2 className="font-display text-display-sm text-ink">What it cost</h2>

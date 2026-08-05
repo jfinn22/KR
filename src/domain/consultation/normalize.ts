@@ -63,6 +63,10 @@ export interface HairProfileLike {
   hennaProductKnown?: boolean | null
   hasBleach?: boolean | null
   bleachSessions12mo?: number | null
+  bleachLastAt?: Date | null
+  hasSalonColor?: boolean | null
+  salonColorLastAt?: Date | null
+  tonerLastAt?: Date | null
   bleachMaxLevelAchieved?: number | null
   hasKeratin?: boolean | null
   keratinLastAt?: Date | null
@@ -223,7 +227,35 @@ function buildHistory(
   push('HENNA', answered('history.henna.ever', profile?.hasHenna), profile?.hennaLastAt, {
     productKnown: profile?.hennaProductKnown ?? false,
   })
-  push('BLEACH', answered('history.bleach.ever', profile?.hasBleach), null)
+  /*
+   * Bleach, with the date it actually happened.
+   *
+   * This was pushed with a hardcoded `null`, so every client who had ever been
+   * lifted read as "long ago but present" — somebody bleached last week was
+   * indistinguishable from somebody bleached in 2015, and anything asking how
+   * recently the hair was lightened got the same answer for everybody.
+   *
+   * One entry per kind, so the count of sessions is a separate fact rather than
+   * the length of this array — `bleachSessions12mo` on the profile is the one
+   * that knows how many.
+   */
+  push('BLEACH', answered('history.bleach.ever', profile?.hasBleach), profile?.bleachLastAt)
+
+  /*
+   * Professional colour, which this array has never carried.
+   *
+   * `SALON_COLOR` has been in the `ChemicalKind` union since it was written and
+   * nothing ever pushed one, so `monthsSince(facts, 'SALON_COLOR')` — the
+   * obvious call for "when was their last colour" — returned Infinity for
+   * everybody. Nothing in the rules reads it yet; the fade prediction does.
+   */
+  push(
+    'SALON_COLOR',
+    answered('history.salonColor.ever', profile?.hasSalonColor),
+    profile?.salonColorLastAt,
+  )
+  // A toner goes first and goes fastest, which is why it is worth its own date.
+  push('TONER', profile?.tonerLastAt != null, profile?.tonerLastAt)
   push('KERATIN', answered('history.keratin.ever', profile?.hasKeratin), profile?.keratinLastAt)
   push('RELAXER', answered('history.relaxer.ever', profile?.hasRelaxer), profile?.relaxerLastAt)
   push('PERM', answered('history.perm.ever', profile?.hasPerm), profile?.permLastAt)

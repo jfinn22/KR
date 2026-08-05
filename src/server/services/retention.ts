@@ -2,6 +2,7 @@ import { unsafeDb } from '@/server/db/client'
 import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { materialiseNotification } from './notifications'
+import { predictionFor } from './hair-prediction'
 import {
   firstTimersAtRisk,
   rebookRates,
@@ -320,18 +321,38 @@ export async function nudgeRebookDue(
   const db = dbFor(salonId)
 
   const window = REBOOK_WINDOW_DAYS * 86_400_000
-  const due = await db.clientProfile.findMany({
+  const candidates = await db.clientProfile.findMany({
     where: {
       salonId,
       status: 'ACTIVE',
       completedVisits: { gt: 0 },
-      lastVisitAt: { lt: new Date(now.getTime() - window / 2), gt: new Date(now.getTime() - window) },
+      lastVisitAt: { lt: new Date(now.getTime() - window / 4), gt: new Date(now.getTime() - window) },
       // Somebody already booked in does not need telling.
       appointments: { none: { status: { in: ['BOOKED', 'CONFIRMED', 'CHECKED_IN'] } } },
     },
     select: { id: true, lastVisitAt: true },
     take: 200,
   })
+
+  /*
+   * Each client's own interval, where their hair record supports one.
+   *
+   * A blanket "halfway through the window" nudge is the thing every salon
+   * already does badly by hand — it tells the six-week colour client to come
+   * back at twelve and the twelve-week cut client to come back at six, and both
+   * of them learn to ignore it. The fade prediction knows which they are, so
+   * where it can say, it decides; where it cannot, the window stands in and the
+   * client is nudged no worse than before.
+   */
+  const due: { id: string; lastVisitAt: Date | null }[] = []
+  for (const client of candidates) {
+    const prediction = await predictionFor(salonId, client.id, now)
+    if (prediction.dueAt === null) {
+      due.push(client)
+      continue
+    }
+    if (prediction.dueAt.getTime() <= now.getTime()) due.push(client)
+  }
 
   for (const client of due) {
     /*

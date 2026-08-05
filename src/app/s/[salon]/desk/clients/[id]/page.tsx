@@ -4,9 +4,11 @@ import { pageContextFor } from '@/server/auth/page'
 import { clientAppointments, hairTimeline } from '@/server/services/client-portal'
 import { clientRecord } from '@/server/services/front-desk'
 import { consentState } from '@/server/services/compliance'
+import { predictionFor } from '@/server/services/hair-prediction'
 import { HairTimeline } from '@/components/salon/hair-timeline'
 import { ConsentPanel } from './consent-panel'
 import { NotesPanel } from './notes-panel'
+import { HairForm } from './hair-form'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionHeading, Stat } from '@/components/ui/data'
@@ -35,10 +37,25 @@ export default async function ClientRecordPage({
 
   const { client, accuracy, overrunCount, averageOverrunMin } = record
 
-  const [{ upcoming, past }, timeline, consent] = await Promise.all([
+  const [{ upcoming, past }, timeline, consent, prediction, hair] = await Promise.all([
     clientAppointments(ctx.salonId, client.id),
     hairTimeline(ctx.salonId, client.id),
     consentState(ctx.salonId, client.id),
+    predictionFor(ctx.salonId, id),
+    ctx.db.hairProfile.findFirst({
+      where: { salonId: ctx.salonId, clientProfileId: id },
+      select: {
+        naturalLevel: true,
+        currentLevelRoots: true,
+        greyPercent: true,
+        washesPerWeek: true,
+        heatStylingPerWeek: true,
+        swimsChlorinatedWeekly: true,
+        usesPurpleShampoo: true,
+        hardWater: true,
+        growthCmPerMonth: true,
+      },
+    }),
   ])
 
   return (
@@ -174,6 +191,66 @@ export default async function ClientRecordPage({
               isCurrent: test.isCurrent,
             }))}
           />
+        </div>
+      </section>
+
+      <section>
+        <SectionHeading
+          title="When they need to be back"
+          description="Two clocks — the tone going and the roots showing — and whichever runs out first."
+        />
+        <div className="mt-6">
+          {prediction.dueAt === null ? (
+            <p className="text-body text-ink-muted">
+              We cannot say yet. To work it out we would need{' '}
+              {prediction.missing.slice(0, 3).join(', ')}.
+            </p>
+          ) : (
+            <div className="rounded-lg border-l-4 border-l-gold-500 bg-gold-100/50 px-5 py-4">
+              <p className="font-display text-display-sm text-ink">
+                {formatDayHeading(prediction.dueAt.toISOString(), ctx.timezone)}
+              </p>
+              <p className="mt-1 text-body text-ink">
+                {prediction.driver === 'ROOTS'
+                  ? 'The roots will be showing by then.'
+                  : 'The tone will have gone by then.'}{' '}
+                About {prediction.intervalWeeks} weeks from their colour.
+              </p>
+              {prediction.confidence === 'ROUGH' && (
+                <p className="mt-2 text-secondary text-ink-muted">
+                  A rough figure — we are using averages for{' '}
+                  {prediction.missing.slice(0, 2).join(' and ')}.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="mt-8">
+          <SectionHeading
+            title="What their hair is like"
+            description="What the prediction above is built from. Everything here changes it."
+          />
+          <div className="mt-6">
+            <HairForm
+              salonSlug={salon}
+              clientProfileId={id}
+              initial={{
+                naturalLevel: hair?.naturalLevel ?? null,
+                currentLevelRoots: hair?.currentLevelRoots ?? null,
+                greyPercent: hair?.greyPercent ?? null,
+                washesPerWeek: hair?.washesPerWeek ?? null,
+                heatStylingPerWeek: hair?.heatStylingPerWeek ?? null,
+                swimsChlorinatedWeekly: hair?.swimsChlorinatedWeekly ?? false,
+                usesPurpleShampoo: hair?.usesPurpleShampoo ?? false,
+                hardWater: hair?.hardWater ?? false,
+                growthCmPerMonth:
+                  hair?.growthCmPerMonth === null || hair?.growthCmPerMonth === undefined
+                    ? null
+                    : Number(hair.growthCmPerMonth),
+              }}
+            />
+          </div>
         </div>
       </section>
 

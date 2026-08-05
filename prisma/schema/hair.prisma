@@ -157,6 +157,13 @@ model HairProfile {
   hennaLastAt            DateTime? @db.Date
   hennaProductKnown      Boolean   @default(false)
   hasBleach              Boolean   @default(false)
+  /// When the hair was last lifted.
+  ///
+  /// The history array carried BLEACH with a hardcoded null date, so lightening
+  /// recency read as "long ago but present" for every client who had ever had
+  /// it — a client bleached last week was indistinguishable from one bleached
+  /// eleven years ago.
+  bleachLastAt           DateTime? @db.Date
   bleachSessions12mo     Int       @default(0)
   bleachMaxLevelAchieved Int?
   hasKeratin             Boolean   @default(false)
@@ -165,6 +172,17 @@ model HairProfile {
   relaxerLastAt          DateTime? @db.Date
   hasPerm                Boolean   @default(false)
   permLastAt             DateTime? @db.Date
+  /// Professional colour, which the history array never carried at all.
+  ///
+  /// `monthsSince(facts, 'SALON_COLOR')` — the obvious call for "when was their
+  /// last colour" — returned Infinity unconditionally, because nothing ever
+  /// pushed that kind onto the array. Anything reasoning about fade or regrowth
+  /// needs this date and nothing else will do.
+  hasSalonColor          Boolean   @default(false)
+  salonColorLastAt       DateTime? @db.Date
+  /// A toner goes first and goes fastest; it is the reason somebody rings up
+  /// four weeks later saying it has gone brassy.
+  tonerLastAt            DateTime? @db.Date
   hasExtensions          Boolean   @default(false)
   extensionMethod        String?
   lastChemicalServiceAt  DateTime? @db.Date
@@ -185,6 +203,13 @@ model HairProfile {
   washesPerWeek          Int     @default(3)
   usesPurpleShampoo      Boolean @default(false)
   maintenanceAppetite    String  @default("MEDIUM")
+  /// Centimetres a month, where somebody has actually measured it.
+  ///
+  /// Null rather than defaulted, so a prediction can say it is working from the
+  /// average rather than from this client. Hair varies by roughly a third
+  /// either side of 1.25cm, which over ten weeks is the difference between
+  /// roots that show and roots that do not.
+  growthCmPerMonth       Decimal? @db.Decimal(3, 2)
   homeCareJson           Json?
 
   updatedFromConsultationId String?
