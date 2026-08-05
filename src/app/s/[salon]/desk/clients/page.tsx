@@ -4,6 +4,7 @@ import { findClients } from '@/server/services/front-desk'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/feedback'
+import { NewClient } from './new-client'
 import { Input, Label } from '@/components/ui/field'
 
 export const dynamic = 'force-dynamic'
@@ -53,6 +54,8 @@ export default async function ClientSearchPage({
         </div>
         <Button type="submit">Search</Button>
       </form>
+
+      <NewClient salonSlug={salon} />
 
       {term.length >= 2 && results.length === 0 && (
         <EmptyState

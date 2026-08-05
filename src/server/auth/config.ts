@@ -1,6 +1,6 @@
 import NextAuth, { type NextAuthConfig } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
-import bcrypt from 'bcryptjs'
+import { hashPassword, verifyPassword } from './password'
 import { z } from 'zod'
 import { unsafeDb } from '@/server/db/client'
 
@@ -45,7 +45,7 @@ export const authConfig: NextAuthConfig = {
         // time does not reveal whether an email is registered.
         const hash =
           user?.passwordHash ?? '$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidi'
-        const ok = await bcrypt.compare(parsed.data.password, hash)
+        const ok = await verifyPassword(parsed.data.password, hash)
         if (!user?.passwordHash || !ok) return null
 
         await unsafeDb.user.update({
@@ -71,6 +71,6 @@ export const authConfig: NextAuthConfig = {
 
 export const { handlers, auth, signIn, signOut } = NextAuth(authConfig)
 
-export async function hashPassword(plain: string): Promise<string> {
-  return bcrypt.hash(plain, 10)
-}
+// Re-exported so existing callers keep working; the implementation lives in
+// `./password`, which does not import next-auth.
+export { hashPassword }

@@ -357,3 +357,63 @@ test.describe('settings', () => {
     await expect(page.getByText(/checked against the same contrast standard/i)).toBeVisible()
   })
 })
+
+test.describe('adding someone at the desk', () => {
+  test('the form is out of the way until it is wanted', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk/clients`)
+
+    // Searching is what this screen is mostly for; a form sitting open above
+    // the results invites a duplicate every time a name is spelled oddly.
+    await expect(page.getByLabel('First name')).toBeHidden()
+    await page.getByRole('button', { name: /add someone new/i }).click()
+    await expect(page.getByLabel('First name')).toBeVisible()
+  })
+
+  test('somebody with no way to contact them is refused', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk/clients`)
+    await page.getByRole('button', { name: /add someone new/i }).click()
+
+    await page.getByLabel('First name').fill('Unreachable')
+    await page.getByRole('button', { name: /add them/i }).click()
+
+    await expect(page.getByText(/either an email or a phone number/i)).toBeVisible()
+  })
+
+  test('a walk-in can be created and is findable afterwards', async ({ page }) => {
+    const stamp = Date.now()
+    const surname = `Desk${stamp}`
+
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk/clients`)
+    await page.getByRole('button', { name: /add someone new/i }).click()
+
+    await page.getByLabel('First name').fill('Walkin')
+    await page.getByLabel('Last name').fill(surname)
+    await page.getByLabel('Phone').fill(`555${String(stamp).slice(-7)}`)
+    await page.getByRole('button', { name: /add them/i }).click()
+
+    // Lands straight on the record, because the reason to add somebody is
+    // almost always to do something with them next.
+    await expect(page).toHaveURL(/\/desk\/clients\/[a-z0-9]+/, { timeout: 20_000 })
+    await expect(page.getByRole('heading', { name: new RegExp(surname, 'i') })).toBeVisible()
+
+    await page.goto(`/s/${SALON}/desk/clients?q=${surname}`)
+    await expect(page.getByRole('listitem').first()).toBeVisible()
+  })
+})
+
+test.describe('the join code', () => {
+  test('an owner can see the shareable link and generate a code', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/admin/settings`)
+
+    await expect(page.getByText(/how clients join you/i)).toBeVisible()
+    await expect(page.getByText(new RegExp(`/join/${SALON}`))).toBeVisible()
+
+    await page.getByRole('button', { name: /generate|new code/i }).click()
+    // Deliberately excludes O/0 and I/1 — it gets read out across a counter.
+    await expect(page.getByLabel('Join code')).toHaveValue(/[A-Z2-9-]{4,}/)
+  })
+})

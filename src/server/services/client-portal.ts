@@ -123,7 +123,14 @@ export async function consultationContext(salonId: string, consultationId: strin
       requestedServiceIds: true,
       clientProfileId: true,
       latestEvaluationId: true,
-      servicePlan: { select: { id: true, status: true } },
+      /*
+       * `notesToClient` was collected in the decision panel, persisted on both
+       * ConsultationReview and ServicePlan, and selected by nothing — so the
+       * stylist wrote the client a message the client could never read. It is
+       * the one part of the decision written in a person's own words, which
+       * makes it the part most worth showing.
+       */
+      servicePlan: { select: { id: true, status: true, notesToClient: true } },
     },
   })
   if (!consultation) throw new DomainError('NOT_FOUND', 'That consultation no longer exists.')
@@ -148,6 +155,7 @@ export async function consultationContext(salonId: string, consultationId: strin
     serviceNames: Object.fromEntries(services.map((s) => [s.id, s.name])),
     evaluation,
     servicePlanId: consultation.servicePlan?.id ?? null,
+    notesToClient: consultation.servicePlan?.notesToClient ?? null,
   }
 }
 

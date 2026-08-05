@@ -1,4 +1,5 @@
 import { unsafeDb } from '@/server/db/client'
+import { writeConsents } from '@/server/services/signup'
 
 /**
  * The front desk's day.
@@ -400,4 +401,71 @@ export async function saveAppointmentNote(
     where: { id: appointmentId, salonId },
     data: { internalNote: trimmed && trimmed.length > 0 ? trimmed : null },
   })
+}
+
+/**
+ * Create a client at the desk.
+ *
+ * The counterpart to self-signup, and the commoner case: somebody rings up or
+ * walks in and the receptionist takes their details while they are standing
+ * there. `ClientProfile.userId` stays null — they have no login and do not
+ * need one to be booked in. If they later sign up with the same email, the
+ * signup path claims THIS record rather than making a second one.
+ *
+ * Consent rows are written here for the same reason they are written at
+ * signup: the send path now treats an absent marketing row as "no", so a
+ * walk-in created without them would silently receive nothing. Marketing
+ * defaults to off, because somebody reading their email address down a phone
+ * line has not opted into anything.
+ */
+export async function createClientAtDesk(input: {
+  salonId: string
+  firstName: string
+  lastName?: string | null
+  email?: string | null
+  phone?: string | null
+  internalNotes?: string | null
+  marketingOptIn?: boolean
+}): Promise<{ id: string; mergedWithExisting: boolean }> {
+  const email = input.email?.trim().toLowerCase() || null
+  const phoneDigits = input.phone?.replace(/\D/g, '') || null
+
+  /*
+   * Look for the same person before making a second one. A salon that ends up
+   * with three records for the same client has three partial hair histories
+   * and no way to tell which is right — and the front desk is exactly where
+   * that happens, because the person on the phone does not know whether they
+   * are already on file.
+   */
+  if (email || (phoneDigits && phoneDigits.length >= 7)) {
+    const existing = await unsafeDb.clientProfile.findFirst({
+      where: {
+        salonId: input.salonId,
+        status: 'ACTIVE',
+        OR: [
+          ...(email ? [{ email: { equals: email, mode: 'insensitive' as const } }] : []),
+          ...(phoneDigits ? [{ phone: { contains: phoneDigits } }] : []),
+        ],
+      },
+      select: { id: true },
+    })
+    if (existing) return { id: existing.id, mergedWithExisting: true }
+  }
+
+  const created = await unsafeDb.clientProfile.create({
+    data: {
+      salonId: input.salonId,
+      firstName: input.firstName.trim(),
+      lastName: input.lastName?.trim() || '',
+      email,
+      phone: input.phone?.trim() || null,
+      internalNotes: input.internalNotes?.trim() || null,
+      source: 'FRONT_DESK',
+    },
+    select: { id: true },
+  })
+
+  await writeConsents(input.salonId, created.id, input.marketingOptIn ?? false, 'FRONT_DESK')
+
+  return { id: created.id, mergedWithExisting: false }
 }

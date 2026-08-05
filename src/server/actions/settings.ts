@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz } from './guard'
-import { saveSchedulingSettings } from '@/server/services/settings'
+import { saveJoinCode, saveSchedulingSettings } from '@/server/services/settings'
 import { saveAccent } from '@/server/services/branding'
 
 /**
@@ -53,6 +53,25 @@ export const saveAccentAction = withAuthz(
     await saveAccent(ctx.salonId, input.accentHex)
     // Branding is on the shell, so every page under it is now stale.
     revalidatePath(`/s/${ctx.salonSlug}`, 'layout')
+    return { saved: true }
+  },
+)
+
+/**
+ * Set, rotate or clear the salon's join code.
+ *
+ * Rotatable because a code read out across a counter all day is a code that
+ * leaks — and unlike a password, nobody minds changing it.
+ */
+export const saveJoinCodeAction = withAuthz(
+  {
+    action: 'settings.manage',
+    schema: z.object({ joinCode: z.string().max(40).nullable() }),
+    auditAs: () => ({ entityType: 'SalonSettings' }),
+  },
+  async (input, ctx) => {
+    await saveJoinCode(ctx.salonId, input.joinCode)
+    revalidatePath(`/s/${ctx.salonSlug}/admin/settings`)
     return { saved: true }
   },
 )

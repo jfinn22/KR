@@ -28,10 +28,8 @@ export default async function ReviewPage({
   const { salon, id } = await params
   const ctx = await pageContext(salon)
 
-  const { consultation, evaluation, serviceNames, servicePlanId } = await consultationContext(
-    ctx.salonId,
-    id,
-  )
+  const { consultation, evaluation, serviceNames, servicePlanId, notesToClient } =
+    await consultationContext(ctx.salonId, id)
 
   if (!evaluation) {
     return (
@@ -69,6 +67,24 @@ export default async function ReviewPage({
               : 'Here is what we think'}
         </h1>
       </header>
+
+      {/*
+       * Before the plan, not after.
+       *
+       * Everything below this is the engine's arithmetic. This is the one part
+       * of the answer a person wrote, in their own words, about this client's
+       * hair — and it was collected, stored twice, and shown to nobody. If a
+       * stylist bothered to type it, it is the first thing the client should
+       * read.
+       */}
+      {notesToClient && (
+        <Card>
+          <CardContent className="flex flex-col gap-2">
+            <p className="label-caps">From your stylist</p>
+            <p className="whitespace-pre-line text-body text-ink">{notesToClient}</p>
+          </CardContent>
+        </Card>
+      )}
 
       <PlanSummary evaluation={evaluation} currency={ctx.currency} serviceNames={serviceNames} />
 

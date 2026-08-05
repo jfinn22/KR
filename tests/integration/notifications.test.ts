@@ -17,6 +17,7 @@ const S = 'nt_salon'
 async function seed() {
   await unsafeDb.salon.deleteMany({ where: { id: S } })
   await unsafeDb.job.deleteMany({ where: { salonId: S } })
+  await unsafeDb.user.deleteMany({ where: { email: 'nt-rowan@example.com' } })
 
   await unsafeDb.salon.create({
     data: {
@@ -41,6 +42,7 @@ beforeEach(seed)
 afterAll(async () => {
   await unsafeDb.salon.deleteMany({ where: { id: S } })
   await unsafeDb.job.deleteMany({ where: { salonId: S } })
+  await unsafeDb.user.deleteMany({ where: { email: 'nt-rowan@example.com' } })
 })
 
 const scheduledFor = (refId: string) =>
@@ -190,5 +192,77 @@ describe('materialising twice', () => {
     }
 
     expect(await scheduledFor('nt_consult_6')).toHaveLength(1)
+  })
+})
+
+describe('the stylist speaking to the client', () => {
+  /*
+   * `notesToClient` is collected in the decision panel and persisted on both
+   * ConsultationReview and ServicePlan. Nothing selected it — so the one part
+   * of a decision written in a person's own words reached the client never.
+   * The gap was a missing field in a `select`, which is exactly the kind of
+   * thing no type error catches.
+   */
+  it('is carried out of the plan and into what the client reads', async () => {
+    const client = await unsafeDb.clientProfile.create({
+      data: { salonId: S, firstName: 'Nell', lastName: 'Gwyn', email: 'nt-nell@example.com' },
+      select: { id: true },
+    })
+
+    const template = await unsafeDb.consultationTemplate.create({
+      data: { salonId: S, key: 'nt-consult', version: 1, status: 'PUBLISHED', name: 'Test' },
+      select: { id: true, version: true },
+    })
+
+    const consultation = await unsafeDb.consultation.create({
+      data: {
+        salonId: S,
+        clientProfileId: client.id,
+        templateId: template.id,
+        templateVersion: template.version,
+        status: 'APPROVED',
+        requestedServiceIds: [],
+      },
+      select: { id: true },
+    })
+
+    // A ServicePlan needs a stylist, a stylist needs a membership, and a
+    // membership needs a user — the graph is required all the way down,
+    // because a plan nobody is assigned to is not a plan.
+    const user = await unsafeDb.user.create({
+      data: { email: 'nt-rowan@example.com', name: 'Rowan' },
+      select: { id: true },
+    })
+    const stylist = await unsafeDb.stylistProfile.create({
+      data: {
+        salon: { connect: { id: S } },
+        displayName: 'Rowan',
+        membership: {
+          create: { salonId: S, userId: user.id, role: 'STYLIST', status: 'ACTIVE' },
+        },
+      },
+      select: { id: true },
+    })
+
+    const note = 'Your ends are drier than the photo suggests — we will go steady.'
+    await unsafeDb.servicePlan.create({
+      data: {
+        salonId: S,
+        clientProfileId: client.id,
+        consultationId: consultation.id,
+        stylistProfileId: stylist.id,
+        status: 'APPROVED',
+        estimatedTotalMin: 90,
+        estimatedTotalCents: 12000,
+        rulesetVersion: 'test',
+        validUntil: new Date(Date.now() + 30 * 86_400_000),
+        notesToClient: note,
+      },
+    })
+
+    const { consultationContext } = await import('@/server/services/client-portal')
+    const view = await consultationContext(S, consultation.id)
+
+    expect(view.notesToClient).toBe(note)
   })
 })

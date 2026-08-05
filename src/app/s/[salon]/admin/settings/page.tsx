@@ -1,10 +1,11 @@
 import { pageContextFor } from '@/server/auth/page'
-import { schedulingSettings } from '@/server/services/settings'
+import { joinCodeFor, schedulingSettings } from '@/server/services/settings'
 import { brandingForSlug } from '@/server/services/branding'
 import { hasFeature } from '@/domain/authz/plan-features'
 import { SectionHeading } from '@/components/ui/data'
 import { SchedulingSettingsForm } from './scheduling-form'
 import { BrandingForm } from './branding-form'
+import { JoinForm } from './join-form'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,9 +23,10 @@ export default async function SettingsPage({ params }: { params: Promise<{ salon
   const { salon } = await params
   const ctx = await pageContextFor(salon, 'settings.manage')
 
-  const [scheduling, branding] = await Promise.all([
+  const [scheduling, branding, joinCode] = await Promise.all([
     schedulingSettings(ctx.salonId),
     brandingForSlug(salon),
+    joinCodeFor(ctx.salonId),
   ])
 
   const mayBrand = hasFeature(ctx.plan, 'BRANDED_EXPERIENCE')
@@ -38,6 +40,21 @@ export default async function SettingsPage({ params }: { params: Promise<{ salon
           the way the whole product looks to your clients.
         </p>
       </header>
+
+      <section>
+        <SectionHeading
+          title="How clients join you"
+          description="Everything a new client needs to find you and make an account. There is no directory on this platform — clients arrive through your own link, which means they arrive as yours."
+        />
+        <div className="mt-6">
+          <JoinForm
+            salonSlug={salon}
+            salonName={ctx.salonName}
+            initialCode={joinCode}
+            appUrl={process.env.NEXT_PUBLIC_APP_URL ?? ''}
+          />
+        </div>
+      </section>
 
       <section>
         <SectionHeading

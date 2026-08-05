@@ -1,6 +1,6 @@
 import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
-import { hashPassword } from '@/server/auth/config'
+import { hashPassword } from '@/server/auth/password'
 
 /**
  * A client joining a salon.
@@ -127,11 +127,16 @@ async function linkToSalon(userId: string, input: SignUpInput, email: string): P
  * written when explicitly ticked, and is written as REVOKED rather than left
  * absent when it is not, so the record says "they were asked and declined"
  * instead of "nobody knows".
+ *
+ * Exported because the front desk creates clients too, and a walk-in with no
+ * consent rows now silently loses every marketing message — the send path
+ * treats an absent row as "no" for marketing. One definition, both doors.
  */
-async function writeConsents(
+export async function writeConsents(
   salonId: string,
   clientProfileId: string,
   marketingOptIn: boolean,
+  capturedVia = 'SIGNUP',
 ): Promise<void> {
   const rows = (['SMS', 'EMAIL'] as const).flatMap((channel) => [
     { channel, purpose: 'TRANSACTIONAL' as const, status: 'GRANTED' as const },
@@ -158,7 +163,7 @@ async function writeConsents(
         channel: row.channel,
         purpose: row.purpose,
         status: row.status,
-        capturedVia: 'SIGNUP',
+        capturedVia,
       },
     })
   }

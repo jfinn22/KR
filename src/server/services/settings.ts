@@ -70,3 +70,27 @@ export async function saveSchedulingSettings(
 
   invalidateAvailabilityCache(salonId)
 }
+
+export async function joinCodeFor(salonId: string): Promise<string | null> {
+  const row = await unsafeDb.salonSettings.findUnique({
+    where: { salonId },
+    select: { joinCode: true },
+  })
+  return row?.joinCode ?? null
+}
+
+/*
+ * Generating a code lives in `src/lib/join-code.ts`, not here.
+ *
+ * The settings form is a client component and needs it, and this module
+ * imports Prisma — so exporting it from here would pull the database client
+ * into the browser bundle. `check:boundary` catches a server module reaching
+ * into a client one, not this direction, so nothing would have complained.
+ */
+
+export async function saveJoinCode(salonId: string, joinCode: string | null): Promise<void> {
+  await unsafeDb.salonSettings.update({
+    where: { salonId },
+    data: { joinCode: joinCode?.trim().toUpperCase() || null },
+  })
+}
