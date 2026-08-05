@@ -117,12 +117,39 @@ export async function advanceAppointment(
 
     const finished = input.step === 'END_CHAIR' || input.step === 'CHECK_OUT'
 
-    if (finished) {
+    /*
+     * One visit, however many taps it took.
+     *
+     * The desk's normal sequence is two — "Finished", then "Check out" — and
+     * both land here, so an unguarded increment counts every appointment twice
+     * at a salon that uses both buttons and once at a salon that skips straight
+     * to checkout. That makes the number wrong AND inconsistent between salons,
+     * which is worse: `completedVisits === 0` is how nine places in this
+     * platform ask "is this a new client", and every retention figure is built
+     * on top of it. The quote-accuracy enqueue below has always been deduped
+     * for exactly this reason; the counter never was.
+     */
+    const alreadyCounted = appointment.status === 'COMPLETED'
+
+    if (finished && !alreadyCounted) {
       await tx.clientProfile.update({
         where: { id: appointment.clientProfileId },
         data: { completedVisits: { increment: 1 }, lastVisitAt: at },
       })
+      // The first one, set once and never moved — it is what the whole
+      // first-timer cohort is measured from.
+      await tx.clientProfile.updateMany({
+        where: { id: appointment.clientProfileId, firstVisitAt: null },
+        data: { firstVisitAt: at },
+      })
+    } else if (finished) {
+      await tx.clientProfile.update({
+        where: { id: appointment.clientProfileId },
+        data: { lastVisitAt: at },
+      })
+    }
 
+    if (finished) {
       if (appointment.servicePlanSessionId) {
         await tx.servicePlanSession.update({
           where: { id: appointment.servicePlanSessionId },
@@ -141,6 +168,28 @@ export async function advanceAppointment(
         },
         tx,
       )
+
+      /*
+       * "How is it sitting?"
+       *
+       * Emitted on the first of the two taps that finish an appointment and not
+       * the second — `alreadyCounted` is what keeps a two-tap checkout from
+       * asking the same client twice how their hair is. How long afterwards it
+       * goes out is the schedule's business; a salon with no APPOINTMENT_AFTER
+       * schedule sends nothing at all.
+       */
+      if (!alreadyCounted) {
+        await tx.outbox.create({
+          data: {
+            salonId: input.salonId,
+            topic: 'appointment.completed',
+            payloadJson: {
+              appointmentId: appointment.id,
+              clientProfileId: appointment.clientProfileId,
+            },
+          },
+        })
+      }
     }
 
     await tx.outbox.create({

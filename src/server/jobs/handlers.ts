@@ -62,6 +62,21 @@ const NOTIFY_TOPICS: Record<
     refKey: 'consultationId',
     clientKey: 'clientProfileId',
   },
+  /*
+   * After the appointment, not before it.
+   *
+   * `APPOINTMENT_AFTER` has had finished copy since the schema was written —
+   * "How is it sitting?" — and nothing has ever created one. The window it
+   * opens is the point of it: a client who says on Thursday that the tone went
+   * brassy can be put right on Saturday, and one who says it in six weeks has
+   * already told three friends.
+   */
+  'appointment.completed': {
+    trigger: 'APPOINTMENT_AFTER',
+    refType: 'Appointment',
+    refKey: 'appointmentId',
+    clientKey: 'clientProfileId',
+  },
 }
 
 /**
@@ -438,6 +453,40 @@ const importSourceReap = define({
   },
 })
 
+/**
+ * Tell clients whose colour is about due.
+ *
+ * A sweep rather than a per-appointment timer, because "due" moves: a client
+ * who books in on their own stops being due, and a schedule minted at checkout
+ * would have to be chased and cancelled. Materialising from the current state
+ * each night means the question is always asked of the truth.
+ */
+const rebookNudge = define({
+  schema: z.object({}).passthrough(),
+  timeoutMs: 120_000,
+  maxAttempts: 3,
+  handler: async () => {
+    const { nudgeRebookDue } = await import('@/server/services/retention')
+
+    /*
+     * Only salons that have configured the nudge. REBOOK_DUE is deliberately
+     * outside ALWAYS_SEND — a rebooking message is marketing, and sending one
+     * nobody set up is putting words in the salon's mouth — so a sweep over
+     * every salon would do nothing for most of them at real cost.
+     */
+    const schedules = await unsafeDb.notificationSchedule.findMany({
+      where: { trigger: 'REBOOK_DUE', isEnabled: true },
+      select: { salonId: true },
+      distinct: ['salonId'],
+      take: 100,
+    })
+
+    for (const { salonId } of schedules) {
+      if (salonId) await nudgeRebookDue(salonId)
+    }
+  },
+})
+
 /** Expire consultations and plans nobody acted on. */
 const expireStale = define({
   schema: z.object({}).passthrough(),
@@ -706,6 +755,7 @@ export const JOB_REGISTRY: Record<string, AnyJobDefinition> = {
   'calibration.recompute': calibrationRecompute,
   'system.reap': systemReap,
   'import.source.reap': importSourceReap,
+  'retention.rebook.nudge': rebookNudge,
 }
 
 export type JobType = keyof typeof JOB_REGISTRY
@@ -721,6 +771,7 @@ export const RECURRING: { key: string; type: string; everyMinutes: number }[] = 
   { key: 'nudge', type: 'consultation.stale.nudge', everyMinutes: 720 },
   { key: 'calibration', type: 'calibration.recompute', everyMinutes: 1440 },
   { key: 'import-files', type: 'import.source.reap', everyMinutes: 1440 },
+  { key: 'rebook', type: 'retention.rebook.nudge', everyMinutes: 1440 },
 ]
 
 function renderTemplate(body: string, vars: Record<string, string>): string {

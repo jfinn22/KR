@@ -1,0 +1,282 @@
+import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { unsafeDb } from '@/server/db/client'
+import { advanceAppointment } from '@/server/services/appointment-lifecycle'
+import {
+  aftercareFor,
+  attachmentRate,
+  firstTimerInterventions,
+  recordAftercare,
+} from '@/server/services/retention'
+
+/**
+ * Keeping the clients a salon already has.
+ *
+ * Two of the things checked here were live defects rather than missing
+ * features: a visit counter that went up twice for every appointment at a
+ * salon that used both finish buttons, and a `NotificationTrigger` with
+ * finished copy that nothing had ever created a row for.
+ */
+
+const S = 'rt_salon'
+const TZ = 'America/New_York'
+const NOW = new Date('2026-06-01T15:00:00Z')
+const day = (n: number) => new Date(NOW.getTime() - n * 86_400_000)
+
+async function seed() {
+  await unsafeDb.salon.deleteMany({ where: { id: S } })
+  await unsafeDb.user.deleteMany({ where: { email: { startsWith: 'rt-' } } })
+  // Outbox is a global model with no FK to Salon, so deleting the salon does
+  // not take its events — and every test in this file would otherwise see the
+  // ones the test before it emitted.
+  await unsafeDb.outbox.deleteMany({ where: { salonId: S } })
+
+  await unsafeDb.salon.create({
+    data: {
+      id: S,
+      slug: 'rt-salon',
+      name: 'Retention Test Salon',
+      defaultTimezone: TZ,
+      settings: { create: {} },
+      locations: { create: { id: 'rt_loc', name: 'Main', timezone: TZ } },
+      serviceCategories: { create: { id: 'rt_cat', name: 'Hair', slug: 'hair' } },
+    },
+  })
+
+  await unsafeDb.user.create({ data: { id: 'rt_user', email: 'rt-sty@example.com' } })
+  await unsafeDb.membership.create({
+    data: { id: 'rt_mem', salonId: S, userId: 'rt_user', role: 'STYLIST' },
+  })
+  await unsafeDb.stylistProfile.create({
+    data: { id: 'rt_sty', salonId: S, membershipId: 'rt_mem', displayName: 'Wren' },
+  })
+  await unsafeDb.retailProduct.create({
+    data: { id: 'rt_prod', salonId: S, sku: 'BOND-1', name: 'Bond builder', priceCents: 2_800 },
+  })
+}
+
+async function makeClient(id: string, extra: Record<string, unknown> = {}) {
+  return unsafeDb.clientProfile.create({
+    data: { id, salonId: S, firstName: 'Ada', lastName: id, ...extra },
+  })
+}
+
+async function makeAppointment(
+  id: string,
+  clientProfileId: string,
+  startsAt: Date,
+  status = 'COMPLETED',
+) {
+  return unsafeDb.appointment.create({
+    data: {
+      id,
+      salonId: S,
+      locationId: 'rt_loc',
+      clientProfileId,
+      primaryStylistId: 'rt_sty',
+      status: status as never,
+      startsAt,
+      endsAt: new Date(startsAt.getTime() + 3_600_000),
+      estimatedDurationMin: 60,
+    },
+  })
+}
+
+beforeEach(seed)
+afterAll(async () => {
+  await unsafeDb.salon.deleteMany({ where: { id: S } })
+  await unsafeDb.user.deleteMany({ where: { email: { startsWith: 'rt-' } } })
+  await unsafeDb.outbox.deleteMany({ where: { salonId: S } })
+})
+
+describe('one visit, however many taps it took', () => {
+  it('does not count an appointment twice when the desk uses both buttons', async () => {
+    /*
+     * "Finished" then "Check out" is the desk's normal sequence and both land
+     * in the same place. An unguarded increment made this counter roughly
+     * double at salons that used both and correct at salons that skipped
+     * straight to checkout — wrong AND inconsistent between salons, which is
+     * worse. `completedVisits === 0` is how nine places ask "is this new".
+     */
+    await makeClient('rt_c1')
+    await makeAppointment('rt_a1', 'rt_c1', day(1), 'IN_CHAIR')
+
+    await advanceAppointment({ salonId: S, appointmentId: 'rt_a1', step: 'END_CHAIR' })
+    await advanceAppointment({ salonId: S, appointmentId: 'rt_a1', step: 'CHECK_OUT' })
+
+    const client = await unsafeDb.clientProfile.findUniqueOrThrow({ where: { id: 'rt_c1' } })
+    expect(client.completedVisits).toBe(1)
+  })
+
+  it('still counts one when the desk skips straight to checkout', async () => {
+    await makeClient('rt_c2')
+    await makeAppointment('rt_a2', 'rt_c2', day(1), 'IN_CHAIR')
+
+    await advanceAppointment({ salonId: S, appointmentId: 'rt_a2', step: 'CHECK_OUT' })
+
+    const client = await unsafeDb.clientProfile.findUniqueOrThrow({ where: { id: 'rt_c2' } })
+    expect(client.completedVisits).toBe(1)
+  })
+
+  it('sets the first visit once and never moves it', async () => {
+    // It is what the whole first-timer cohort is measured from.
+    await makeClient('rt_c3')
+    await makeAppointment('rt_a3', 'rt_c3', day(60), 'IN_CHAIR')
+    await makeAppointment('rt_a4', 'rt_c3', day(1), 'IN_CHAIR')
+
+    await advanceAppointment({ salonId: S, appointmentId: 'rt_a3', step: 'CHECK_OUT' })
+    const first = await unsafeDb.clientProfile.findUniqueOrThrow({ where: { id: 'rt_c3' } })
+
+    await advanceAppointment({ salonId: S, appointmentId: 'rt_a4', step: 'CHECK_OUT' })
+    const after = await unsafeDb.clientProfile.findUniqueOrThrow({ where: { id: 'rt_c3' } })
+
+    expect(after.firstVisitAt?.toISOString()).toBe(first.firstVisitAt?.toISOString())
+    expect(after.lastVisitAt?.getTime()).toBeGreaterThan(first.firstVisitAt!.getTime())
+    expect(after.completedVisits).toBe(2)
+  })
+})
+
+describe('asking how it is sitting', () => {
+  it('emits once for an appointment, not once per tap', async () => {
+    /*
+     * APPOINTMENT_AFTER has had finished copy since the schema was written and
+     * nothing ever created one. Asking the same client twice how their hair is
+     * would be worse than never asking.
+     */
+    await makeClient('rt_c4')
+    await makeAppointment('rt_a5', 'rt_c4', day(1), 'IN_CHAIR')
+
+    await advanceAppointment({ salonId: S, appointmentId: 'rt_a5', step: 'END_CHAIR' })
+    await advanceAppointment({ salonId: S, appointmentId: 'rt_a5', step: 'CHECK_OUT' })
+
+    const emitted = await unsafeDb.outbox.findMany({
+      where: { salonId: S, topic: 'appointment.completed' },
+    })
+    expect(emitted).toHaveLength(1)
+    expect(emitted[0]?.payloadJson).toMatchObject({
+      appointmentId: 'rt_a5',
+      clientProfileId: 'rt_c4',
+    })
+  })
+})
+
+describe('first-timers who have not been back', () => {
+  it('lists somebody seen once, a while ago, with nothing booked', async () => {
+    await makeClient('rt_c5', { completedVisits: 1, firstVisitAt: day(45) })
+    await makeAppointment('rt_a6', 'rt_c5', day(45))
+
+    const risk = await firstTimerInterventions(S, NOW)
+    expect(risk.map((r) => r.clientProfileId)).toEqual(['rt_c5'])
+    expect(risk[0]).toMatchObject({ daysSince: 45, stylistName: 'Wren' })
+  })
+
+  it('leaves alone somebody with an appointment in the diary', async () => {
+    /*
+     * Anything on the books counts as coming back. Putting a client with a
+     * booking next Thursday on a "we are losing them" list is how a front desk
+     * learns to ignore the list.
+     */
+    await makeClient('rt_c6', { completedVisits: 1, firstVisitAt: day(45) })
+    await makeAppointment('rt_a7', 'rt_c6', day(45))
+    await makeAppointment('rt_a8', 'rt_c6', new Date(NOW.getTime() + 86_400_000), 'BOOKED')
+
+    expect(await firstTimerInterventions(S, NOW)).toEqual([])
+  })
+
+  it('leaves alone somebody who was in last week', async () => {
+    await makeClient('rt_c7', { completedVisits: 1, firstVisitAt: day(6) })
+    await makeAppointment('rt_a9', 'rt_c7', day(6))
+
+    expect(await firstTimerInterventions(S, NOW)).toEqual([])
+  })
+})
+
+describe('aftercare', () => {
+  it('lands on the client’s own timeline, not just the appointment', async () => {
+    /*
+     * In six weeks nobody opens an appointment from April. They open their
+     * hair — and `TimelineKind.HOME_CARE` has been styled and labelled "At
+     * home" this whole time with nothing to draw.
+     */
+    await makeClient('rt_c8')
+    await makeAppointment('rt_a10', 'rt_c8', day(1))
+
+    await recordAftercare({
+      salonId: S,
+      appointmentId: 'rt_a10',
+      advice: 'Leave it 48 hours. Cool water on the rinse.',
+      products: [{ retailProductId: 'rt_prod', reason: 'The ends are porous after that lift.' }],
+      byUserId: 'rt_user',
+    })
+
+    const event = await unsafeDb.hairHistoryEvent.findFirstOrThrow({
+      where: { salonId: S, clientProfileId: 'rt_c8' },
+    })
+    expect(event.type).toBe('AT_HOME_TREATMENT')
+    expect(event.isClientVisible).toBe(true)
+    expect(event.summary).toContain('Cool water')
+  })
+
+  it('keeps the reason, which is what makes it advice', async () => {
+    await makeClient('rt_c9')
+    await makeAppointment('rt_a11', 'rt_c9', day(1))
+
+    await recordAftercare({
+      salonId: S,
+      appointmentId: 'rt_a11',
+      advice: '',
+      products: [{ retailProductId: 'rt_prod', reason: 'The ends are porous after that lift.' }],
+      byUserId: 'rt_user',
+    })
+
+    const back = await aftercareFor(S, 'rt_a11')
+    expect(back.recommendations).toHaveLength(1)
+    expect(back.recommendations[0]?.reason).toBe('The ends are porous after that lift.')
+    expect(back.recommendations[0]?.status).toBe('RECOMMENDED')
+  })
+
+  it('refuses to save nothing at all', async () => {
+    await makeClient('rt_c10')
+    await makeAppointment('rt_a12', 'rt_c10', day(1))
+
+    await expect(
+      recordAftercare({
+        salonId: S,
+        appointmentId: 'rt_a12',
+        advice: '   ',
+        products: [],
+        byUserId: null,
+      }),
+    ).rejects.toThrow(/nothing to save/i)
+  })
+
+  it('measures what was suggested against what was bought', async () => {
+    await makeClient('rt_c11')
+    await makeAppointment('rt_a13', 'rt_c11', day(1))
+    await recordAftercare({
+      salonId: S,
+      appointmentId: 'rt_a13',
+      advice: 'Bond builder once a week.',
+      products: [{ retailProductId: 'rt_prod', reason: 'Porous ends.' }],
+      byUserId: null,
+    })
+
+    /*
+     * Against the real clock, not the fixture's: `createdAt` on a
+     * recommendation is now(), and a range anchored on a date in the test's own
+     * past would exclude the row it just wrote.
+     */
+    const range = { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) }
+    expect(await attachmentRate(S, range)).toMatchObject({ recommended: 1, purchased: 0, rate: 0 })
+
+    await unsafeDb.productRecommendation.updateMany({
+      where: { salonId: S },
+      data: { status: 'PURCHASED' },
+    })
+    expect(await attachmentRate(S, range)).toMatchObject({ recommended: 1, purchased: 1, rate: 1 })
+  })
+
+  it('says nothing rather than zero when nothing was suggested', async () => {
+    const range = { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) }
+    expect((await attachmentRate(S, range)).rate).toBeNull()
+  })
+})

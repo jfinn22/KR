@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { pageContextFor } from '@/server/auth/page'
 import { handoffCard } from '@/server/services/handoff'
+import { aftercareFor } from '@/server/services/retention'
+import { AftercareForm } from './aftercare-form'
 import { JourneyLadder } from '@/components/salon/journey-ladder'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -48,7 +50,16 @@ export default async function HandoffPage({
   const { salon, id } = await params
   const ctx = await pageContextFor(salon, 'appointment.viewAny')
 
-  const card = await handoffCard(ctx.salonId, id)
+  const [card, aftercare, products] = await Promise.all([
+    handoffCard(ctx.salonId, id),
+    aftercareFor(ctx.salonId, id),
+    ctx.db.retailProduct.findMany({
+      where: { salonId: ctx.salonId, isActive: true },
+      select: { id: true, name: true, brand: true },
+      orderBy: { name: 'asc' },
+      take: 30,
+    }),
+  ])
   const { appointment, client, stoppers, lastFormula, references, photos, journey, plan } = card
 
   const tz = ctx.timezone
@@ -302,6 +313,28 @@ export default async function HandoffPage({
           </div>
         </section>
       )}
+
+      <section>
+        <h2 className="font-display text-display-sm text-ink">Afterwards</h2>
+        <p className="mt-1 max-w-prose text-secondary text-ink-muted">
+          Written now, while you still remember why. The reason is what makes a product
+          recommendation aftercare rather than a sale.
+        </p>
+        <div className="mt-5">
+          <AftercareForm
+            salonSlug={salon}
+            appointmentId={appointment.id}
+            products={products}
+            initialAdvice={aftercare.advice}
+            initialProducts={aftercare.recommendations.map((rec) => ({
+              id: rec.id,
+              name: rec.retailProduct.name,
+              reason: rec.reason,
+              status: rec.status,
+            }))}
+          />
+        </div>
+      </section>
 
       <div className="flex flex-wrap gap-3">
         <Button asChild variant="secondary">
