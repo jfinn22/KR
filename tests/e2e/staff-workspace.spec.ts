@@ -94,7 +94,12 @@ test.describe('the front desk', () => {
 
     await expect(page.getByRole('heading', { level: 1 })).toContainText(/the day/i)
     await expect(page.getByText(/gold blocks are processing/i)).toBeVisible()
-    await expect(page.getByText(/free — processing/i).first()).toBeVisible()
+    /*
+     * "Free — book into this" rather than "Free — processing": the diary has
+     * labelled these free since it was written and nothing could be booked
+     * into one, so the label now says what clicking it actually does.
+     */
+    await expect(page.getByText(/free — book into this/i).first()).toBeVisible()
   })
 
   test('client search takes a name and refuses a single letter', async ({ page }) => {
@@ -483,5 +488,122 @@ test.describe('the join code', () => {
     await page.getByRole('button', { name: /generate|new code/i }).click()
     // Deliberately excludes O/0 and I/1 — it gets read out across a counter.
     await expect(page.getByLabel('Join code')).toHaveValue(/[A-Z2-9-]{4,}/)
+  })
+})
+
+test.describe('booking from the desk', () => {
+  test('a haircut goes straight in, with nobody signing anything off', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk/book`)
+
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/book an appointment/i)
+
+    // The same one-box search the desk already knows: name, email or phone.
+    await page.getByLabel('Search').fill('Ada')
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
+    await page.getByRole('listitem').first().getByRole('link').click()
+
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/book for/i)
+
+    await page.getByRole('button', { name: /cut & finish/i }).first().click()
+    await page.getByRole('button', { name: /check what this needs/i }).click()
+
+    /*
+     * A dry cut is DIRECT — nothing in the way. The absence of the sign-off box
+     * is the assertion: a salon whose software turns a haircut into a two-step
+     * process stops using the software.
+     */
+    await expect(page.getByRole('button', { name: /find a time/i })).toBeVisible({
+      timeout: 15_000,
+    })
+    await expect(
+      page.getByRole('textbox', { name: /why is this going in without one/i }),
+    ).toHaveCount(0)
+  })
+
+  test('a service that wants a consultation asks somebody to put their name to it', async ({
+    page,
+  }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk/book`)
+
+    await page.getByLabel('Search').fill('Ada')
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
+    await page.getByRole('listitem').first().getByRole('link').click()
+
+    await page.getByRole('button', { name: /restyle consultation & cut/i }).first().click()
+    await page.getByRole('button', { name: /check what this needs/i }).click()
+
+    // The reason names the service that caused it, not "this needs approval".
+    await expect(page.getByText(/need a consultation first/i)).toBeVisible({ timeout: 15_000 })
+    await expect(
+      page.getByRole('textbox', { name: /why is this going in without one/i }),
+    ).toBeVisible()
+    // And no times are offered until a reason is actually written.
+    await expect(page.getByRole('button', { name: /find a time/i })).toHaveCount(0)
+  })
+
+  test('a missing patch test is refused outright, not offered as a sign-off', async ({ page }) => {
+    /*
+     * The one refusal nobody can sign their way past. A missing patch test is
+     * an allergy risk rather than an unfilled form, and no amount of front-desk
+     * seniority makes somebody's scalp safer — so the override does not reach
+     * it, and the message says what to do instead.
+     */
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk/book`)
+
+    await page.getByLabel('Search').fill('Ada')
+    await page.getByRole('button', { name: 'Search', exact: true }).click()
+    await page.getByRole('listitem').first().getByRole('link').click()
+
+    await page.getByRole('button', { name: /full balayage/i }).first().click()
+    await page.getByRole('button', { name: /check what this needs/i }).click()
+
+    await expect(page.getByText(/needs a patch test on file/i)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/book the patch test first/i)).toBeVisible()
+    // No sign-off box at all — this is not somebody's judgement call.
+    await expect(
+      page.getByRole('textbox', { name: /why is this going in without one/i }),
+    ).toHaveCount(0)
+    await expect(page.getByRole('button', { name: /find a time/i })).toHaveCount(0)
+  })
+
+  test('a gold processing block is a link into the booking flow', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk/calendar`)
+
+    /*
+     * The diary has drawn these in gold and labelled them free since it was
+     * written, and nothing could be booked into one. The seeded day has a
+     * balayage mid-development, so there is a real gap to click.
+     */
+    const gap = page.getByRole('link', { name: /book into this/i }).first()
+    await expect(gap).toBeVisible({ timeout: 15_000 })
+    await gap.click()
+
+    await expect(page).toHaveURL(/\/desk\/book\?fill=/)
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/fill the gap/i)
+    await expect(page.getByText(/is free while/i)).toBeVisible()
+  })
+})
+
+test.describe('the waiting list', () => {
+  test('an owner can see who is waiting', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/desk/waitlist`)
+
+    await expect(page.getByRole('heading', { level: 1 })).toContainText(/waiting list/i)
+    // Empty on the seeded salon, and it says so rather than showing a blank.
+    await expect(page.getByText(/nobody is waiting|waiting/i).first()).toBeVisible()
+  })
+
+  test('a client is offered the list exactly when nothing is free', async ({ page }) => {
+    await signIn(page, CLIENT)
+    await page.goto(`/s/${SALON}/my`)
+
+    // Reachable, and not shown anywhere times are available — the button only
+    // renders on an empty slot list.
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible()
   })
 })

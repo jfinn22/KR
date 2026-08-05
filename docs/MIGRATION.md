@@ -203,6 +203,12 @@ routes a colour-correction to someone who does not do colour corrections.
 | **3** | Go-live checklist, parallel-run-aware future-appointment import, booking-link claim | Makes the _switch itself_ safe, not just the data                                                       |
 | **4** | AI-assisted formula/note parsing into structured shade data                         | Highest polish, lowest urgency — nice on day one, not required for day one                              |
 
+**One blocker cleared.** Parallel-run in phase 3 needed a way to place an
+imported future appointment, which has no `ServicePlan` behind it — without
+one you would have to fabricate plans and permanently pollute the table.
+`findSlotsForServices` (Phase 6) is that way in: it takes service ids and a
+date range and never touches a plan. The import path can use it directly.
+
 Phase 1 alone is the thing worth building first: it is the same "ship what
 changes Tuesday before the dazzling thing" logic from the earlier roadmap.
 Nobody delays switching because formula notes are not perfectly parsed. They

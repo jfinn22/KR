@@ -88,6 +88,7 @@ export default async function BookPage({
       clientProfileId={plan.clientProfileId}
       depositCents={depositCents}
       cards={cards}
+      serviceIds={session.services.map((s) => s.serviceId)}
     />
   )
 }

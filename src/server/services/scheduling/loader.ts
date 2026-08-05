@@ -49,6 +49,34 @@ const toInterval = (start: Date, end: Date): Interval => ({
 })
 
 /**
+ * The scheduling knobs, with the defaults a salon that has set nothing gets.
+ *
+ * One function because there were about to be three copies of this object
+ * literal, and a fourth caller reading `?? 15` where another read `?? 20`
+ * would be a salon whose slots are a different size depending on which screen
+ * asked. The defaults belong in exactly one place.
+ */
+export function schedulingSettingsFrom(row: {
+  slotGranularityMin?: number | null
+  minBookingLeadMin?: number | null
+  maxAdvanceDays?: number | null
+  allowFinishAfterCloseMin?: number | null
+  interleaveEnabled?: boolean | null
+  maxConcurrentClients?: number | null
+  minInterleaveMin?: number | null
+} | null): SchedulingSettings {
+  return {
+    slotGranularityMin: row?.slotGranularityMin ?? 15,
+    minBookingLeadMin: row?.minBookingLeadMin ?? 120,
+    maxAdvanceDays: row?.maxAdvanceDays ?? 120,
+    allowFinishAfterCloseMin: row?.allowFinishAfterCloseMin ?? 15,
+    interleaveEnabled: row?.interleaveEnabled ?? false,
+    maxConcurrentClients: row?.maxConcurrentClients ?? 2,
+    minInterleaveMin: row?.minInterleaveMin ?? 25,
+  }
+}
+
+/**
  * A short in-process cache.
  *
  * A client flicking between days in the picker re-runs the same query many
@@ -100,15 +128,7 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
   ])
 
   const timeZone = location.timezone || salon.defaultTimezone
-  const settings: SchedulingSettings = {
-    slotGranularityMin: settingsRow?.slotGranularityMin ?? 15,
-    minBookingLeadMin: settingsRow?.minBookingLeadMin ?? 120,
-    maxAdvanceDays: settingsRow?.maxAdvanceDays ?? 120,
-    allowFinishAfterCloseMin: settingsRow?.allowFinishAfterCloseMin ?? 15,
-    interleaveEnabled: settingsRow?.interleaveEnabled ?? false,
-    maxConcurrentClients: settingsRow?.maxConcurrentClients ?? 2,
-    minInterleaveMin: settingsRow?.minInterleaveMin ?? 25,
-  }
+  const settings = schedulingSettingsFrom(settingsRow)
 
   const dates = eachLocalDate(opts.fromDate, opts.toDate)
   // Widen the window by a day either side so an appointment straddling

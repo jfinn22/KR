@@ -121,8 +121,10 @@ export function allowsStart(
  * is infuriating when the reason is a restriction somebody else applied and
  * nobody mentioned.
  */
-export function describeWindow(window: BookingWindow): string | null {
-  if (!isNarrowed(window)) return null
+export function describeWindow(window: BookingWindow | null): string | null {
+  // No window at all is the same answer as a window that narrows nothing:
+  // there is no restriction to tell anyone about.
+  if (!window || !isNarrowed(window)) return null
 
   const parts: string[] = []
 

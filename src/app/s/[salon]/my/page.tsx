@@ -3,6 +3,9 @@ import { notFound, redirect } from 'next/navigation'
 import { pageContext } from '@/server/auth/page'
 import { clientHome } from '@/server/services/client-portal'
 import { cardsFor } from '@/server/services/cards'
+import { waitlistFor } from '@/server/services/scheduling/waitlist'
+import { WaitlistPanel } from '@/components/salon/waitlist-panel'
+import { BookWholePlan } from '@/components/salon/book-whole-plan'
 import { CardOnFile } from '@/components/salon/card-on-file'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -25,6 +28,7 @@ const CONSULT_STATUS = {
   SUBMITTED: { tone: 'info', label: 'With the salon' },
   IN_REVIEW: { tone: 'info', label: 'Being reviewed' },
   NEEDS_MORE_INFO: { tone: 'warn', label: 'Needs a bit more' },
+  NEEDS_IN_PERSON: { tone: 'gold', label: 'Come in for a look' },
 } as const
 
 export default async function ClientHomePage({ params }: { params: Promise<{ salon: string }> }) {
@@ -35,9 +39,10 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
   // rather than showing a client page they cannot use.
   if (ctx.principal.kind !== 'client') redirect(`/s/${salon}/desk`)
 
-  const [{ next, openConsultations, plans, recent }, cards] = await Promise.all([
+  const [{ next, openConsultations, plans, recent }, cards, waiting] = await Promise.all([
     clientHome(ctx.salonId, ctx.principal.clientProfileId),
     cardsFor(ctx.salonId, ctx.principal.clientProfileId),
+    waitlistFor(ctx.salonId, ctx.principal.clientProfileId),
   ])
   if (!ctx.salonId) notFound()
 
@@ -94,26 +99,64 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
               const nextSession = plan.sessions.find((session) => !session.appointment)
               if (!nextSession) return null
               return (
-                <div
-                  key={plan.id}
-                  className="wash-gold flex flex-col gap-4 rounded-lg p-5 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div>
-                    <p className="text-body font-medium text-ink">
-                      {plan.sessions.length > 1
-                        ? `Visit ${nextSession.sequence} of ${plan.sessions.length}`
-                        : 'Your plan is approved'}
-                    </p>
-                    <p className="mt-1 text-secondary text-ink-muted">{nextSession.name}</p>
+                <div key={plan.id} className="wash-gold flex flex-col gap-4 rounded-lg p-5">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-body font-medium text-ink">
+                        {plan.sessions.length > 1
+                          ? `Visit ${nextSession.sequence} of ${plan.sessions.length}`
+                          : 'Your plan is approved'}
+                      </p>
+                      <p className="mt-1 text-secondary text-ink-muted">{nextSession.name}</p>
+                    </div>
+                    <Button variant="gold" asChild>
+                      <Link href={`/s/${salon}/my/book/${plan.id}?session=${nextSession.sequence}`}>
+                        Pick a time
+                      </Link>
+                    </Button>
                   </div>
-                  <Button variant="gold" asChild>
-                    <Link href={`/s/${salon}/my/book/${plan.id}?session=${nextSession.sequence}`}>
-                      Pick a time
-                    </Link>
-                  </Button>
+
+                  {/*
+                   * A correction plan is only honest if all of it is bookable.
+                   * The engine has been computing the gap between visits since
+                   * it was written, and `solveMultiSession` — a full
+                   * backtracking search over those gaps — had no callers.
+                   */}
+                  <BookWholePlan
+                    salonSlug={salon}
+                    timeZone={tz}
+                    servicePlanId={plan.id}
+                    fromDate={localDateIn(tz)}
+                    remaining={plan.sessions.filter((session) => !session.appointment).length}
+                  />
                 </div>
               )
             })}
+          </div>
+        </section>
+      )}
+
+      {waiting.length > 0 && (
+        <section>
+          <SectionHeading
+            title="On the waiting list"
+            description="If somebody cancels something that suits you, we will offer it to you first."
+          />
+          <div className="mt-4">
+            <WaitlistPanel
+              salonSlug={salon}
+              timeZone={tz}
+              entries={waiting.map((entry) => ({
+                ...entry,
+                offer: entry.offer
+                  ? {
+                      startsAt: entry.offer.startsAt,
+                      endsAt: entry.offer.endsAt,
+                      stylistName: entry.offer.stylistName,
+                    }
+                  : null,
+              }))}
+            />
           </div>
         </section>
       )}
@@ -145,6 +188,23 @@ export default async function ClientHomePage({ params }: { params: Promise<{ sal
                     </Link>
                     <Badge tone={status.tone}>{status.label}</Badge>
                   </div>
+
+                  {/*
+                   * The stylist asked to see the hair. That decision has
+                   * existed since the schema was written and produced nothing
+                   * a client could act on — the consultation simply stopped.
+                   */}
+                  {consultation.status === 'NEEDS_IN_PERSON' && (
+                    <Link
+                      href={`/s/${salon}/my/consult/${consultation.id}/visit`}
+                      className="wash-gold flex items-center justify-between gap-3 rounded-md px-4 py-3 transition-colors hover:border-gold-500"
+                    >
+                      <span className="text-secondary text-ink">Book a quick look, in person</span>
+                      <span aria-hidden="true" className="text-secondary font-medium text-gold-700">
+                        Pick a time →
+                      </span>
+                    </Link>
+                  )}
 
                   {/*
                    * Reachable from outside the flow too. A client often only

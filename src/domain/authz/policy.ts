@@ -78,6 +78,13 @@ const MATRIX: Record<Action, RoleRow> = {
   'appointment.viewAny': row(A, A, A, N, N),
   'appointment.book': row(A, A, A, A, A),
   'appointment.bookForAnyStylist': row(A, A, A, N, N),
+  // Reason-required at every level, and a stylist only for their own clients.
+  // The front desk holds it because in a real salon the desk is who takes the
+  // call — but they write down why, same as everyone else.
+  'appointment.bookWithoutConsultation': row(AR, AR, AR, OR, N),
+  // Everyone who works the desk or a chair. Not an assistant, who takes the
+  // call and passes it on, and not a client — see the note on the action.
+  'appointment.bookDirect': row(A, A, A, O, N),
   'appointment.reschedule': row(A, A, A, O, N),
   'appointment.cancelOwn': row(A, A, A, A, A),
   'appointment.cancelAny': row(A, A, A, O, N),
@@ -171,9 +178,12 @@ const CLIENT_ACTIONS: ReadonlySet<Action> = new Set<Action>([
   'formula.view',
   'message.send',
   'deposit.view',
-  // A client keeps their own cards. Nobody else's — `CLIENT_SCOPED_ACTIONS`
-  // is checked against their own `clientProfileId`.
+  // A client keeps their own cards. Nobody else's — the client branch of
+  // `can()` refuses any resource whose `clientProfileId` is not theirs.
   'card.manage',
+  // Joining, leaving and answering an offer on their OWN entry. The same
+  // scoping applies, so this is not a way to see who else is waiting.
+  'waitlist.manage',
 ])
 
 /** Actions a background job may perform on behalf of the system. */

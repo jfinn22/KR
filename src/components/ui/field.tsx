@@ -56,13 +56,40 @@ function Field({
   children: React.ReactNode
   className?: string
 }) {
+  /*
+   * Associate the label with its control, whether or not the caller bothered.
+   *
+   * `htmlFor` has been supported since this was written and twenty-five of the
+   * forty-five callers did not pass it — so those labels were decoration, and
+   * a screen reader announced the placeholder instead. Generating the id here
+   * fixes every one of them at once, and means the next caller cannot get it
+   * wrong by omission.
+   *
+   * An explicit `htmlFor`, or an id the child already carries, always wins.
+   */
+  const generated = React.useId()
+  const child = children as React.ReactElement<{ id?: string }>
+  const ownId = React.isValidElement(child) ? child.props.id : undefined
+  const controlId = htmlFor ?? ownId ?? generated
+
+  /*
+   * Only stamp an id when the caller supplied neither. A caller that passed
+   * `htmlFor` has already wired it to the right control — and its child here
+   * is often a wrapping <div>, so stamping that would put the id on the
+   * wrapper and quietly steal it from the input inside.
+   */
+  const labelled =
+    !htmlFor && !ownId && React.isValidElement(child)
+      ? React.cloneElement(child, { id: controlId })
+      : children
+
   return (
     <div className={cn('flex flex-col gap-2', className)}>
-      <Label htmlFor={htmlFor}>
+      <Label htmlFor={controlId}>
         {label}
         {required && <span className="ml-1 text-gold-700">*</span>}
       </Label>
-      {children}
+      {labelled}
       {error ? (
         <p className="text-secondary text-danger">{error}</p>
       ) : help ? (

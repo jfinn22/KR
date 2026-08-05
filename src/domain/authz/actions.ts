@@ -28,6 +28,26 @@ export const ACTIONS = [
   'appointment.viewAny',
   'appointment.book',
   'appointment.bookForAnyStylist',
+  /**
+   * Book a service that is set up to need a consultation, without one.
+   *
+   * Separate from `appointment.book` because it is a different decision. A
+   * client booking a trim is using the software; somebody putting a colour in
+   * the diary that nobody has assessed is taking clinical responsibility for
+   * it, and the reason they give is the record of that.
+   */
+  'appointment.bookWithoutConsultation',
+  /**
+   * Book straight into the diary, with no consultation and no plan.
+   *
+   * Separate from `appointment.book`, which CLIENTS hold — and which they hold
+   * for exactly one route: consult, get a plan approved, pick a time from it.
+   * Booking an arbitrary basket at an arbitrary time is the desk's job, and
+   * leaving it on `appointment.book` would have opened that path to every
+   * client with no screen to show for it. A capability nobody drew a button
+   * for is still a capability.
+   */
+  'appointment.bookDirect',
   'appointment.reschedule',
   'appointment.cancelOwn',
   'appointment.cancelAny',

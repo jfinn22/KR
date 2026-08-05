@@ -36,7 +36,15 @@ export async function clientHome(salonId: string, clientProfileId: string) {
       where: {
         salonId,
         clientProfileId,
-        status: { in: ['DRAFT', 'SUBMITTED', 'IN_REVIEW', 'NEEDS_MORE_INFO'] },
+        /*
+         * `NEEDS_IN_PERSON` was missing, so a client the stylist had asked to
+         * come in saw nothing at all — their consultation simply vanished off
+         * their home page. It is the one status where the client has something
+         * concrete to do, and it was the one status not listed.
+         */
+        status: {
+          in: ['DRAFT', 'SUBMITTED', 'IN_REVIEW', 'NEEDS_MORE_INFO', 'NEEDS_IN_PERSON'],
+        },
       },
       orderBy: { updatedAt: 'desc' },
       take: 5,

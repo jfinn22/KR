@@ -3,11 +3,13 @@ import { DomainError } from '@/server/errors'
 import { computeAvailability } from '@/domain/scheduling/availability'
 import { chainDuration } from '@/domain/scheduling/chain'
 import { fromEpochMinutes } from '@/domain/scheduling/zoned'
+import { buildChain } from '@/domain/scheduling/chain'
 import { describeWindow, windowFrom } from '@/domain/scheduling/window'
+import type { BookingWindow } from '@/domain/scheduling/window'
 import type { PhaseChain, Slot } from '@/domain/scheduling/types'
-import { loadAvailabilityRequest } from './loader'
+import { loadAvailabilityRequest, schedulingSettingsFrom } from './loader'
 import { loadPlan, sessionBookability } from '../service-plan'
-import { requiredSkillFor } from '../catalog'
+import { getServices, requiredSkillFor, toChainSpec } from '../catalog'
 
 /**
  * Finding bookable slots for a session of an approved plan.
@@ -128,9 +130,6 @@ export async function findSlots(search: SlotSearch): Promise<SlotSearchResult> {
     throw new DomainError('CONFLICT', 'This session has no services attached.')
   }
 
-  const locationId = search.locationId ?? (await defaultLocationId(search.salonId))
-  const serviceIds = session.services.map((s) => s.serviceId)
-
   // The hair still needs its gap even when the previous session is done.
   const fromDate =
     gate.earliestDate && gate.earliestDate > search.fromDate ? gate.earliestDate : search.fromDate
@@ -144,23 +143,188 @@ export async function findSlots(search: SlotSearch): Promise<SlotSearchResult> {
     }
   }
 
-  const request = await loadAvailabilityRequest({
+  const slots = await solve({
     salonId: search.salonId,
-    locationId,
+    locationId: search.locationId,
     fromDate,
     toDate: search.toDate,
     chain,
-    requiredSkill: await requiredSkillFor(search.salonId, serviceIds),
-    isChemical: await anyChemical(search.salonId, serviceIds),
-    isNewClient: false,
+    serviceIds: session.services.map((s) => s.serviceId),
     pinnedStylistId: search.anyStylist ? null : (search.stylistId ?? plan.stylistProfileId),
     window,
     now: search.now,
   })
 
+  return {
+    slots: slots.slots,
+    reason: slots.slots.length === 0 ? explain(slots.reason, restrictedTo) : null,
+    bookable: true,
+    earliestDate: gate.earliestDate,
+    restrictedTo,
+  }
+}
+
+/**
+ * R7 — the same search, for services nobody has approved a plan for.
+ *
+ * Everything the plan-based search needed already existed except a way in:
+ * `bookDirect` takes an arbitrary slot and chain, the loader is chain-generic,
+ * and the solver never knew what a `ServicePlan` was. The only thing missing
+ * was a search that does not open with `loadPlan()`.
+ *
+ * The one real difference, and it is the honest one: the chain is built from
+ * the catalog as it stands right now, because there is no frozen chain to
+ * read. A plan's chain was deliberately frozen at approval so a later catalog
+ * edit could not reshape an appointment somebody agreed to — nobody has
+ * agreed to anything here, so live is correct rather than a shortcut.
+ *
+ * This is what staff booking, processing-gap fill, waitlist matching and the
+ * import parallel-run all sit on. It exists once so those four cannot drift.
+ */
+export interface AdHocSearch {
+  salonId: string
+  serviceIds: readonly string[]
+  locationId?: string | null
+  fromDate: string
+  toDate: string
+  stylistId?: string | null
+  /**
+   * Narrow to a set of stylists without pinning to one.
+   *
+   * A waitlist entry says "any of these three", which is neither "this one"
+   * nor "anybody" — and the loader has always accepted the list; nothing ever
+   * passed it.
+   */
+  stylistIds?: readonly string[]
+  /** True for somebody who has never been in; some stylists are closed to them. */
+  isNewClient?: boolean
+  /** Narrowing the caller wants, e.g. "inside this processing gap". */
+  window?: BookingWindow | null
+  now?: Date
+}
+
+export async function findSlotsForServices(search: AdHocSearch): Promise<SlotSearchResult> {
+  return findSlotsForChain({
+    ...search,
+    chain: await chainForServices(search.salonId, search.serviceIds),
+  })
+}
+
+/**
+ * Build a chain from the catalog, at whatever the catalog says today.
+ *
+ * Shared by the ad-hoc search and its resolve step, because a chain that
+ * differed between the two would offer a slot the confirm step could not find.
+ */
+export async function chainForServices(
+  salonId: string,
+  serviceIds: readonly string[],
+): Promise<PhaseChain> {
+  if (serviceIds.length === 0) {
+    throw new DomainError('INVALID_INPUT', 'Pick at least one service.')
+  }
+
+  const [services, settingsRow] = await Promise.all([
+    getServices(salonId, serviceIds),
+    unsafeDb.salonSettings.findUnique({ where: { salonId } }),
+  ])
+  if (services.length !== new Set(serviceIds).size) {
+    throw new DomainError('NOT_FOUND', 'One of those services is no longer offered.')
+  }
+
+  const chain = buildChain(
+    services.map((service) =>
+      toChainSpec(service, {
+        bufferBeforeMin: settingsRow?.defaultBufferBeforeMin ?? 0,
+        bufferAfterMin: settingsRow?.defaultBufferAfterMin ?? 10,
+      }),
+    ),
+    { settings: schedulingSettingsFrom(settingsRow) },
+  )
+  if (chain.length === 0) {
+    throw new DomainError('CONFLICT', 'Those services have no phases set up yet.')
+  }
+  return chain
+}
+
+/**
+ * The search, given a chain somebody else built.
+ *
+ * The lowest entry point, and the one an in-person consultation uses: a
+ * thirty-minute chat has no service in the catalog behind it, so there is
+ * nothing for `chainForServices` to read. Everything above this is a way of
+ * arriving at a chain.
+ */
+export async function findSlotsForChain(input: {
+  salonId: string
+  locationId?: string | null
+  fromDate: string
+  toDate: string
+  chain: PhaseChain
+  serviceIds?: readonly string[]
+  stylistId?: string | null
+  stylistIds?: readonly string[]
+  isNewClient?: boolean
+  window?: BookingWindow | null
+  now?: Date
+}): Promise<SlotSearchResult> {
+  const restrictedTo = describeWindow(input.window ?? null)
+  const result = await solve({
+    ...input,
+    serviceIds: input.serviceIds ?? [],
+    pinnedStylistId: input.stylistId ?? null,
+    window: input.window ?? null,
+  })
+
+  return {
+    slots: result.slots,
+    reason: result.slots.length === 0 ? explain(result.reason, restrictedTo) : null,
+    bookable: true,
+    earliestDate: null,
+    restrictedTo,
+  }
+}
+
+/**
+ * The search itself, with no idea whether a plan was involved.
+ *
+ * Extracted because there are now several entry points — and two copies of
+ * "load, solve, name the stylists, encode the token" is two places for a fix
+ * to land in one of.
+ */
+async function solve(input: {
+  salonId: string
+  locationId?: string | null
+  fromDate: string
+  toDate: string
+  chain: PhaseChain
+  serviceIds: readonly string[]
+  pinnedStylistId: string | null
+  stylistIds?: readonly string[]
+  isNewClient?: boolean
+  window: BookingWindow | null
+  now?: Date
+}): Promise<{ slots: OfferedSlot[]; reason: string | null }> {
+  const locationId = input.locationId ?? (await defaultLocationId(input.salonId))
+
+  const request = await loadAvailabilityRequest({
+    salonId: input.salonId,
+    locationId,
+    fromDate: input.fromDate,
+    toDate: input.toDate,
+    chain: input.chain,
+    requiredSkill: await requiredSkillFor(input.salonId, input.serviceIds),
+    isChemical: await anyChemical(input.salonId, input.serviceIds),
+    isNewClient: input.isNewClient ?? false,
+    pinnedStylistId: input.pinnedStylistId,
+    stylistIds: input.stylistIds && input.stylistIds.length > 0 ? input.stylistIds : undefined,
+    window: input.window,
+    now: input.now,
+  })
+
   const result = computeAvailability(request)
   const names = await stylistNames(result.slots.map((s) => s.stylistId))
-  const durationMin = chainDuration(chain)
+  const durationMin = chainDuration(input.chain)
 
   return {
     slots: result.slots.map((slot) => ({
@@ -173,10 +337,7 @@ export async function findSlots(search: SlotSearch): Promise<SlotSearchResult> {
       offersInterleave: slot.offersInterleave,
       token: encodeSlot(slot),
     })),
-    reason: result.slots.length === 0 ? explain(result.reason, restrictedTo) : null,
-    bookable: true,
-    earliestDate: gate.earliestDate,
-    restrictedTo,
+    reason: result.reason,
   }
 }
 
@@ -217,6 +378,49 @@ export async function resolveSlot(
     // slot outside it is never solved, so there is nothing to match and the
     // hold is refused.
     window: windowFrom(plan),
+    now: search.now,
+  })
+
+  const match = computeAvailability(request).slots.find(
+    (s) => s.startMin === decoded.startMin && s.stylistId === decoded.stylistId,
+  )
+  return match ? { slot: match, chain, locationId } : null
+}
+
+/**
+ * Re-find one ad-hoc slot, the same way the plan-based confirm does.
+ *
+ * The token is deliberately unsigned and this is why that is safe: between the
+ * search and the tap somebody else may have taken the chair, so the slot
+ * written into a hold is the one the solver just verified rather than one
+ * reconstructed from a string a browser posted back.
+ */
+export async function resolveSlotForServices(
+  // The date range is deliberately absent: this re-solves the token's OWN
+  // date, so a caller passing a range would be passing something ignored —
+  // and something ignored eventually gets passed wrong.
+  search: Omit<AdHocSearch, 'fromDate' | 'toDate'> & { token: string },
+): Promise<{ slot: Slot; chain: PhaseChain; locationId: string } | null> {
+  const decoded = decodeSlot(search.token)
+  if (!decoded) throw new DomainError('INVALID_INPUT', 'That time is no longer valid.')
+
+  const chain = await chainForServices(search.salonId, search.serviceIds)
+  const locationId = search.locationId ?? (await defaultLocationId(search.salonId))
+
+  const request = await loadAvailabilityRequest({
+    salonId: search.salonId,
+    locationId,
+    fromDate: decoded.localDate,
+    toDate: decoded.localDate,
+    chain,
+    requiredSkill: await requiredSkillFor(search.salonId, search.serviceIds),
+    isChemical: await anyChemical(search.salonId, search.serviceIds),
+    isNewClient: search.isNewClient ?? false,
+    pinnedStylistId: decoded.stylistId,
+    // Applied here too, not only in the search — a caller that narrowed to a
+    // processing gap must not be able to widen back out by dropping the field
+    // on the confirm call.
+    window: search.window ?? null,
     now: search.now,
   })
 

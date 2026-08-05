@@ -5,6 +5,7 @@ import { isNarrowed, type BookingWindow } from '@/domain/scheduling/window'
 import { quoteDeposit } from './commerce'
 import type { EvaluationResult } from '@/domain/consultation/types'
 import { capableStylists, getServices, toChainSpec } from './catalog'
+import { schedulingSettingsFrom } from './scheduling/loader'
 
 /**
  * Turning an approved consultation into a bookable plan.
@@ -114,6 +115,27 @@ export async function reviewConsultation(
   // Anything other than an approval just records the decision and sends the
   // client back round — no plan is created.
   if (status !== 'APPROVED') {
+    /*
+     * "Come in and let me look at it" needs somebody to come in TO.
+     *
+     * `REQUEST_IN_PERSON` set a status and stopped, so the stylist's judgement
+     * that they needed to see the hair went into a column and died there. The
+     * client can now book thirty minutes — but only if there is a stylist
+     * pinned to book with, and `requestedStylistId` is nullable because
+     * "anyone who can do it" is the normal way to book online.
+     *
+     * The reviewer wins, then whoever the client asked for, then whoever asked
+     * to see them. Falling back to a capable stylist keeps the invitation
+     * bookable rather than leaving it stranded.
+     */
+    const inPersonStylistId =
+      input.decision === 'REQUEST_IN_PERSON'
+        ? (input.overrides?.stylistProfileId ??
+          consultation.requestedStylistId ??
+          (await reviewerStylistId(input.salonId, input.reviewerUserId)) ??
+          (await assignCapableStylist(input.salonId, consultation.requestedServiceIds)))
+        : null
+
     await unsafeDb.$transaction([
       unsafeDb.consultationReview.create({
         data: {
@@ -127,7 +149,11 @@ export async function reviewConsultation(
       }),
       unsafeDb.consultation.update({
         where: { id: consultation.id },
-        data: { status: status as never, reviewedAt: new Date() },
+        data: {
+          status: status as never,
+          reviewedAt: new Date(),
+          ...(inPersonStylistId ? { requestedStylistId: inPersonStylistId } : {}),
+        },
       }),
     ])
     return { status, servicePlanId: null }
@@ -158,15 +184,7 @@ export async function reviewConsultation(
     unsafeDb.salonSettings.findUnique({ where: { salonId: input.salonId } }),
   ])
 
-  const schedulingSettings = {
-    slotGranularityMin: settings?.slotGranularityMin ?? 15,
-    minBookingLeadMin: settings?.minBookingLeadMin ?? 120,
-    maxAdvanceDays: settings?.maxAdvanceDays ?? 120,
-    allowFinishAfterCloseMin: settings?.allowFinishAfterCloseMin ?? 15,
-    interleaveEnabled: settings?.interleaveEnabled ?? false,
-    maxConcurrentClients: settings?.maxConcurrentClients ?? 2,
-    minInterleaveMin: settings?.minInterleaveMin ?? 25,
-  }
+  const schedulingSettings = schedulingSettingsFrom(settings)
 
   const chainSpecs = services.map((service) =>
     toChainSpec(service, {
@@ -423,6 +441,19 @@ export async function sessionBookability(
   }
 
   return { bookable: true, earliestDate: null, reason: null }
+}
+
+/** The reviewer's own chair, when they have one. They asked to see the hair. */
+async function reviewerStylistId(
+  salonId: string,
+  reviewerUserId: string | null,
+): Promise<string | null> {
+  if (!reviewerUserId) return null
+  const stylist = await unsafeDb.stylistProfile.findFirst({
+    where: { salonId, isActive: true, membership: { userId: reviewerUserId } },
+    select: { id: true },
+  })
+  return stylist?.id ?? null
 }
 
 /**

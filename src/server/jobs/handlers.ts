@@ -309,44 +309,51 @@ const waitlistMatch = define({
   timeoutMs: 60_000,
   maxAttempts: 3,
   handler: async ({ appointmentId }) => {
+    const { freedWindow, matchWaitlist } = await import('@/server/services/scheduling/waitlist')
+
     const appointment = await unsafeDb.appointment.findUnique({
       where: { id: appointmentId },
-      select: { salonId: true, startsAt: true, endsAt: true, estimatedDurationMin: true },
+      select: {
+        salonId: true,
+        startsAt: true,
+        endsAt: true,
+        location: { select: { timezone: true } },
+        salon: { select: { defaultTimezone: true } },
+      },
     })
     if (!appointment) return
 
-    const freedMinutes = appointment.estimatedDurationMin
-
-    const entries = await unsafeDb.waitlistEntry.findMany({
-      where: {
-        salonId: appointment.salonId,
-        status: 'OPEN',
-        earliestDate: { lte: appointment.startsAt },
-        latestDate: { gte: appointment.startsAt },
-        // Only offer a slot the client's service actually fits into.
-        requiredDurationMin: { lte: freedMinutes },
-      },
-      orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
-      take: 5,
+    /*
+     * This used to compare the cancelled appointment's raw duration against
+     * `requiredDurationMin` and offer its exact start time — a different
+     * question from "does this client's chain fit here". A two-hour
+     * cancellation does not mean a two-hour service fits in it, because the
+     * chain has buffers the duration does not and the stylist may be needed
+     * inside it. It also ignored every preference the client expressed.
+     */
+    const timeZone = appointment.location.timezone || appointment.salon.defaultTimezone
+    await matchWaitlist({
+      salonId: appointment.salonId,
+      ...freedWindow(appointment, timeZone),
     })
+  },
+})
 
-    for (const entry of entries) {
-      await unsafeDb.waitlistEntry.update({
-        where: { id: entry.id },
-        data: {
-          status: 'OFFERED',
-          offeredSlotJson: {
-            startsAt: appointment.startsAt.toISOString(),
-            endsAt: appointment.endsAt.toISOString(),
-          },
-          offerExpiresAt: new Date(Date.now() + 2 * 3_600_000),
-          notifiedAt: new Date(),
-        },
-      })
-      // First come, first served: one offer at a time avoids promising the
-      // same slot to five people.
-      break
-    }
+/**
+ * Reopen offers nobody answered.
+ *
+ * Without this an unanswered offer sits OFFERED forever: the client never gets
+ * another one, the entry never comes back into the pool, and the slot stays
+ * held. A waitlist that quietly stops matching is worse than not having one,
+ * because the salon believes it is working.
+ */
+const waitlistExpire = define({
+  schema: z.object({}).passthrough(),
+  timeoutMs: 60_000,
+  maxAttempts: 3,
+  handler: async () => {
+    const { sweepExpiredOffers } = await import('@/server/services/scheduling/waitlist')
+    await sweepExpiredOffers()
   },
 })
 
@@ -642,6 +649,7 @@ export const JOB_REGISTRY: Record<string, AnyJobDefinition> = {
   'waitlist.match': waitlistMatch,
   'consultation.stale.nudge': consultationStaleNudge,
   'expire.stale': expireStale,
+  'waitlist.expire': waitlistExpire,
   'deposit.reauthorize': depositReauthorize,
   'photo.assess': photoAssess,
   'quoteaccuracy.capture': quoteAccuracyCapture,
@@ -655,6 +663,7 @@ export type JobType = keyof typeof JOB_REGISTRY
 export const RECURRING: { key: string; type: string; everyMinutes: number }[] = [
   { key: 'outbox', type: 'outbox.dispatch', everyMinutes: 1 },
   { key: 'holds', type: 'hold.expire', everyMinutes: 1 },
+  { key: 'waitlist', type: 'waitlist.expire', everyMinutes: 5 },
   { key: 'reap', type: 'system.reap', everyMinutes: 5 },
   { key: 'stale', type: 'expire.stale', everyMinutes: 60 },
   { key: 'deposits', type: 'deposit.reauthorize', everyMinutes: 360 },

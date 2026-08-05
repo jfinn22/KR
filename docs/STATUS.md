@@ -38,6 +38,47 @@ followed, in dependency order. Each ends green on `pnpm verify` plus
 | **P3** The right questions       | Service-scoped consultation forms; first-visit photos; availability narrowing at approval, sharing one filter with the waitlist; reference pictures measured against the hair under them                                                               |
 | **P4** Money at the chair        | Ad-hoc invoice lines; editable prices; an owner-written discount catalogue with a real cap and an escalation path; gift cards on a ledger; and one authority for what a deposit costs                                                                  |
 | **P5** Cards on file             | A card kept at the provider and never here; the deposit lifecycle made real, from owed through held, taken, spent or kept; a signed webhook that reconciles what the provider says; cancellations and no-shows that settle the money; paid corrective consultations, credited against the work |
+| **P6** Filling the calendar      | A slot search with no plan behind it; one decision about when a consultation is actually needed, with an audited way past it; booking from the desk; the gold processing gaps made bookable; "come in and let me look at it" turned into an appointment the client picks; a waitlist that honours what people asked for and holds what it offers; and every visit of a plan booked in one pass |
+
+### What P6 changed, specifically
+
+- **A search that does not begin with a plan.** `bookDirect` took an arbitrary
+  slot and chain, the loader was chain-generic, and the solver never knew what
+  a `ServicePlan` was — the only missing piece was a way in. Staff booking,
+  gap fill, waitlist matching and the import parallel-run all sit on the one
+  function, so the four cannot drift.
+- **When a consultation is actually required, decided once.** Not chemical and
+  not marked as needing one: book it. Anything else: an approved plan, or a
+  named person giving a written reason. Chemistry gates itself even with the
+  checkbox left unticked, because a salon that adds a bleach service and
+  forgets has not decided bleach is safe to book blind. A missing patch test
+  refuses outright and the override does not reach it — that one is about
+  somebody's scalp, not about paperwork.
+- **Booking from the desk at all.** There was no staff booking flow, so a
+  client ringing up for a trim on Thursday could not be put in the diary. The
+  override, where it is needed, lands on the appointment's internal note —
+  where the person holding the brush will see it, rather than only in an audit
+  log nobody reads.
+- **The gold blocks became clickable.** The diary has drawn processing gaps in
+  gold and labelled them free since it was written, and nothing could be
+  booked into one. Keyed on the segment id rather than a start and end time,
+  because a window a browser can type is a window a browser can widen.
+- **"Come in and let me look at it" produces an appointment.**
+  `REQUEST_IN_PERSON` set a status and stopped: no invitation, nothing the
+  client could act on. `NEEDS_IN_PERSON` was also missing from the client's
+  open-consultation query, so the consultation simply vanished off their home
+  page. Thirty minutes with the stylist who asked, at a time the client picks.
+- **The waitlist honours what people said.** `dayOfWeekMask`, the two window
+  minutes, `preferredStylistIds` and `serviceIds` had all been stored and
+  never read, and there was no way onto the list from either side. The matcher
+  compared the cancelled appointment's raw duration against
+  `requiredDurationMin` — a different question from "does this client's chain
+  fit here". It runs the real solver now, and an offer takes a real hold:
+  an offer without one is a promise the salon cannot keep.
+- **A plan can be booked whole.** `solveMultiSession` — a backtracking search
+  over the gaps the engine computes between visits — had no callers. Booking
+  visit one and hoping visit two exists in eight weeks is how a salon ends up
+  with a half-finished blonde.
 
 ### What P5 changed, specifically
 
@@ -246,6 +287,10 @@ Nothing here is a stub pretending to be a feature.
   CI. The fallback calls `attachTestCard`, which the Stripe adapter does not
   implement — so configuring a real key makes it structurally unreachable
   rather than merely discouraged.
+- **A waitlist offer blocks the slot.** Deliberately: an offer with no hold
+  behind it is a promise the salon cannot keep, so the client drops what they
+  are doing, taps accept, and finds it gone. The cost is that one slot is off
+  the board for up to two hours while one person decides.
 - **Deposits are held, not taken, until the day.** Manual capture throughout.
   That is deliberate, and it means a salon sees authorisations rather than
   settled funds in its provider dashboard until an appointment is invoiced or

@@ -120,6 +120,8 @@ const CLIENT_NAV: { href: string; label: string }[] = [
 const STAFF_NAV: { href: string; label: string; action: Action }[] = [
   { href: '/desk', label: 'Today', action: 'appointment.viewAny' },
   { href: '/desk/calendar', label: 'Diary', action: 'appointment.viewAny' },
+  { href: '/desk/book', label: 'Book', action: 'appointment.bookDirect' },
+  { href: '/desk/waitlist', label: 'Waiting', action: 'waitlist.manage' },
   { href: '/review', label: 'Reviews', action: 'consultation.review' },
   { href: '/desk/clients', label: 'Clients', action: 'client.viewAny' },
   { href: '/admin/services', label: 'Services', action: 'service.manage' },

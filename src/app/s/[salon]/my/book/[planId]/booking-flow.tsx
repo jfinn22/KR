@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { SlotPicker, SlotSummary, type OfferedSlot } from '@/components/salon/slot-picker'
 import { CardOnFile, type SavedCardView } from '@/components/salon/card-on-file'
+import { JoinWaitlist } from '@/components/salon/join-waitlist'
 import { formatMoney } from '@/lib/format'
 import {
   confirmBookingAction,
@@ -50,6 +51,7 @@ export function BookingFlow({
   clientProfileId,
   depositCents,
   cards,
+  serviceIds,
 }: {
   salonSlug: string
   timeZone: string
@@ -66,6 +68,8 @@ export function BookingFlow({
   /** What this visit owes up front. Zero for every visit but the first. */
   depositCents: number
   cards: SavedCardView[]
+  /** What this session is for, so the waitlist knows what to match against. */
+  serviceIds: readonly string[]
 }) {
   const router = useRouter()
 
@@ -291,6 +295,22 @@ export function BookingFlow({
             busy={busy}
             showStylist={anyStylist}
           />
+
+          {/*
+           * Offered exactly when the client has just been told there is
+           * nothing — the only moment a waiting list is genuinely useful. On a
+           * page with times available it is noise, and in a menu it is never
+           * found.
+           */}
+          {result.slots.length === 0 && (
+            <JoinWaitlist
+              salonSlug={salonSlug}
+              clientProfileId={clientProfileId}
+              serviceIds={serviceIds}
+              earliestDate={initialFrom}
+              latestDate={to}
+            />
+          )}
         </>
       )}
     </div>

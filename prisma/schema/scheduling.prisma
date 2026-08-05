@@ -322,9 +322,18 @@ model WaitlistEntry {
   priority       Int            @default(0)
   status         WaitlistStatus @default(OPEN)
   offeredSlotJson Json?
+  /// The hold standing behind an offer.
+  ///
+  /// An offer without one is a promise the salon cannot keep: the client drops
+  /// what they are doing, taps accept, and finds the slot gone. The hold does
+  /// block the slot for everybody else, which is the cost — bounded by keeping
+  /// it short and by offering to one person at a time.
+  offeredHoldId  String?
   offerExpiresAt DateTime?      @db.Timestamptz(3)
   notifiedAt     DateTime?      @db.Timestamptz(3)
   createdAt      DateTime       @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, status, earliestDate])
+  /// The sweep's query: offers that have run out, per salon.
+  @@index([salonId, status, offerExpiresAt])
 }

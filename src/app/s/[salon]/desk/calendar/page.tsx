@@ -98,7 +98,8 @@ export default async function CalendarPage({
       </header>
 
       <p className="text-secondary text-ink-muted">
-        Gold blocks are processing — the stylist is free and somebody else could be in that chair.
+        Gold blocks are processing — the stylist is free, and clicking one books somebody else into
+        that chair.
       </p>
 
       {!anything ? (
@@ -153,22 +154,22 @@ export default async function CalendarPage({
                     // block whose own start and end disagree.
                     if (end < startMin || start > endMin) return null
 
-                    return (
-                      <div
-                        key={segment.id}
-                        title={`${segment.clientName} · ${segment.kind.toLowerCase()}`}
-                        className={cn(
-                          'absolute inset-x-1 overflow-hidden rounded-md border px-2 py-1',
-                          segment.state === 'HOLD'
-                            ? 'border-dashed border-line-strong bg-surface-alt'
-                            : segment.blocksStylist
-                              ? 'border-blue-500/30 bg-blue-100'
-                              : 'border-gold-500/40 bg-gold-100',
-                        )}
-                        style={{ top, height: blockHeight }}
-                      >
+                    /*
+                     * A gold block is bookable. That is the whole point of
+                     * drawing it: the diary has been labelling these "free"
+                     * since it was written and there was no way to act on it,
+                     * which made the label a tease rather than a feature.
+                     */
+                    const fillable = !segment.blocksStylist && segment.state === 'ACTIVE'
+
+                    const body = (
+                      <>
                         <p className="truncate text-label font-medium text-ink">
-                          {segment.blocksStylist ? segment.clientName : 'Free — processing'}
+                          {segment.blocksStylist
+                            ? segment.clientName
+                            : fillable
+                              ? 'Free — book into this'
+                              : 'Free — processing'}
                         </p>
                         {blockHeight > 34 && (
                           <p className="tabular truncate text-label text-ink-muted">
@@ -178,6 +179,41 @@ export default async function CalendarPage({
                               : ''}
                           </p>
                         )}
+                      </>
+                    )
+
+                    const shell = cn(
+                      'absolute inset-x-1 overflow-hidden rounded-md border px-2 py-1',
+                      segment.state === 'HOLD'
+                        ? 'border-dashed border-line-strong bg-surface-alt'
+                        : segment.blocksStylist
+                          ? 'border-blue-500/30 bg-blue-100'
+                          : 'border-gold-500/40 bg-gold-100',
+                      fillable && 'cursor-pointer transition-colors hover:border-gold-500',
+                    )
+
+                    if (fillable) {
+                      return (
+                        <Link
+                          key={segment.id}
+                          href={`/s/${salon}/desk/book?fill=${segment.id}`}
+                          title={`Book somebody into ${segment.clientName}'s processing time`}
+                          className={shell}
+                          style={{ top, height: blockHeight }}
+                        >
+                          {body}
+                        </Link>
+                      )
+                    }
+
+                    return (
+                      <div
+                        key={segment.id}
+                        title={`${segment.clientName} · ${segment.kind.toLowerCase()}`}
+                        className={shell}
+                        style={{ top, height: blockHeight }}
+                      >
+                        {body}
                       </div>
                     )
                   })}
