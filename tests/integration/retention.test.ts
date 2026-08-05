@@ -7,6 +7,13 @@ import {
   firstTimerInterventions,
   recordAftercare,
 } from '@/server/services/retention'
+import {
+  checkInByToken,
+  mintCheckIn,
+  resolveCheckIn,
+  respondToCheckIn,
+  unhappyCheckIns,
+} from '@/server/services/check-in'
 
 /**
  * Keeping the clients a salon already has.
@@ -278,5 +285,123 @@ describe('aftercare', () => {
   it('says nothing rather than zero when nothing was suggested', async () => {
     const range = { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) }
     expect((await attachmentRate(S, range)).rate).toBeNull()
+  })
+})
+
+describe('the 72-hour check-in', () => {
+  it('mints one link per appointment, however many times the dispatch retries', async () => {
+    /*
+     * Two links to one visit means the client's answer depends on which text
+     * they happened to open. The token is an HMAC of the appointment id rather
+     * than a random string, so a retried send rebuilds the same link without
+     * the secret ever living in a row.
+     */
+    await makeClient('rt_c12')
+    await makeAppointment('rt_a14', 'rt_c12', day(3))
+
+    const first = await mintCheckIn(S, 'rt_a14')
+    const again = await mintCheckIn(S, 'rt_a14')
+
+    expect(first?.token).toBe(again?.token)
+    expect(await unsafeDb.postVisitCheckIn.count({ where: { salonId: S } })).toBe(1)
+  })
+
+  it('never stores the token itself', async () => {
+    // A leaked database must not be a set of working links into clients'
+    // feedback.
+    await makeClient('rt_c13')
+    await makeAppointment('rt_a15', 'rt_c13', day(3))
+    const minted = await mintCheckIn(S, 'rt_a15')
+
+    const row = await unsafeDb.postVisitCheckIn.findFirstOrThrow({ where: { salonId: S } })
+    expect(row.tokenHash).not.toBe(minted?.token)
+    expect(JSON.stringify(row)).not.toContain(minted!.token)
+  })
+
+  it('reads without consuming, because link previewers exist', async () => {
+    /*
+     * Message-app unfurlers and email security scanners GET any URL they see.
+     * A check-in that answered itself on page load would be filled in by a
+     * robot before the client ever opened it.
+     */
+    await makeClient('rt_c14')
+    await makeAppointment('rt_a16', 'rt_c14', day(3))
+    const minted = await mintCheckIn(S, 'rt_a16')
+
+    const view = await checkInByToken(minted!.token)
+    expect(view).toMatchObject({ salonId: S, clientFirstName: 'Ada', respondedAt: null })
+
+    const row = await unsafeDb.postVisitCheckIn.findFirstOrThrow({ where: { salonId: S } })
+    expect(row.respondedAt).toBeNull()
+  })
+
+  it('records the answer once and treats a second tap as a no-op', async () => {
+    await makeClient('rt_c15')
+    await makeAppointment('rt_a17', 'rt_c15', day(3))
+    const minted = await mintCheckIn(S, 'rt_a17')
+
+    expect(
+      await respondToCheckIn({ salonId: S, token: minted!.token, sentiment: 'NOT_RIGHT', note: 'Brassy.' }),
+    ).toEqual({ recorded: true })
+
+    // Somebody double-tapping on a phone sees a thank-you, not an error — and
+    // does not silently rewrite what the salon has already acted on.
+    expect(
+      await respondToCheckIn({ salonId: S, token: minted!.token, sentiment: 'DELIGHTED', note: null }),
+    ).toEqual({ recorded: false })
+
+    const row = await unsafeDb.postVisitCheckIn.findFirstOrThrow({ where: { salonId: S } })
+    expect(row.sentiment).toBe('NOT_RIGHT')
+    expect(row.note).toBe('Brassy.')
+  })
+
+  it('refuses a token replayed against another salon', async () => {
+    /*
+     * `PublicContext` carries no scoped Prisma client, and the slug in a public
+     * URL is whatever the caller typed. The salon has to be asserted by hand.
+     */
+    await makeClient('rt_c16')
+    await makeAppointment('rt_a18', 'rt_c16', day(3))
+    const minted = await mintCheckIn(S, 'rt_a18')
+
+    await expect(
+      respondToCheckIn({
+        salonId: 'some-other-salon',
+        token: minted!.token,
+        sentiment: 'FINE',
+        note: null,
+      }),
+    ).rejects.toThrow(/not one of ours/)
+  })
+
+  it('refuses a link that has aged out', async () => {
+    await makeClient('rt_c17')
+    await makeAppointment('rt_a19', 'rt_c17', day(60))
+    const minted = await mintCheckIn(S, 'rt_a19', new Date(Date.now() - 60 * 86_400_000))
+
+    await expect(
+      respondToCheckIn({ salonId: S, token: minted!.token, sentiment: 'FINE', note: null }),
+    ).rejects.toThrow(/expired/)
+  })
+
+  it('puts only the unhappy, unresolved ones in front of the desk', async () => {
+    // A list that also held the happy ones is a feed to scroll rather than a
+    // queue to clear, and the value of a 72-hour window is that somebody acts.
+    await makeClient('rt_c18')
+    await makeClient('rt_c19')
+    await makeAppointment('rt_a20', 'rt_c18', day(3))
+    await makeAppointment('rt_a21', 'rt_c19', day(3))
+
+    const sad = await mintCheckIn(S, 'rt_a20')
+    const happy = await mintCheckIn(S, 'rt_a21')
+    await respondToCheckIn({ salonId: S, token: sad!.token, sentiment: 'NOT_RIGHT', note: 'Brassy.' })
+    await respondToCheckIn({ salonId: S, token: happy!.token, sentiment: 'DELIGHTED', note: null })
+
+    const queue = await unhappyCheckIns(S)
+    expect(queue).toHaveLength(1)
+    expect(queue[0]?.clientProfile.id).toBe('rt_c18')
+
+    await resolveCheckIn(S, queue[0]!.id, 'rt_user')
+    expect(await unhappyCheckIns(S)).toEqual([])
   })
 })

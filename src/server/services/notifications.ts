@@ -172,7 +172,7 @@ export const DEFAULT_COPY: Record<string, { subject: string; body: string }> = {
   },
   APPOINTMENT_AFTER: {
     subject: 'How is it sitting?',
-    body: 'Hi {{client.firstName}}, how are you getting on with it? If anything is not quite right, tell us now while it is easy to put right.',
+    body: 'Hi {{client.firstName}}, how are you getting on with it? One tap tells us, and if anything is not quite right it is far easier to put right now: {{checkInUrl}}',
   },
   REBOOK_DUE: {
     subject: 'Time for your next visit',

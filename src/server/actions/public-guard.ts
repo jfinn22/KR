@@ -49,6 +49,22 @@ export interface PublicGuardOptions<I> {
   schema: z.ZodType<I>
   /** Attempts allowed per fingerprint per window. */
   limit?: { attempts: number; windowMinutes: number }
+  /**
+   * What to count against, when the caller's address is the wrong thing.
+   *
+   * The default fingerprint is a hash of the client IP, which is right for
+   * guessing attacks — somebody working through join codes comes from one
+   * place. It is wrong for a link sent to a few hundred clients at once: they
+   * share their mobile carrier's egress address, so they share one bucket, and
+   * the eleventh person to tap loses their answer to a limit the first ten
+   * used up. Worse, they lose it BEFORE the handler runs, so nothing records
+   * that it happened.
+   *
+   * Where a request already carries something unguessable and per-person — a
+   * token in a one-tap link — that is the honest thing to limit. Return it
+   * here and the bucket becomes the link rather than the network.
+   */
+  subject?: (input: I) => string | null
   auditAs?: (input: I, result: unknown) => { entityType: string; entityId?: string | null }
 }
 
@@ -62,7 +78,10 @@ const DEFAULT_LIMIT = { attempts: 10, windowMinutes: 15 }
  * addresses is a liability nobody asked for. Salted with the salon so the same
  * person visiting two salons is not correlatable across them.
  */
-async function fingerprintFor(salonId: string): Promise<string> {
+async function fingerprintFor(salonId: string, subject?: string | null): Promise<string> {
+  if (subject) {
+    return createHash('sha256').update(`${salonId}:s:${subject}`).digest('hex').slice(0, 32)
+  }
   const headerList = await headers()
   const forwarded = headerList.get('x-forwarded-for')?.split(',')[0]?.trim()
   const address = forwarded || headerList.get('x-real-ip') || 'unknown'
@@ -106,7 +125,7 @@ export function withPublicAction<I, O>(
        * unlimited tries precisely because they keep getting them wrong.
        */
       const limit = opts.limit ?? DEFAULT_LIMIT
-      const fingerprint = await fingerprintFor(salon.id)
+      const fingerprint = await fingerprintFor(salon.id, opts.subject?.(input) ?? null)
       const since = new Date(Date.now() - limit.windowMinutes * 60_000)
 
       const recent = await unsafeDb.publicActionAttempt.count({

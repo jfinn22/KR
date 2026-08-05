@@ -127,6 +127,20 @@ const outboxDispatch = define({
        * plan told the client nothing at all, and the only way they found out
        * was returning to the site and noticing a card.
        */
+      /*
+       * The one-tap link, minted before the notification that carries it.
+       *
+       * Idempotent on the appointment, because this dispatch can be retried and
+       * two links to one visit means the client's answer depends on which text
+       * they happened to open.
+       */
+      if (topic === 'appointment.completed' && event.salonId) {
+        const { mintCheckIn } = await import('@/server/services/check-in')
+        if (typeof payload.appointmentId === 'string') {
+          await mintCheckIn(event.salonId, payload.appointmentId)
+        }
+      }
+
       const notify = NOTIFY_TOPICS[topic]
       if (notify && event.salonId) {
         const clientProfileId = payload[notify.clientKey]
@@ -305,8 +319,21 @@ const notificationSend = define({
     }
 
     const template = scheduled.schedule?.template
+    /*
+     * The one-tap link, recomputed rather than looked up.
+     *
+     * `PostVisitCheckIn` stores only the hash of its token, so there is nothing
+     * in the row to rebuild a URL from — the token is an HMAC of the appointment
+     * id, which means a retried send produces the same link as the first
+     * attempt without the secret ever living in the database.
+     */
+    const { checkInUrlFor } = await import('@/server/services/check-in')
     const body = renderTemplate(template?.body ?? fallback.body, {
       'client.firstName': scheduled.clientProfile.firstName,
+      checkInUrl:
+        trigger === 'APPOINTMENT_AFTER' && scheduled.refType === 'Appointment' && scheduled.refId
+          ? checkInUrlFor(scheduled.refId)
+          : '',
     })
 
     if (channel === 'SMS') {
@@ -735,6 +762,20 @@ const systemReap = define({
   handler: async () => {
     const { reap } = await import('./queue')
     await reap()
+
+    /*
+     * The attempt log, which nothing has ever deleted from.
+     *
+     * `withPublicAction` writes a row on every unauthenticated call — successes,
+     * double-taps and link prefetchers alike — and the longest window any caller
+     * counts over is measured in minutes. A day of history is generous for a
+     * rate limiter and the difference between a table that stays small and one
+     * that becomes the largest in the database the moment a retention feature
+     * starts sending links.
+     */
+    await unsafeDb.publicActionAttempt.deleteMany({
+      where: { createdAt: { lt: new Date(Date.now() - 24 * 3_600_000) } },
+    })
   },
 })
 

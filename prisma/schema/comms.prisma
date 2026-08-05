@@ -240,3 +240,55 @@ model DevOutbox {
 
   @@index([createdAt])
 }
+
+/// How it turned out, three days later.
+enum CheckInSentiment {
+  DELIGHTED
+  FINE
+  NOT_RIGHT
+}
+
+/// A one-tap link, sent a few days after an appointment.
+///
+/// A link rather than a reply, deliberately. `MessageDirection.INBOUND` exists
+/// and nothing writes it — a real reply channel needs another provider webhook,
+/// a threading model and somebody to read the replies, and a salon that asks a
+/// question it does not read has done worse than not asking.
+///
+/// The window is the point. A client who says on Thursday that the tone went
+/// brassy can be put right on Saturday; one who says it in six weeks has
+/// already told three friends.
+model PostVisitCheckIn {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  appointmentId String      @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  clientProfileId String
+  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+
+  /// SHA-256 of the token. The token itself exists only inside the link.
+  ///
+  /// Never `Appointment.checkInToken`, which is `chk_${holdId}` — a value the
+  /// browser was already given at booking time, stored in the clear, with no
+  /// expiry and no consumed marker. Reusing it would hand every client a
+  /// working link to their own feedback the moment they booked.
+  tokenHash String @unique
+
+  expiresAt   DateTime  @db.Timestamptz(3)
+  respondedAt DateTime? @db.Timestamptz(3)
+
+  sentiment CheckInSentiment?
+  note      String?           @db.Text
+
+  /// Set when somebody at the salon has dealt with a bad one.
+  resolvedAt     DateTime? @db.Timestamptz(3)
+  resolvedByUserId String?
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, respondedAt])
+  @@index([salonId, sentiment, resolvedAt])
+}

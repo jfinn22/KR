@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { pageContextFor } from '@/server/auth/page'
 import { attachmentRate, firstTimerInterventions, rebookReport } from '@/server/services/retention'
+import { unhappyCheckIns } from '@/server/services/check-in'
 import { lastDays } from '@/server/services/analytics'
 import { FIRST_TIMER_GRACE_DAYS, REBOOK_WINDOW_DAYS } from '@/domain/retention/windows'
 import { SectionHeading, Stat, Table, TableWrap, Td, Th, Tr } from '@/components/ui/data'
@@ -26,10 +27,11 @@ export default async function RetentionPage({ params }: { params: Promise<{ salo
   const ctx = await pageContextFor(salon, 'report.viewSalon')
 
   const range = lastDays(180, ctx.timezone, ctx.now)
-  const [atRisk, rebook, attachment] = await Promise.all([
+  const [atRisk, rebook, attachment, unhappy] = await Promise.all([
     firstTimerInterventions(ctx.salonId, ctx.now),
     rebookReport(ctx.salonId, range, ctx.now),
     attachmentRate(ctx.salonId, lastDays(90, ctx.timezone, ctx.now)),
+    unhappyCheckIns(ctx.salonId),
   ])
 
   return (
@@ -41,6 +43,38 @@ export default async function RetentionPage({ params }: { params: Promise<{ salo
           a second is the most expensive thing that happens quietly in a salon.
         </p>
       </header>
+
+      {unhappy.length > 0 && (
+        <section>
+          <SectionHeading
+            title="Somebody is not happy"
+            description="They tapped “not quite right” on their check-in. The whole value of asking three days later is that somebody rings them back inside the week."
+          />
+          <ul className="mt-6 flex flex-col gap-4">
+            {unhappy.map((row) => (
+              <li
+                key={row.id}
+                className="rounded-lg border-l-4 border-l-warn bg-warn-soft px-5 py-4"
+              >
+                <div className="flex flex-wrap items-baseline justify-between gap-3">
+                  <Link
+                    href={`/s/${salon}/desk/clients/${row.clientProfile.id}`}
+                    className="font-medium text-ink underline-offset-2 hover:underline"
+                  >
+                    {`${row.clientProfile.firstName} ${row.clientProfile.lastName}`.trim()}
+                  </Link>
+                  <span className="text-secondary text-ink-muted">
+                    {row.clientProfile.phone ?? 'No number on file'}
+                    {row.appointment.primaryStylist &&
+                      ` · in with ${row.appointment.primaryStylist.displayName}`}
+                  </span>
+                </div>
+                {row.note && <p className="mt-2 text-body text-ink">“{row.note}”</p>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section>
         <SectionHeading

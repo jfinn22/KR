@@ -197,6 +197,7 @@ model Appointment {
   formSubmissions    FormSubmission[]
   patchTests         PatchTest[]
   messageThreads     MessageThread[]
+  postVisitCheckIn   PostVisitCheckIn?
 
   @@index([salonId, startsAt])
   @@index([salonId, primaryStylistId, startsAt])
