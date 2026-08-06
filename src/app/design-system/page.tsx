@@ -417,6 +417,32 @@ export default function DesignSystemPage() {
             </div>
           </div>
         </section>
+
+        <section className="mb-14">
+          <SectionHeading
+            title="The navy surfaces"
+            description="The two dark surfaces in the product. Both are blue-900 — the deepest rung of the family a salon's own brand colour replaces — so they re-skin with the brand rather than staying a fixed navy beside it. Only white and white-at-opacity carry text on them: the brand ladder guarantees white clears AA on this rung and promises nothing about anything else. Gold appears as atmosphere and as markers, never as type."
+          />
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className="nav-navy rounded-lg p-8">
+              <p className="text-label font-medium uppercase tracking-[0.08em] text-white/70">
+                nav-navy
+              </p>
+              <p className="mt-2 text-secondary text-white/75">
+                The navigation column. Gold pulled to the top corner, so the salon&rsquo;s name sits
+                in the light of it.
+              </p>
+            </div>
+            <div className="panel-navy rounded-lg p-8">
+              <p className="text-label font-medium uppercase tracking-[0.08em] text-white/70">
+                panel-navy
+              </p>
+              <p className="mt-2 text-secondary text-white/75">
+                A block that should read as the salon speaking rather than as another white card.
+              </p>
+            </div>
+          </div>
+        </section>
       </div>
     </main>
   )

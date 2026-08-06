@@ -200,6 +200,35 @@
   }
 
   /*
+   * The navy panel: the shell's own colour, borrowed for a block of content
+   * that should read as the salon speaking rather than as another white card.
+   *
+   * Text on it must be white or `text-white/…` — the branding ladder guarantees
+   * white clears AA on rung 900 for every salon, and nothing else is promised.
+   * Gold is the only accent that belongs here, and only as a rule or a marker.
+   */
+  .panel-navy {
+    background-color: rgb(var(--blue-900));
+    background-image:
+      radial-gradient(32rem 18rem at 100% 0%, rgb(var(--gold-500) / 0.18), transparent 60%),
+      radial-gradient(28rem 20rem at 0% 100%, rgb(var(--blue-500) / 0.35), transparent 58%);
+    @apply text-ink-inverse;
+  }
+
+  /*
+   * The nav column's surface. The same navy as `.panel-navy`, with the gold
+   * warmed slightly and pulled to the top corner so the salon's name sits in
+   * the light of it — the one place on the screen where gold is atmosphere
+   * rather than a marker on something.
+   */
+  .nav-navy {
+    background-color: rgb(var(--blue-900));
+    background-image:
+      radial-gradient(30rem 22rem at 115% -5%, rgb(var(--gold-500) / 0.2), transparent 62%),
+      radial-gradient(26rem 26rem at -15% 105%, rgb(var(--blue-500) / 0.38), transparent 60%);
+  }
+
+  /*
    * The gilt edge. One hairline of gold along the top of a shell or a hero,
    * fading out at both ends — the finishing touch a salon's own signage has and
    * a dashboard never does.
@@ -216,11 +245,20 @@
     @apply h-px w-full;
   }
 
-  /* A warm, barely-there wash behind hero copy. Never behind body text. */
+  /*
+   * A warm, barely-there wash behind hero copy. Never behind body text.
+   *
+   * Navy enters here as a tint rather than a colour — `blue-900` at a few
+   * percent, which reads as depth in the corner rather than as a blue panel.
+   * Anything heavier and the black display type sitting on it starts to work
+   * for its contrast.
+   */
   .hero-wash {
     background-image:
-      radial-gradient(80rem 32rem at 12% -10%, rgb(var(--blue-100) / 0.9), transparent 60%),
+      radial-gradient(80rem 32rem at 12% -10%, rgb(var(--blue-100) / 0.95), transparent 60%),
+      radial-gradient(52rem 30rem at 4% 6%, rgb(var(--blue-900) / 0.07), transparent 62%),
       radial-gradient(60rem 28rem at 92% 0%, rgb(var(--gold-100)), transparent 62%),
+      radial-gradient(38rem 22rem at 96% 4%, rgb(var(--gold-300) / 0.3), transparent 60%),
       radial-gradient(48rem 26rem at 60% 110%, rgb(var(--rose-100) / 0.8), transparent 60%);
   }
 
@@ -237,7 +275,13 @@
     background-color: rgb(var(--surface));
     background-image:
       radial-gradient(100rem 48rem at 0% -10%, rgb(var(--blue-100) / 0.95), transparent 58%),
+      /* Navy, at a few percent — depth in the corner where the nav column
+         meets the page, so the two read as one surface rather than a dark
+         panel bolted onto a white one. */
+        radial-gradient(46rem 30rem at -4% 2%, rgb(var(--blue-900) / 0.08), transparent 60%),
       radial-gradient(75rem 40rem at 100% -5%, rgb(var(--gold-100)), transparent 55%),
+      /* Gold, warmer than the wash rung, kept to the far corner. */
+        radial-gradient(40rem 24rem at 104% 2%, rgb(var(--gold-300) / 0.26), transparent 58%),
       radial-gradient(90rem 48rem at 50% 115%, rgb(var(--rose-100) / 0.9), transparent 60%);
     background-attachment: fixed;
   }

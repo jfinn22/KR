@@ -93,12 +93,22 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <footer className="border-t border-line">
-        <div className="mx-auto flex max-w-shell flex-wrap items-center justify-between gap-4 px-6 py-8 lg:px-10">
-          <p className="text-secondary text-ink-muted">
+      {/*
+       * Navy, so the page closes on the same colour the product's own shell is
+       * built from — a visitor who signs up meets the nav column already
+       * knowing what it looks like. The gilt edge above it is the same hairline
+       * that sits at the top of every screen inside.
+       */}
+      <footer className="panel-navy">
+        <div aria-hidden="true" className="edge-gilt" />
+        <div className="mx-auto flex max-w-shell flex-wrap items-center justify-between gap-4 px-6 py-10 lg:px-10">
+          <p className="text-secondary text-white/75">
             Salon Intelligence Platform — consultation, scheduling and hair records in one place.
           </p>
-          <Link href="/design-system" className="text-secondary text-blue-500 hover:underline">
+          <Link
+            href="/design-system"
+            className="text-secondary font-medium text-gold-300 underline-offset-4 hover:underline"
+          >
             Design system
           </Link>
         </div>
