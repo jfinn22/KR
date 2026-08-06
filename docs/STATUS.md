@@ -64,8 +64,24 @@ followed, in dependency order. Each ends green on `pnpm verify` plus
   discount for the front desk to be limited on.
 - **Uses are a ledger, not a counter.** Every running total in this platform has
   eventually been found wrong with nothing to check it against. Rows can be
-  counted per period, an allowance resets without anybody sweeping, and a voided
-  invoice gives its own use back.
+  counted per period, an allowance resets without anybody sweeping, and a bill
+  taken back gives its own use back. That last one hangs off the refund path
+  rather than a void: `InvoiceStatus.VOID` is in the schema and nothing has ever
+  written it, so a full refund is what actually undoes a bill here. A partial
+  one does not release — the visit happened and the benefit landed on it, and
+  handing the allowance back over a goodwill tenner would let the same benefit
+  be spent twice.
+- **The membership money is reported twice, on purpose.** Takings stay cash;
+  moving this platform's revenue reporting to accrual is a decision an owner
+  makes with their accountant. But the split sits beside it, because the figure
+  an owner needs before they spend a membership month is the part they have not
+  earned. Forty members at forty-five collected on the first is eighteen hundred
+  in the bank on the second, of which about seventeen hundred and forty is still
+  owed as haircuts, and salons that read the first number as income are the ones
+  who cannot afford the January their members all turn up in. A past-due member
+  counts — their card failed but the service is still owed — and a membership
+  the provider has not confirmed counts towards the run rate and towards no
+  money at all.
 - **Benefits stop at a week overdue; the membership ends at three.** A
   membership still giving away haircuts against a card that does not work is one
   the salon is paying for. Cancelling at the first decline is a client who has

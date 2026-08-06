@@ -271,9 +271,11 @@ export interface Recognition {
  * income books a month it may still have to refund. Straight-line again, for
  * the same reason as proration: it has to be checkable.
  *
- * Not wired into any report yet, and deliberately so. Deciding that this
- * platform's revenue figures move from cash to accrual is a decision an owner
- * makes with their accountant, not one a release makes for them.
+ * Reported beside the takings figure rather than replacing it. Deciding that
+ * this platform's revenue moves from cash to accrual is a decision an owner
+ * makes with their accountant, not one a release makes for them — but the part
+ * of a membership month they have NOT earned is money in the bank they should
+ * not be spending, and that is worth saying out loud either way.
  */
 export function recogniseRevenue(input: {
   paidCents: number

@@ -6,12 +6,14 @@ import {
   cancelMembership,
   changePlan,
   membershipFor,
+  membershipRevenue,
   recordBenefitUse,
   releaseBenefitUse,
   subscribeClient,
   sweepCancellations,
   sweepDunning,
 } from '@/server/services/memberships'
+import { refundPayment } from '@/server/services/commerce'
 
 /**
  * Ten schema models have described memberships since the beginning and nothing
@@ -384,6 +386,131 @@ describe('the sweeps, which are the half that makes it real', () => {
 
     expect((await sweepDunning(new Date('2026-06-10T00:00:00Z'))).cancelled).toBe(0)
     expect((await sweepDunning(new Date('2026-06-25T00:00:00Z'))).cancelled).toBe(1)
+  })
+})
+
+describe('what the memberships are worth', () => {
+  it('splits the fee into what has been earned and what has not', async () => {
+    await membership()
+
+    // Half way through a 30-day period on a 3000 fee.
+    const mid = new Date('2026-06-16T00:00:00Z')
+    const revenue = await membershipRevenue(S, mid)
+
+    expect(revenue.members).toBe(1)
+    expect(revenue.takenCents).toBe(3_000)
+    expect(revenue.earnedCents).toBe(1_500)
+    expect(revenue.deferredCents).toBe(1_500)
+    // The two halves are the whole thing — a rounding error here is money the
+    // salon either invents or loses.
+    expect(revenue.earnedCents + revenue.deferredCents).toBe(revenue.takenCents)
+  })
+
+  it('counts a past-due member, because the service is still owed', async () => {
+    await membership({ status: 'PAST_DUE', pastDueSince: new Date('2026-06-14T00:00:00Z') })
+    const revenue = await membershipRevenue(S, PERIOD_START)
+
+    expect(revenue.members).toBe(1)
+    expect(revenue.deferredCents).toBe(3_000)
+  })
+
+  it('leaves a cancelled member out entirely', async () => {
+    await membership({ status: 'CANCELLED' })
+    expect(await membershipRevenue(S, NOW)).toMatchObject({ members: 0, takenCents: 0 })
+  })
+
+  it('normalises a yearly plan to what it brings in each month', async () => {
+    await unsafeDb.clientMembershipPlan.update({
+      where: { id: 'mb_basic' },
+      data: { interval: 'YEAR', priceCents: 36_000 },
+    })
+    await membership()
+
+    expect((await membershipRevenue(S, NOW)).monthlyRunRateCents).toBe(3_000)
+  })
+
+  it('counts an unconfirmed membership towards the run rate but not the money', async () => {
+    // No period yet means the provider has not confirmed it. Counting the fee
+    // as taken would invent money the salon does not have.
+    await membership({ currentPeriodStart: null, renewsAt: null })
+    const revenue = await membershipRevenue(S, NOW)
+
+    expect(revenue.monthlyRunRateCents).toBe(3_000)
+    expect(revenue.takenCents).toBe(0)
+  })
+})
+
+describe('a refund undoing the bill', () => {
+  async function billed() {
+    await membership()
+    const benefits = await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW)
+    await unsafeDb.invoice.create({
+      data: {
+        id: 'mb_inv',
+        salonId: S,
+        clientProfileId: 'mb_cli',
+        number: 'MB-0001',
+        status: 'PAID',
+        subtotalCents: 5_000,
+        discountCents: 5_000,
+        totalCents: 0,
+      },
+    })
+    await recordBenefitUse({
+      salonId: S,
+      membershipId: 'mb_m1',
+      invoiceId: 'mb_inv',
+      benefits: benefits!.benefits,
+    })
+    return unsafeDb.payment.create({
+      data: {
+        id: 'mb_pay',
+        salonId: S,
+        invoiceId: 'mb_inv',
+        clientProfileId: 'mb_cli',
+        amountCents: 5_000,
+        status: 'SUCCEEDED',
+        capturedAt: NOW,
+      },
+    })
+  }
+
+  it('gives the allowance back when the whole bill goes back', async () => {
+    await billed()
+    await refundPayment({
+      salonId: S,
+      paymentId: 'mb_pay',
+      amountCents: 5_000,
+      reason: 'The colour did not take.',
+    })
+
+    // They still have their free cut this month. Keeping the allowance for a
+    // service they were not, in the end, given is the salon holding something
+    // for nothing.
+    const again = await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW)
+    expect(again?.totalCents).toBe(5_000)
+  })
+
+  it('keeps it on a partial refund, which would otherwise be spendable twice', async () => {
+    await billed()
+    await refundPayment({
+      salonId: S,
+      paymentId: 'mb_pay',
+      amountCents: 1_000,
+      reason: 'Goodwill for the wait.',
+    })
+
+    const again = await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW)
+    expect(again?.totalCents).toBe(0)
+  })
+
+  it('releases once partial refunds add up to the whole bill', async () => {
+    await billed()
+    await refundPayment({ salonId: S, paymentId: 'mb_pay', amountCents: 2_000, reason: 'Part one.' })
+    await refundPayment({ salonId: S, paymentId: 'mb_pay', amountCents: 3_000, reason: 'Part two.' })
+
+    const again = await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW)
+    expect(again?.totalCents).toBe(5_000)
   })
 })
 

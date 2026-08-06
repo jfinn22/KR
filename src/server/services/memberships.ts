@@ -8,6 +8,7 @@ import {
   dunningAction,
   entitlementsOf,
   prorate,
+  recogniseRevenue,
   type AppliedBenefit,
   type BillableLine,
   type Entitlement,
@@ -192,7 +193,18 @@ export async function recordBenefitUse(input: {
   })
 }
 
-/** Give an allowance back when the invoice it was used on is voided. */
+/**
+ * Give an allowance back when the bill it was used on is undone.
+ *
+ * Called from the refund path, on a refund that takes the whole invoice back.
+ * A client whose visit was refunded still has their free cut this month —
+ * charging them for the allowance of a service they were not, in the end, given
+ * is the salon keeping something for nothing.
+ *
+ * A PARTIAL refund does not release: the visit still happened and the benefit
+ * still landed on it, and handing the allowance back on a goodwill tenner off
+ * would let the same benefit be spent twice.
+ */
 export async function releaseBenefitUse(salonId: string, invoiceId: string): Promise<void> {
   await unsafeDb.membershipBenefitUse.deleteMany({ where: { salonId, invoiceId } })
 }
@@ -546,6 +558,90 @@ export async function salonPlans(salonId: string) {
       _count: { select: { memberships: true } },
     },
   })
+}
+
+export interface MembershipRevenue {
+  members: number
+  /** What the memberships bring in over a month, whatever each one's interval. */
+  monthlyRunRateCents: number
+  /** Collected for the periods currently running. */
+  takenCents: number
+  /** Of that, the part the salon has actually earned by now. */
+  earnedCents: number
+  /** And the part it has not — money in the bank that is still owed as service. */
+  deferredCents: number
+}
+
+/**
+ * What the memberships are worth, and how much of it the salon has earned.
+ *
+ * The takings figure elsewhere is cash, and it stays cash — moving this
+ * platform's revenue reporting to accrual is a decision an owner makes with
+ * their accountant, not one a release makes for them. This sits beside it
+ * instead, because the number an owner most needs before they spend a
+ * membership month is the part of it they have not earned yet.
+ *
+ * Forty members at forty-five pounds collected on the first is eighteen hundred
+ * in the bank on the second, of which about seventeen hundred and forty is
+ * still owed as haircuts. Salons that treat the first figure as income are the
+ * ones that cannot afford the January their members all turn up in.
+ */
+export async function membershipRevenue(
+  salonId: string,
+  asOf = new Date(),
+): Promise<MembershipRevenue> {
+  const memberships = await dbFor(salonId).clientMembership.findMany({
+    /*
+     * PAST_DUE is in, CANCELLED is out. Somebody whose card failed is still a
+     * member with a period running and benefits to honour until dunning ends
+     * it, so the service they are owed is a real liability.
+     */
+    where: { salonId, status: { in: ['ACTIVE', 'PAST_DUE'] } },
+    select: {
+      currentPeriodStart: true,
+      renewsAt: true,
+      plan: { select: { priceCents: true, interval: true } },
+    },
+  })
+
+  let monthlyRunRateCents = 0
+  let takenCents = 0
+  let earnedCents = 0
+  let deferredCents = 0
+
+  for (const membership of memberships) {
+    const price = membership.plan.priceCents
+    monthlyRunRateCents +=
+      membership.plan.interval === 'YEAR' ? Math.round(price / 12) : price
+
+    /*
+     * A membership with no period on it is one the provider has not confirmed
+     * yet. Counting its fee as taken would invent money; leaving it out of the
+     * run rate would understate what the salon sells. So it counts towards the
+     * run rate above and towards nothing below.
+     */
+    const periodStart = membership.currentPeriodStart
+    const periodEnd = membership.renewsAt
+    if (!periodStart || !periodEnd) continue
+
+    const recognition = recogniseRevenue({
+      paidCents: price,
+      periodStart,
+      periodEnd,
+      asOf,
+    })
+    takenCents += price
+    earnedCents += recognition.earnedCents
+    deferredCents += recognition.deferredCents
+  }
+
+  return {
+    members: memberships.length,
+    monthlyRunRateCents,
+    takenCents,
+    earnedCents,
+    deferredCents,
+  }
 }
 
 function periodOf(interval: string): number {

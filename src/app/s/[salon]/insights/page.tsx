@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { pageContextFor } from '@/server/auth/page'
 import { ownerDashboard } from '@/server/services/analytics'
+import { membershipRevenue } from '@/server/services/memberships'
 import { aiUsage } from '@/server/services/ai'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -40,9 +41,10 @@ export default async function InsightsPage({
   const ctx = await pageContextFor(salon, 'report.viewSalon')
 
   const days = RANGES.find((r) => String(r.days) === query.days)?.days ?? 30
-  const [data, ai] = await Promise.all([
+  const [data, ai, memberships] = await Promise.all([
     ownerDashboard(ctx.salonId, ctx.timezone, days),
     aiUsage(ctx.salonId),
+    membershipRevenue(ctx.salonId),
   ])
 
   const { accuracy, funnel, utilisation, rules, revenue } = data
@@ -254,6 +256,41 @@ export default async function InsightsPage({
           <Stat label="Cancelled" value={revenue.cancelled} />
         </div>
       </section>
+
+      {/* --- Memberships ------------------------------------------------------- */}
+      {memberships.members > 0 && (
+        <section>
+          <SectionHeading
+            title="Memberships"
+            description="Beside the takings above rather than inside them. Takings are cash; this is what the cash has actually bought so far."
+          />
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat label="Members" value={memberships.members} />
+            <Stat
+              label="Every month"
+              value={formatMoney(memberships.monthlyRunRateCents, ctx.currency)}
+              hint="whatever each one's interval"
+            />
+            <Stat
+              label="Earned so far"
+              value={formatMoney(memberships.earnedCents, ctx.currency)}
+              hint={`of ${formatMoney(memberships.takenCents, ctx.currency)} collected`}
+            />
+            {/*
+             * The one an owner needs before they spend a membership month. Forty
+             * members at forty-five collected on the first is eighteen hundred in
+             * the bank on the second, and almost all of it is still owed as
+             * haircuts.
+             */}
+            <Stat
+              label="Still owed as service"
+              tone="hair"
+              value={formatMoney(memberships.deferredCents, ctx.currency)}
+              hint="taken, not yet earned"
+            />
+          </div>
+        </section>
+      )}
 
       {/* --- Capacity ---------------------------------------------------------- */}
       <section>

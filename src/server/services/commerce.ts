@@ -829,6 +829,24 @@ export async function refundPayment(input: {
     select: { id: true },
   })
 
+  /*
+   * A refund that takes the whole invoice back gives any membership allowance
+   * back with it.
+   *
+   * `InvoiceStatus.VOID` exists in the schema and nothing has ever written it,
+   * so a full refund is what actually undoes a bill here. A client whose visit
+   * was refunded still has their free cut this month; keeping the allowance
+   * would be the salon holding something for nothing. Partial refunds do not
+   * release — the visit happened, the benefit landed on it, and handing it back
+   * over a goodwill tenner would let the same benefit be spent twice. Measured
+   * against the bill rather than the bill plus tip: a salon that refunds the
+   * service and lets the client keep the tip has still undone the bill.
+   */
+  if (payment.invoiceId && alreadyRefunded + input.amountCents >= payment.amountCents) {
+    const { releaseBenefitUse } = await import('./memberships')
+    await releaseBenefitUse(input.salonId, payment.invoiceId)
+  }
+
   return { refundId: refund.id }
 }
 
