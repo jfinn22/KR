@@ -72,8 +72,40 @@ describe('what the membership takes off the bill', () => {
         label: 'A cut a month',
         discountCents: 5_000,
         entitlementKey: 'svc_cut:FREE:0',
+        units: 1,
       },
     ])
+  })
+
+  it('spends one allowance per SERVICE, not per line', () => {
+    /*
+     * The client, and two friends, billed as one line of three. This used to
+     * count a single use and discount the whole line — three haircuts given
+     * away for one month's fee — because the allowance was counted per row of
+     * the bill rather than per head in the chair.
+     */
+    const benefits = applyEntitlements([cut({ quantity: 3 })], free)
+    expect(benefits).toHaveLength(1)
+    expect(benefits[0]?.units).toBe(1)
+    expect(benefits[0]?.discountCents).toBe(5_000)
+  })
+
+  it('covers as many as the allowance runs to, and no more', () => {
+    const two = entitlementsOf([
+      { kind: 'FREE', serviceId: 'svc_cut', label: 'Two cuts a month', perPeriod: 2 },
+    ])
+    const benefits = applyEntitlements([cut({ quantity: 3 })], two)
+    expect(benefits[0]?.units).toBe(2)
+    expect(benefits[0]?.discountCents).toBe(10_000)
+  })
+
+  it('covers the whole line where the allowance is unlimited', () => {
+    const unlimited = entitlementsOf([
+      { kind: 'FREE', serviceId: 'svc_cut', label: 'Cuts whenever' },
+    ])
+    const benefits = applyEntitlements([cut({ quantity: 3 })], unlimited)
+    expect(benefits[0]?.units).toBe(3)
+    expect(benefits[0]?.discountCents).toBe(15_000)
   })
 
   it('leaves anything else alone', () => {

@@ -90,6 +90,14 @@ export interface AppliedBenefit {
    * resetting.
    */
   entitlementKey: string
+  /**
+   * How much of the allowance this spent.
+   *
+   * A line of two haircuts against "two cuts a month" spends both, and the
+   * ledger needs two rows for it — one row would leave the client a free cut
+   * they have already had.
+   */
+  units: number
 }
 
 /**
@@ -118,9 +126,21 @@ export function applyEntitlements(
   for (const [lineIndex, line] of lines.entries()) {
     const candidates = entitlements
       .filter((e) => e.serviceId === null || e.serviceId === line.serviceId)
-      .filter((e) => e.perPeriod === null || (used[keyOf(e)] ?? 0) < e.perPeriod)
-      .map((e) => ({ entitlement: e, discountCents: valueOf(e, line) }))
-      .filter((c) => c.discountCents > 0)
+      .map((e) => {
+        /*
+         * An allowance is spent per SERVICE, not per line.
+         *
+         * This used to count one use per line and discount the whole line, so
+         * "a cut a month" against a single line of three cuts gave away all
+         * three for one month's allowance — the client, two friends, one fee.
+         * How many units a line carries is the till's business; how many the
+         * allowance covers is this function's.
+         */
+        const remaining = e.perPeriod === null ? line.quantity : e.perPeriod - (used[keyOf(e)] ?? 0)
+        const units = Math.min(line.quantity, Math.max(0, remaining))
+        return { entitlement: e, units, discountCents: valueOf(e, line, units) }
+      })
+      .filter((c) => c.units > 0 && c.discountCents > 0)
       /*
        * Best for the client, not best for the salon. Somebody holding a
        * membership that could take either 20% or £10 off is entitled to the
@@ -132,33 +152,34 @@ export function applyEntitlements(
     const best = candidates[0]
     if (!best) continue
 
-    used[keyOf(best.entitlement)] = (used[keyOf(best.entitlement)] ?? 0) + 1
+    used[keyOf(best.entitlement)] = (used[keyOf(best.entitlement)] ?? 0) + best.units
     benefits.push({
       lineIndex,
       label: best.entitlement.label,
       discountCents: best.discountCents,
       entitlementKey: keyOf(best.entitlement),
+      units: best.units,
     })
   }
 
   return benefits
 }
 
-function keyOf(entitlement: Entitlement): string {
+export function keyOf(entitlement: Entitlement): string {
   return `${entitlement.serviceId ?? '*'}:${entitlement.kind}:${entitlement.value}`
 }
 
-function valueOf(entitlement: Entitlement, line: BillableLine): number {
-  const lineTotal = Math.round(line.unitPriceCents * line.quantity)
+function valueOf(entitlement: Entitlement, line: BillableLine, units: number): number {
+  const covered = Math.round(line.unitPriceCents * units)
   switch (entitlement.kind) {
     case 'FREE':
-      return lineTotal
+      return covered
     case 'PERCENT_OFF':
-      return Math.round((lineTotal * entitlement.value) / 10_000)
+      return Math.round((covered * entitlement.value) / 10_000)
     case 'FIXED_OFF':
-      // Never more than the line is worth: a £30 benefit against a £20 service
-      // is a £20 benefit, not £10 of credit the client can spend elsewhere.
-      return Math.min(entitlement.value, lineTotal)
+      // Never more than the service is worth, per unit: a £30 benefit against a
+      // £20 service is a £20 benefit, not £10 of credit to spend elsewhere.
+      return Math.min(entitlement.value, line.unitPriceCents) * units
   }
 }
 

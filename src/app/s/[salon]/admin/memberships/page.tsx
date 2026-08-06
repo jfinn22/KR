@@ -93,6 +93,49 @@ export default async function MembershipsPage({ params }: { params: Promise<{ sa
         </div>
       </section>
 
+      {/*
+       * `saveMembershipPlanAction` has always taken a planId and updated in
+       * place, and nothing ever passed one — the editor was mounted with
+       * `plan={null}` and nowhere else, so a plan could be created and then
+       * never renamed, repriced or taken off offer. A salon whose membership is
+       * wrong was stuck with it, which is the exact thing the heading above
+       * tells them to think carefully about.
+       */}
+      {plans.length > 0 && (
+        <section>
+          <SectionHeading
+            title="Change one"
+            description="Repricing does not change what anybody already on it is paying until their next period."
+          />
+          <div className="mt-6 flex flex-col gap-4">
+            {plans.map((plan) => (
+              <PlanEditor
+                key={plan.id}
+                salonSlug={salon}
+                services={services}
+                plan={{
+                  id: plan.id,
+                  name: plan.name,
+                  descriptionText: plan.descriptionText,
+                  priceCents: plan.priceCents,
+                  interval: plan.interval,
+                  isActive: plan.isActive,
+                  included: entitlementsOf(plan.includedJson).map((entitlement) => ({
+                    kind: entitlement.kind,
+                    label: entitlement.label,
+                    serviceId: entitlement.serviceId ?? '',
+                    // Percent is stored in basis points and fixed in cents; the
+                    // editor takes both as the human units it wrote them in.
+                    value: entitlement.kind === 'FREE' ? '' : String(entitlement.value / 100),
+                    perPeriod: entitlement.perPeriod === null ? '' : String(entitlement.perPeriod),
+                  })),
+                }}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       <section>
         <SectionHeading title="Add one" description="Benefits are rows so the till can apply them." />
         <div className="mt-6">

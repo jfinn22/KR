@@ -14,6 +14,8 @@ import {
   sweepDunning,
 } from '@/server/services/memberships'
 import { refundPayment } from '@/server/services/commerce'
+import { MockPaymentsAdapter } from '@/ports/payments'
+import { POST } from '@/app/api/webhooks/payments/route'
 
 /**
  * Ten schema models have described memberships since the beginning and nothing
@@ -29,6 +31,13 @@ const PERIOD_END = new Date('2026-07-01T00:00:00Z')
 
 async function seed() {
   await unsafeDb.salon.deleteMany({ where: { id: S } })
+  /*
+   * The webhook route refuses an event id it has already seen — which is the
+   * point of it — and `IdempotencyKey` is not salon-scoped, so those rows
+   * outlive the salon teardown. Without this, the routing tests below pass on
+   * a clean database and are answered `duplicate` on every run after.
+   */
+  await unsafeDb.idempotencyKey.deleteMany({ where: { key: { startsWith: 'evt_mb_' } } })
 
   await unsafeDb.salon.create({
     data: {
@@ -339,6 +348,58 @@ describe('changing and stopping', () => {
     expect(row.renewsAt?.toISOString()).toBe(PERIOD_END.toISOString())
   })
 
+  it('carries what they have already had this period onto the new plan', async () => {
+    /*
+     * Uses are keyed `serviceId:kind:value`, so a plan change used to change
+     * the key and the allowance read as untouched — a client could have their
+     * free cut on the 5th, move plan on the 6th, and have another. Both plans
+     * here include the same free cut, so the use must survive the move.
+     */
+    await membership()
+    const first = await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW)
+    await recordBenefitUse({
+      salonId: S,
+      membershipId: 'mb_m1',
+      invoiceId: 'inv_1',
+      benefits: first!.benefits,
+    })
+
+    await changePlan({ salonId: S, membershipId: 'mb_m1', newPlanId: 'mb_plus', now: NOW })
+
+    const again = await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW)
+    expect(again?.totalCents).toBe(0)
+  })
+
+  it('moves the price at the provider, not just the local row', async () => {
+    await unsafeDb.clientMembershipPlan.update({
+      where: { id: 'mb_plus' },
+      data: { stripePriceId: 'price_plus' },
+    })
+    await unsafeDb.clientProfile.update({
+      where: { id: 'mb_cli' },
+      data: { paymentsCustomerRef: 'cus_test' },
+    })
+    await unsafeDb.clientMembershipPlan.update({
+      where: { id: 'mb_basic' },
+      data: { stripePriceId: 'price_basic' },
+    })
+
+    const { membershipId } = await subscribeClient({
+      salonId: S,
+      clientProfileId: 'mb_cli',
+      planId: 'mb_basic',
+    })
+
+    /*
+     * The provider has to know. This used to write `planId` and nothing else,
+     * so the client agreed a proration, saw the new plan on the salon's screen,
+     * and went on being charged the old amount every month.
+     */
+    await expect(
+      changePlan({ salonId: S, membershipId, newPlanId: 'mb_plus', now: NOW }),
+    ).resolves.toBeTruthy()
+  })
+
   it('lets them keep what they paid for when they cancel', async () => {
     await membership()
     const { endsAt } = await cancelMembership({ salonId: S, membershipId: 'mb_m1', now: NOW })
@@ -386,6 +447,207 @@ describe('the sweeps, which are the half that makes it real', () => {
 
     expect((await sweepDunning(new Date('2026-06-10T00:00:00Z'))).cancelled).toBe(0)
     expect((await sweepDunning(new Date('2026-06-25T00:00:00Z'))).cancelled).toBe(1)
+  })
+})
+
+describe('reaching the payment provider at all', () => {
+  async function pricedPlan() {
+    await unsafeDb.clientMembershipPlan.update({
+      where: { id: 'mb_basic' },
+      data: { stripePriceId: 'price_test_basic' },
+    })
+    await unsafeDb.clientProfile.update({
+      where: { id: 'mb_cli' },
+      data: { paymentsCustomerRef: 'cus_test' },
+    })
+  }
+
+  it('creates a subscription when the plan has a price', async () => {
+    // `stripePriceId` had no writer at all, so this branch never ran: every
+    // membership ever sold was a local row that charged the client once at the
+    // counter and never again.
+    await pricedPlan()
+    const { membershipId } = await subscribeClient({
+      salonId: S,
+      clientProfileId: 'mb_cli',
+      planId: 'mb_basic',
+    })
+
+    const row = await unsafeDb.clientMembership.findUnique({ where: { id: membershipId } })
+    expect(row?.stripeSubscriptionId).toBeTruthy()
+  })
+
+  it('gives a rejoiner a new subscription, not the dead one', async () => {
+    await pricedPlan()
+    const first = await subscribeClient({ salonId: S, clientProfileId: 'mb_cli', planId: 'mb_basic' })
+    await cancelMembership({ salonId: S, membershipId: first.membershipId, immediately: true })
+
+    const second = await subscribeClient({
+      salonId: S,
+      clientProfileId: 'mb_cli',
+      planId: 'mb_basic',
+    })
+
+    const [a, b] = await Promise.all([
+      unsafeDb.clientMembership.findUnique({ where: { id: first.membershipId } }),
+      unsafeDb.clientMembership.findUnique({ where: { id: second.membershipId } }),
+    ])
+    /*
+     * The idempotency key used to be salon + client + plan, which is the same
+     * string every time — so the provider replayed its cached answer and the
+     * new membership was handed the id of the CANCELLED subscription. It would
+     * have looked live locally while nothing charged it, and every webhook
+     * about it would have landed on the dead row.
+     */
+    expect(b?.stripeSubscriptionId).toBeTruthy()
+    expect(b?.stripeSubscriptionId).not.toBe(a?.stripeSubscriptionId)
+  })
+
+  it('still ends a membership whose subscription the provider has never heard of', async () => {
+    // A row brought across from whatever the salon used before, or one
+    // cancelled by hand in the provider's dashboard. Refusing would leave the
+    // salon unable to stop a membership because of a stale string.
+    await membership()
+    await expect(
+      cancelMembership({ salonId: S, membershipId: 'mb_m1', immediately: true }),
+    ).resolves.toBeTruthy()
+  })
+})
+
+describe('the route from a provider event to a membership', () => {
+  /** Post a synthesised event at the real route, signed the way a provider does. */
+  async function deliver(event: {
+    id: string
+    type: string
+    objectId: string
+    subscriptionRef?: string | null
+    periodEnd?: string | null
+  }) {
+    const { payload, signature } = MockPaymentsAdapter.synthesizeWebhook(event)
+    const response = await POST(
+      new Request('http://localhost/api/webhooks/payments', {
+        method: 'POST',
+        headers: { 'stripe-signature': signature, 'content-type': 'application/json' },
+        body: payload,
+      }),
+    )
+    return (await response.json()) as Record<string, unknown>
+  }
+
+  it('starts the dunning clock from an invoice failure', async () => {
+    await membership()
+
+    /*
+     * The event the whole dunning ladder exists to react to. `objectId` is the
+     * INVOICE — routing on it, which is what this used to do, matched no
+     * membership at all, so nobody was ever marked overdue and the ladder had
+     * no producer. The subscription is a separate field for exactly this.
+     */
+    const result = await deliver({
+      id: 'evt_mb_dun_1',
+      type: 'invoice.payment_failed',
+      objectId: 'in_9999',
+      subscriptionRef: 'sub_test',
+    })
+
+    expect(result).toMatchObject({ kind: 'membership', status: 'PAST_DUE' })
+    const row = await unsafeDb.clientMembership.findUnique({ where: { id: 'mb_m1' } })
+    expect(row?.pastDueSince).not.toBeNull()
+  })
+
+  it('rolls the period from the event rather than from metadata nobody writes', async () => {
+    await membership()
+
+    await deliver({
+      id: 'evt_mb_roll_1',
+      type: 'invoice.payment_succeeded',
+      objectId: 'in_8888',
+      subscriptionRef: 'sub_test',
+      periodEnd: '2026-08-01T00:00:00Z',
+    })
+
+    const row = await unsafeDb.clientMembership.findUnique({ where: { id: 'mb_m1' } })
+    expect(row?.renewsAt).toEqual(new Date('2026-08-01T00:00:00Z'))
+    // Which is what resets the allowance. Without it a monthly benefit was a
+    // once-ever benefit, and the client paid every month for the first one.
+    expect(row?.currentPeriodStart).toEqual(PERIOD_END)
+  })
+
+  it('says so rather than guessing when an event carries no subscription', async () => {
+    const result = await deliver({
+      id: 'evt_mb_none_1',
+      type: 'invoice.payment_failed',
+      objectId: 'in_7777',
+    })
+    expect(result).toMatchObject({ handled: false })
+  })
+})
+
+describe('the status machine, which the provider talks to', () => {
+  it('does not resurrect a membership somebody cancelled', async () => {
+    await membership({ status: 'CANCELLED', cancelledAt: NOW })
+
+    // The provider keeps narrating a subscription after it ends. Every one of
+    // those echoes used to fall through to the ACTIVE branch and hand the
+    // client their benefits back.
+    const result = await applySubscriptionEvent({
+      type: 'customer.subscription.updated',
+      subscriptionRef: 'sub_test',
+      now: NOW,
+    })
+
+    expect(result.status).toBe('CANCELLED')
+    const row = await unsafeDb.clientMembership.findUnique({ where: { id: 'mb_m1' } })
+    expect(row?.status).toBe('CANCELLED')
+  })
+
+  it('does not clear the dunning clock on an event that is not a payment', async () => {
+    await membership({ status: 'PAST_DUE', pastDueSince: new Date('2026-06-10T00:00:00Z') })
+
+    // A changed card, a changed price, a changed anything. Treating it as
+    // proof of payment wiped the clock, so a card that never works would sit
+    // one day overdue forever and the ladder would never reach its end.
+    await applySubscriptionEvent({
+      type: 'customer.subscription.updated',
+      subscriptionRef: 'sub_test',
+      now: NOW,
+    })
+
+    const row = await unsafeDb.clientMembership.findUnique({ where: { id: 'mb_m1' } })
+    expect(row?.status).toBe('PAST_DUE')
+    expect(row?.pastDueSince).toEqual(new Date('2026-06-10T00:00:00Z'))
+  })
+
+  it('clears it when money actually arrives', async () => {
+    await membership({ status: 'PAST_DUE', pastDueSince: new Date('2026-06-10T00:00:00Z') })
+
+    await applySubscriptionEvent({
+      type: 'invoice.payment_succeeded',
+      subscriptionRef: 'sub_test',
+      now: NOW,
+    })
+
+    const row = await unsafeDb.clientMembership.findUnique({ where: { id: 'mb_m1' } })
+    expect(row?.status).toBe('ACTIVE')
+    expect(row?.pastDueSince).toBeNull()
+  })
+
+  it('starts the new period where the old one ended, not when the event arrived', async () => {
+    await membership()
+
+    // Deliberately late — a webhook that arrives two days after the period
+    // rolled. Starting the period "now" would leave two days belonging to
+    // neither, and a visit inside them counting against nothing.
+    const late = new Date('2026-07-03T00:00:00Z')
+    await applySubscriptionEvent({
+      type: 'invoice.payment_succeeded',
+      subscriptionRef: 'sub_test',
+      currentPeriodEnd: '2026-08-01T00:00:00Z',
+      now: late,
+    })
+
+    const row = await unsafeDb.clientMembership.findUnique({ where: { id: 'mb_m1' } })
+    expect(row?.currentPeriodStart).toEqual(PERIOD_END)
   })
 })
 

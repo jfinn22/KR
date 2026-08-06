@@ -44,6 +44,22 @@ test.describe('memberships', () => {
     await expect(page.getByRole('cell', { name: 'The Blow-dry Club' })).toBeVisible()
   })
 
+  test('an existing one can be repriced, which it could not be before', async ({ page }) => {
+    /*
+     * `saveMembershipPlanAction` always took a planId and updated in place, and
+     * the editor was only ever mounted with `plan={null}` — so a salon that got
+     * a membership wrong was stuck with it forever.
+     */
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/admin/memberships`)
+
+    await page.getByRole('button', { name: /change the cut club/i }).click()
+    await page.getByLabel('Price', { exact: true }).fill('52')
+    await page.getByRole('button', { name: /^save$/i }).click()
+
+    await expect(page.getByRole('cell', { name: '52.00 / month' })).toBeVisible()
+  })
+
   test('the desk will not sell one to somebody with no card', async ({ page }) => {
     /*
      * The whole reason to refuse here rather than at the first renewal: the

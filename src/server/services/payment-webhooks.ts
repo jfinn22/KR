@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { unsafeDb } from '@/server/db/client'
 import { paymentsPort } from '@/ports/registry'
+import type { WebhookEvent } from '@/ports/payments'
 import { reconcileDepositEvent } from '@/server/services/deposits'
 import { syncCards } from '@/server/services/cards'
 
@@ -142,17 +143,16 @@ async function claim(eventId: string, requestHash: string): Promise<boolean> {
   return taken.count === 1
 }
 
-async function dispatch(event: {
-  id: string
-  type: string
-  objectId: string
-  amountCents?: number
-  metadata?: Record<string, string>
-  customerRef?: string | null
-  paymentMethodRef?: string | null
-  failureCode?: string | null
-  failureMessage?: string | null
-}): Promise<Record<string, unknown>> {
+/*
+ * The port's own event type, not a copy of it.
+ *
+ * This used to restate the shape field by field, which is how it came to be
+ * missing the subscription reference the whole dunning ladder routes on — the
+ * adapter could have carried it and this signature would still have discarded
+ * it silently. Importing the type means a field the adapter learns to read is
+ * a field this can use.
+ */
+async function dispatch(event: WebhookEvent): Promise<Record<string, unknown>> {
   /*
    * A card finished being collected. The browser may already have told us, but
    * a browser that was closed mid-flow did not — and a client who added a card
@@ -170,20 +170,27 @@ async function dispatch(event: {
   /*
    * A subscription changed at the provider.
    *
-   * Keyed on the subscription reference the event carries, which is the only
-   * identifier guaranteed to come back on every event about it — metadata is
-   * whatever was attached at creation, and does not survive a subscription
-   * recreated by hand in the provider's dashboard, which is how a salon
-   * actually fixes a billing problem at four in the afternoon.
+   * Keyed on `subscriptionRef`, NOT on `objectId`. They coincide only on
+   * `customer.subscription.*`; on `invoice.payment_failed` — the one event the
+   * whole dunning ladder exists to react to — `objectId` is the invoice, so
+   * routing on it matched no membership, and the dunning clock never started
+   * for anybody. The period end comes off the event for the same reason:
+   * `metadata` is the user-defined dict and nothing ever wrote a period into
+   * it, so every allowance stayed pinned to the month the client signed up.
    */
   if (event.type.startsWith('customer.subscription.') || event.type.startsWith('invoice.')) {
+    const subscriptionRef = event.subscriptionRef ?? null
+    if (!subscriptionRef) {
+      return { handled: false, reason: 'that event carries no subscription reference' }
+    }
+
     const { applySubscriptionEvent } = await import('@/server/services/memberships')
     const { applyPlatformSubscriptionEvent } = await import('@/server/services/platform-billing')
 
     const membership = await applySubscriptionEvent({
       type: event.type,
-      subscriptionRef: event.objectId,
-      currentPeriodEnd: event.metadata?.currentPeriodEnd ?? null,
+      subscriptionRef,
+      currentPeriodEnd: event.periodEnd ?? null,
     })
     if (membership.handled) {
       return { handled: true, kind: 'membership', status: membership.status }
@@ -193,8 +200,8 @@ async function dispatch(event: {
     // this platform. Same events, different table.
     const platform = await applyPlatformSubscriptionEvent({
       type: event.type,
-      subscriptionRef: event.objectId,
-      currentPeriodEnd: event.metadata?.currentPeriodEnd ?? null,
+      subscriptionRef,
+      currentPeriodEnd: event.periodEnd ?? null,
     })
     if (platform.handled) {
       return { handled: true, kind: 'platform', status: platform.status }

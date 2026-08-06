@@ -107,6 +107,22 @@ export interface WebhookEvent {
   paymentMethodRef?: string | null
   failureCode?: string | null
   failureMessage?: string | null
+
+  /**
+   * Which subscription this is about, and how long it now runs for.
+   *
+   * Separate from `objectId` because they are only the same thing on
+   * `customer.subscription.*`. On `invoice.payment_failed` — the event dunning
+   * exists to react to — `objectId` is the INVOICE, and routing on it means no
+   * membership ever matches and the dunning clock never starts.
+   *
+   * `periodEnd` likewise cannot come from `metadata`: that is the user-defined
+   * dict, the provider puts the period on the object itself, and nothing here
+   * ever wrote such a key. Reading it from metadata means the period never
+   * advances, which quietly turns a monthly allowance into a once-ever one.
+   */
+  subscriptionRef?: string | null
+  periodEnd?: string | null
 }
 
 export interface PaymentsPort {
@@ -160,6 +176,39 @@ export interface PaymentsPort {
   updateSubscription(input: {
     subscriptionRef: string
     priceId: string
+    idempotencyKey: string
+  }): Promise<SubscriptionResult>
+
+  /**
+   * A recurring price at the provider.
+   *
+   * `createSubscription` takes a `priceId` and, until this existed, nothing
+   * produced one for a salon's own membership plans — so `stripePriceId` had
+   * no writer, the provider branch never ran, and every membership sold was
+   * local bookkeeping that charged nobody a second time.
+   *
+   * Prices are immutable at the provider, so changing what a plan costs mints
+   * a new one rather than editing this.
+   */
+  createPrice(input: {
+    amountCents: number
+    currency: string
+    interval: 'MONTH' | 'YEAR'
+    productName: string
+    idempotencyKey: string
+  }): Promise<{ id: string }>
+
+  /**
+   * Stop charging for a subscription.
+   *
+   * `atPeriodEnd` matters more here than anywhere else in this port: somebody
+   * who cancels on the 3rd has bought the rest of the month and is entitled to
+   * it, and ending it the moment they click is taking money for a service
+   * withdrawn.
+   */
+  cancelSubscription(input: {
+    subscriptionRef: string
+    atPeriodEnd: boolean
     idempotencyKey: string
   }): Promise<SubscriptionResult>
 
@@ -473,6 +522,38 @@ export class MockPaymentsAdapter implements PaymentsPort {
     return { ...result }
   }
 
+  async createPrice(input: {
+    amountCents: number
+    currency: string
+    interval: 'MONTH' | 'YEAR'
+    productName: string
+    idempotencyKey: string
+  }): Promise<{ id: string }> {
+    return { id: mockId('price', input.idempotencyKey) }
+  }
+
+  async cancelSubscription(input: {
+    subscriptionRef: string
+    atPeriodEnd: boolean
+    idempotencyKey: string
+  }): Promise<SubscriptionResult> {
+    const existing = this.subscriptions.get(input.subscriptionRef)
+    if (!existing) {
+      throw new AdapterError('payments', 'NOT_FOUND', 'No such subscription.')
+    }
+    /*
+     * Cancelling at the period end leaves the subscription ACTIVE — that is
+     * the point of it, and a mock that reported CANCELLED straight away would
+     * let a test pass while the client lost the weeks they had paid for.
+     */
+    const result: SubscriptionResult = {
+      ...existing,
+      status: input.atPeriodEnd ? existing.status : 'CANCELLED',
+    }
+    this.subscriptions.set(result.id, result)
+    return { ...result }
+  }
+
   /**
    * In mock mode a "webhook" is JSON we synthesised — but signed properly.
    *
@@ -777,6 +858,47 @@ export class StripePaymentsAdapter implements PaymentsPort {
     return toSubscriptionResult(sub)
   }
 
+  async createPrice(input: {
+    amountCents: number
+    currency: string
+    interval: 'MONTH' | 'YEAR'
+    productName: string
+    idempotencyKey: string
+  }): Promise<{ id: string }> {
+    const stripe = await this.client()
+    const price = await stripe.prices.create(
+      {
+        unit_amount: input.amountCents,
+        currency: input.currency.toLowerCase(),
+        recurring: { interval: input.interval === 'YEAR' ? 'year' : 'month' },
+        product_data: { name: input.productName },
+      },
+      { idempotencyKey: input.idempotencyKey },
+    )
+    return { id: price.id }
+  }
+
+  async cancelSubscription(input: {
+    subscriptionRef: string
+    atPeriodEnd: boolean
+    idempotencyKey: string
+  }): Promise<SubscriptionResult> {
+    const stripe = await this.client()
+    const sub = input.atPeriodEnd
+      ? await stripe.subscriptions.update(
+          input.subscriptionRef,
+          { cancel_at_period_end: true },
+          { idempotencyKey: input.idempotencyKey },
+        )
+      : await stripe.subscriptions.cancel(input.subscriptionRef, {
+          // No proration credit: ending it early is the salon's choice, and
+          // whatever is owed back is a refund somebody decides on, not one the
+          // provider issues silently.
+          prorate: false,
+        })
+    return toSubscriptionResult(sub)
+  }
+
   async parseWebhook(payload: string, signature: string): Promise<WebhookEvent> {
     requireEnv('payments', { STRIPE_WEBHOOK_SECRET: this.webhookSecret })
     const stripe = await this.client()
@@ -788,14 +910,35 @@ export class StripePaymentsAdapter implements PaymentsPort {
     }
     const object = event.data.object as {
       id: string
+      object?: string
       amount?: number
       metadata?: Record<string, string>
       customer?: string | { id: string } | null
       payment_method?: string | { id: string } | null
       last_payment_error?: { code?: string; message?: string } | null
+      subscription?: string | { id: string } | null
+      current_period_end?: number | null
+      lines?: { data?: { period?: { end?: number | null } | null }[] } | null
     }
     const ref = (value: string | { id: string } | null | undefined) =>
       typeof value === 'string' ? value : (value?.id ?? null)
+
+    /*
+     * On a subscription event the object IS the subscription; on an invoice it
+     * carries one. Anything else has neither, and gets null rather than an id
+     * of the wrong kind — a wrong id matches nothing, which looks the same as
+     * "not ours" and is how this went unnoticed.
+     */
+    const subscriptionRef =
+      object.object === 'subscription' ? object.id : ref(object.subscription)
+
+    /*
+     * A subscription states its own period end. An invoice does not — its
+     * lines carry the period they billed for, and the first line's end is the
+     * date the subscription now runs to.
+     */
+    const periodEndSeconds =
+      object.current_period_end ?? object.lines?.data?.[0]?.period?.end ?? null
 
     return {
       id: event.id,
@@ -810,6 +953,8 @@ export class StripePaymentsAdapter implements PaymentsPort {
       paymentMethodRef: ref(object.payment_method),
       failureCode: object.last_payment_error?.code ?? null,
       failureMessage: object.last_payment_error?.message ?? null,
+      subscriptionRef,
+      periodEnd: periodEndSeconds ? new Date(periodEndSeconds * 1000).toISOString() : null,
     }
   }
 }

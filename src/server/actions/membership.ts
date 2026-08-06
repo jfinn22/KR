@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
 import { unsafeDb } from '@/server/db/client'
+import { paymentsPort } from '@/ports/registry'
 import { cancelMembership, changePlan, subscribeClient } from '@/server/services/memberships'
 
 /**
@@ -118,6 +119,44 @@ export const saveMembershipPlanAction = withAuthz(
       }
     }
 
+    /*
+     * A price at the provider, without which nothing is ever charged.
+     *
+     * `stripePriceId` had no writer at all, so `subscribeClient`'s provider
+     * branch never ran: every membership ever sold was a local row, the client
+     * paid once at the counter and never again, and the salon would have
+     * discovered that in month two. Minted here rather than at the sale — the
+     * desk should not be waiting on a provider round-trip with somebody
+     * standing at the counter.
+     *
+     * Prices are immutable at the provider, so a changed amount or interval
+     * mints a new one. Renaming a plan does not.
+     */
+    const existing = input.planId
+      ? await unsafeDb.clientMembershipPlan.findFirst({
+          where: { id: input.planId, salonId: ctx.salonId },
+          select: { priceCents: true, interval: true, stripePriceId: true },
+        })
+      : null
+
+    const priceChanged =
+      existing === null ||
+      existing.stripePriceId === null ||
+      existing.priceCents !== input.priceCents ||
+      existing.interval !== input.interval
+
+    const stripePriceId = priceChanged
+      ? (
+          await paymentsPort().createPrice({
+            amountCents: input.priceCents,
+            currency: ctx.currency,
+            interval: input.interval,
+            productName: input.name,
+            idempotencyKey: `plan-price:${ctx.salonId}:${input.planId ?? input.name}:${input.priceCents}:${input.interval}`,
+          })
+        ).id
+      : existing.stripePriceId
+
     const data = {
       name: input.name,
       descriptionText: input.descriptionText,
@@ -125,6 +164,7 @@ export const saveMembershipPlanAction = withAuthz(
       interval: input.interval,
       isActive: input.isActive,
       includedJson: input.included as unknown as object,
+      stripePriceId,
     }
 
     /*

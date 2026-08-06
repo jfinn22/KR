@@ -42,7 +42,12 @@ export function PlanEditor({
   } | null
 }) {
   const router = useRouter()
-  const [open, setOpen] = React.useState(plan !== null)
+  /*
+   * Closed either way. An existing plan opened by default would put every
+   * membership's whole form on the screen at once, and the thing an owner came
+   * to do is usually read the list rather than change it.
+   */
+  const [open, setOpen] = React.useState(false)
   const [name, setName] = React.useState(plan?.name ?? '')
   const [description, setDescription] = React.useState(plan?.descriptionText ?? '')
   const [price, setPrice] = React.useState(plan ? String(plan.priceCents / 100) : '')
@@ -91,14 +96,16 @@ export function PlanEditor({
       return
     }
     router.refresh()
-    if (!plan) setOpen(false)
+    setOpen(false)
   }
 
   if (!open) {
     return (
-      <Button variant="secondary" onClick={() => setOpen(true)}>
-        Add a membership
-      </Button>
+      <div>
+        <Button variant="secondary" onClick={() => setOpen(true)}>
+          {plan ? `Change ${plan.name}` : 'Add a membership'}
+        </Button>
+      </div>
     )
   }
 
@@ -204,11 +211,9 @@ export function PlanEditor({
         <Button onClick={save} disabled={busy || name.trim() === ''}>
           {busy ? 'Saving…' : plan ? 'Save' : 'Create it'}
         </Button>
-        {!plan && (
-          <Button variant="ghost" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-        )}
+        <Button variant="ghost" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
       </div>
     </div>
   )

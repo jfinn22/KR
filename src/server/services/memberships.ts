@@ -2,11 +2,13 @@ import { unsafeDb } from '@/server/db/client'
 import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { paymentsPort } from '@/ports/registry'
+import { AdapterError } from '@/ports/types'
 import { materialiseNotification } from './notifications'
 import {
   applyEntitlements,
   dunningAction,
   entitlementsOf,
+  keyOf,
   prorate,
   recogniseRevenue,
   type AppliedBenefit,
@@ -181,15 +183,25 @@ export async function recordBenefitUse(input: {
   if (!membership) return
 
   await unsafeDb.membershipBenefitUse.createMany({
-    data: input.benefits.map((benefit) => ({
-      salonId: input.salonId,
-      membershipId: input.membershipId,
-      invoiceId: input.invoiceId,
-      entitlementKey: benefit.entitlementKey,
-      label: benefit.label,
-      discountCents: benefit.discountCents,
-      periodStart: membership.currentPeriodStart ?? new Date(0),
-    })),
+    /*
+     * One row per unit of allowance spent, not one per line. A line of two
+     * haircuts against "two cuts a month" spends both, and a single row would
+     * leave the client a free cut they have already had.
+     */
+    data: input.benefits.flatMap((benefit) =>
+      Array.from({ length: Math.max(1, benefit.units) }, (_, unit) => ({
+        salonId: input.salonId,
+        membershipId: input.membershipId,
+        invoiceId: input.invoiceId,
+        entitlementKey: benefit.entitlementKey,
+        label: benefit.label,
+        // The whole saving goes on the first row of the benefit and zero on
+        // the rest, so summing the ledger gives what the membership actually
+        // saved rather than a multiple of it.
+        discountCents: unit === 0 ? benefit.discountCents : 0,
+        periodStart: membership.currentPeriodStart ?? new Date(0),
+      })),
+    ),
   })
 }
 
@@ -268,16 +280,15 @@ export async function subscribeClient(input: {
   let stripeSubscriptionId: string | null = null
   let renewsAt = new Date(now.getTime() + periodOf(plan.interval))
 
-  if (plan.stripePriceId) {
-    const result = await paymentsPort().createSubscription({
-      customerRef: client.paymentsCustomerRef,
-      priceId: plan.stripePriceId,
-      idempotencyKey: `sub:${input.salonId}:${input.clientProfileId}:${plan.id}`,
-    })
-    stripeSubscriptionId = result.id
-    renewsAt = new Date(result.currentPeriodEnd)
-  }
-
+  /*
+   * The local row first, so its id can key the provider call.
+   *
+   * The key used to be salon + client + plan, which is the same string every
+   * time — so a client who joined, cancelled and rejoined got the provider's
+   * cached reply and was handed back the id of the DEAD subscription. The new
+   * membership would then have looked live locally while nothing charged it,
+   * and every webhook about it would have landed on the cancelled row.
+   */
   const membership = await db.clientMembership.create({
     data: {
       salonId: input.salonId,
@@ -287,10 +298,25 @@ export async function subscribeClient(input: {
       startedAt: now,
       currentPeriodStart: now,
       renewsAt,
-      stripeSubscriptionId,
+      stripeSubscriptionId: null,
     },
     select: { id: true },
   })
+
+  if (plan.stripePriceId) {
+    const result = await paymentsPort().createSubscription({
+      customerRef: client.paymentsCustomerRef,
+      priceId: plan.stripePriceId,
+      idempotencyKey: `sub:${membership.id}`,
+    })
+    stripeSubscriptionId = result.id
+    renewsAt = new Date(result.currentPeriodEnd)
+
+    await db.clientMembership.update({
+      where: { id: membership.id },
+      data: { stripeSubscriptionId, renewsAt },
+    })
+  }
 
   return { membershipId: membership.id }
 }
@@ -314,11 +340,44 @@ export async function cancelMembership(input: {
 
   const membership = await db.clientMembership.findFirst({
     where: { id: input.membershipId, salonId: input.salonId },
-    select: { id: true, renewsAt: true, status: true },
+    select: { id: true, renewsAt: true, status: true, stripeSubscriptionId: true },
   })
   if (!membership) throw new DomainError('NOT_FOUND', 'That membership is not here.')
   if (membership.status === 'CANCELLED') {
     throw new DomainError('CONFLICT', 'That membership has already ended.')
+  }
+
+  /*
+   * The provider first, then the row.
+   *
+   * This used to write only the local row, so a cancelled membership kept
+   * being charged every month — the client would see the salon still taking
+   * their money for something the salon's own screen said had stopped, which
+   * is the worst version of this bug rather than a cosmetic one. Provider
+   * first because a failure there must not leave a row saying "cancelled"
+   * over a subscription that is still billing.
+   */
+  if (membership.stripeSubscriptionId) {
+    try {
+      await paymentsPort().cancelSubscription({
+        subscriptionRef: membership.stripeSubscriptionId,
+        atPeriodEnd: !input.immediately,
+        idempotencyKey: `cancel:${membership.id}:${input.immediately ? 'now' : 'end'}`,
+      })
+    } catch (err) {
+      /*
+       * A reference the provider has never heard of is not a reason to refuse.
+       *
+       * It happens: a subscription cancelled by hand in the provider's
+       * dashboard, or a row brought across from whatever the salon used
+       * before. The goal — stop charging them — is already true, and refusing
+       * would leave a salon unable to end a membership because of a stale
+       * string. Anything else, including a network failure, still aborts:
+       * writing "cancelled" over a subscription that is still billing is the
+       * one outcome worse than an error message.
+       */
+      if (!(err instanceof AdapterError) || err.code !== 'NOT_FOUND') throw err
+    }
   }
 
   if (input.immediately) {
@@ -361,12 +420,13 @@ export async function changePlan(input: {
         status: true,
         currentPeriodStart: true,
         renewsAt: true,
-        plan: { select: { id: true, priceCents: true, interval: true } },
+        stripeSubscriptionId: true,
+        plan: { select: { id: true, priceCents: true, interval: true, includedJson: true } },
       },
     }),
     db.clientMembershipPlan.findFirst({
       where: { id: input.newPlanId, salonId: input.salonId, isActive: true },
-      select: { id: true, priceCents: true, interval: true },
+      select: { id: true, priceCents: true, interval: true, includedJson: true, stripePriceId: true },
     }),
   ])
 
@@ -390,10 +450,63 @@ export async function changePlan(input: {
     at: now,
   })
 
+  /*
+   * The provider moves too, or the salon keeps taking the old price.
+   *
+   * This used to write `planId` and nothing else: the client was shown a
+   * proration, agreed to it, and then the provider charged them the OLD amount
+   * every month while the salon's screen showed the new plan. `updateSubscription`
+   * bills the difference for the remainder of the period, which is the same
+   * straight-line arithmetic `prorate` does above — so the two numbers agree to
+   * rounding, and the figure read out at the counter is what actually lands.
+   *
+   * On a plan with no price at the provider — the on-account arrangement that
+   * `subscribeClient` deliberately allows — there is nothing to move and the
+   * proration is what the desk collects by hand.
+   */
+  if (membership.stripeSubscriptionId && newPlan.stripePriceId) {
+    await paymentsPort().updateSubscription({
+      subscriptionRef: membership.stripeSubscriptionId,
+      priceId: newPlan.stripePriceId,
+      idempotencyKey: `plan-change:${membership.id}:${newPlan.id}:${periodStart.getTime()}`,
+    })
+  }
+
   await db.clientMembership.update({
     where: { id: membership.id },
     data: { planId: newPlan.id },
   })
+
+  /*
+   * Carry this period's uses onto their counterpart in the new plan.
+   *
+   * Uses are keyed `serviceId:kind:value`, so moving from "20% off colour" to
+   * "30% off colour" changed the key and the allowance read as untouched — the
+   * client had their discounted colour on the 5th, upgraded on the 6th, and
+   * got another. Matched on service and kind, which is the benefit's identity;
+   * the value is what they moved to change. A benefit with no counterpart in
+   * the new plan is dropped, because there is nothing left for it to count
+   * against.
+   */
+  const counterpart = new Map(
+    entitlementsOf(newPlan.includedJson).map((e) => [`${e.serviceId ?? '*'}:${e.kind}`, keyOf(e)]),
+  )
+  const uses = await db.membershipBenefitUse.findMany({
+    where: { salonId: input.salonId, membershipId: membership.id, periodStart },
+    select: { id: true, entitlementKey: true },
+  })
+  for (const use of uses) {
+    const [serviceId, kind] = use.entitlementKey.split(':')
+    const moved = counterpart.get(`${serviceId}:${kind}`)
+    if (moved === undefined) {
+      await db.membershipBenefitUse.delete({ where: { id: use.id } })
+    } else if (moved !== use.entitlementKey) {
+      await db.membershipBenefitUse.update({
+        where: { id: use.id },
+        data: { entitlementKey: moved },
+      })
+    }
+  }
 
   /*
    * The period is NOT restarted. A client who upgrades on the 20th has already
@@ -425,11 +538,31 @@ export async function applySubscriptionEvent(event: {
 
   const membership = await unsafeDb.clientMembership.findFirst({
     where: { stripeSubscriptionId: event.subscriptionRef },
-    select: { id: true, salonId: true, clientProfileId: true, currentPeriodStart: true, renewsAt: true },
+    select: {
+      id: true,
+      salonId: true,
+      clientProfileId: true,
+      status: true,
+      currentPeriodStart: true,
+      renewsAt: true,
+    },
   })
   if (!membership) return { handled: false }
 
   const periodEnd = event.currentPeriodEnd ? new Date(event.currentPeriodEnd) : null
+
+  /*
+   * A cancelled membership stays cancelled.
+   *
+   * The provider keeps emitting about a subscription after it ends, and every
+   * one of those events used to fall through to the ACTIVE branch below — so a
+   * membership somebody had cancelled came back to life, benefits and all, on
+   * the next echo. Coming back is `subscribeClient`'s job, and that writes a
+   * new row rather than reviving this one.
+   */
+  if (membership.status === 'CANCELLED' && !event.type.endsWith('.deleted')) {
+    return { handled: true, membershipId: membership.id, status: 'CANCELLED' }
+  }
 
   if (event.type.endsWith('.deleted')) {
     await unsafeDb.clientMembership.update({
@@ -467,24 +600,38 @@ export async function applySubscriptionEvent(event: {
   }
 
   /*
-   * A successful payment or an update. Clearing `pastDueSince` is the important
-   * half — a membership that recovers must not carry a dunning clock that would
-   * cancel it three weeks after a failure it has already fixed.
+   * Everything else is either money arriving or the provider narrating.
+   *
+   * Only money clears the dunning clock. `customer.subscription.updated` fires
+   * for a changed card, a changed price, a changed anything — and treating it
+   * as proof of payment wiped the clock a failure had just started, so a
+   * membership on a card that never works would sit PAST_DUE for one day at a
+   * time and never reach the end of the ladder.
+   */
+  const paid = event.type.includes('payment_succeeded') || event.type.endsWith('invoice.paid')
+
+  /*
+   * A new period means a fresh allowance, and it starts where the old one
+   * ended rather than whenever the webhook happened to arrive. A late event
+   * would otherwise leave a gap in which a visit belongs to neither period.
    */
   const advanced = periodEnd !== null && periodEnd.getTime() !== membership.renewsAt?.getTime()
+  const newPeriodStart = membership.renewsAt ?? now
 
   await unsafeDb.clientMembership.update({
     where: { id: membership.id },
     data: {
-      status: 'ACTIVE',
-      pastDueSince: null,
+      ...(paid ? { status: 'ACTIVE' as const, pastDueSince: null } : {}),
       ...(periodEnd ? { renewsAt: periodEnd } : {}),
-      // A new period means a fresh allowance, which is what `periodStart` keys.
-      ...(advanced ? { currentPeriodStart: now } : {}),
+      ...(advanced ? { currentPeriodStart: newPeriodStart } : {}),
     },
   })
 
-  return { handled: true, membershipId: membership.id, status: 'ACTIVE' }
+  return {
+    handled: true,
+    membershipId: membership.id,
+    status: paid ? 'ACTIVE' : membership.status,
+  }
 }
 
 /**

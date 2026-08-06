@@ -243,6 +243,29 @@ export async function checkoutView(salonId: string, appointmentId: string) {
     .filter((d) => d.status === 'AUTHORIZED' || d.status === 'CAPTURED')
     .reduce((sum, d) => sum + d.amountCents, 0)
 
+  /*
+   * What their membership takes off this bill, said out loud at the counter.
+   *
+   * `benefitsForBill` computed exactly this and the till never asked for it, so
+   * the benefit arrived as an unexplained discount line — which reads as a
+   * pricing error to the person paying and is the opposite of the whole reason
+   * anybody keeps paying a monthly fee. `withheldReason` matters just as much:
+   * a member whose card has failed needs to be told at the counter, where they
+   * can fix it, rather than discovering it from a bill that is larger than they
+   * expected.
+   */
+  const { benefitsForBill } = await import('./memberships')
+  const membership = await benefitsForBill(
+    salonId,
+    appointment.clientProfileId,
+    appointment.services.map((row) => ({
+      serviceId: row.serviceId,
+      description: row.service.name,
+      quantity: 1,
+      unitPriceCents: row.priceCents,
+    })),
+  )
+
   return {
     clientName:
       `${appointment.clientProfile.firstName} ${appointment.clientProfile.lastName ?? ''}`.trim(),
@@ -257,6 +280,17 @@ export async function checkoutView(salonId: string, appointmentId: string) {
     })),
     agreedTotalCents: appointment.estimatedTotalCents,
     depositHeldCents,
+    membership: membership
+      ? {
+          planName: membership.planName,
+          totalCents: membership.totalCents,
+          withheldReason: membership.withheldReason,
+          benefits: membership.benefits.map((benefit) => ({
+            label: benefit.label,
+            discountCents: benefit.discountCents,
+          })),
+        }
+      : null,
     invoice: appointment.invoice
       ? {
           id: appointment.invoice.id,
