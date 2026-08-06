@@ -1,11 +1,13 @@
 import { pageContextFor } from '@/server/auth/page'
-import { listConnections } from '@/server/services/integrations'
+import { listConnections, listEndpoints } from '@/server/services/integrations'
 import { listStylists } from '@/server/services/team'
 import { adapterReport } from '@/ports/registry'
 import { Badge } from '@/components/ui/badge'
 import { SectionHeading } from '@/components/ui/data'
 import { CalendarFeeds } from './calendar-feeds'
 import { ConnectionList } from './connection-list'
+import { Webhooks } from './webhooks'
+import { hasFeature } from '@/domain/authz/plan-features'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,9 +24,10 @@ export default async function IntegrationsPage({ params }: { params: Promise<{ s
   const { salon } = await params
   const ctx = await pageContextFor(salon, 'integration.manage')
 
-  const [connections, stylists] = await Promise.all([
+  const [connections, stylists, endpoints] = await Promise.all([
     listConnections(ctx.salonId),
     listStylists(ctx.salonId),
+    listEndpoints(ctx.salonId),
   ])
 
   const feedByStylist = new Map(
@@ -68,6 +71,24 @@ export default async function IntegrationsPage({ params }: { params: Promise<{ s
         />
         <div className="mt-5">
           <ConnectionList salonSlug={salon} connections={connections} />
+        </div>
+      </section>
+
+      {/*
+       * Last, because it is the one nobody needs until they need it — and
+       * first-time it is genuinely usable rather than a line on a price list.
+       */}
+      <section>
+        <SectionHeading
+          title="Your own systems"
+          description="Every booking, cancellation and payment posted to a URL you control, signed so you can prove it came from us."
+        />
+        <div className="mt-6">
+          <Webhooks
+            salonSlug={salon}
+            endpoints={endpoints}
+            enabled={hasFeature(ctx.plan, 'API_ACCESS')}
+          />
         </div>
       </section>
 

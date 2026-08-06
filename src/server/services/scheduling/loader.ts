@@ -136,8 +136,15 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
   const rangeStart = new Date(`${addDays(opts.fromDate, -1)}T00:00:00Z`)
   const rangeEnd = new Date(`${addDays(opts.toDate, 2)}T00:00:00Z`)
 
-  const [stylistRows, hoursRows, exceptionRows, timeOffRows, segmentRows, resourceRows] =
-    await Promise.all([
+  const [
+    stylistRows,
+    hoursRows,
+    exceptionRows,
+    timeOffRows,
+    segmentRows,
+    resourceRows,
+    externalRows,
+  ] = await Promise.all([
       unsafeDb.stylistProfile.findMany({
         where: {
           salonId: opts.salonId,
@@ -208,6 +215,21 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
         where: { salonId: opts.salonId, locationId: opts.locationId, isBookable: true },
         select: { id: true, type: true },
       }),
+      /*
+       * Commitments on a stylist's own calendar that the salon does not own.
+       *
+       * Mirrored by the sync job rather than fetched here — the alternative is
+       * a network call to somebody else's server inside every slot search, and
+       * a slow one reads to a client as "this salon has nothing free".
+       */
+      unsafeDb.externalBusy.findMany({
+        where: {
+          salonId: opts.salonId,
+          startsAt: { lt: rangeEnd },
+          endsAt: { gt: rangeStart },
+        },
+        select: { stylistProfileId: true, startsAt: true, endsAt: true },
+      }),
     ])
 
   // --- Location opening hours ---------------------------------------------
@@ -268,6 +290,9 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
       ...timeOffRows
         .filter((t) => t.stylistProfileId === row.id)
         .map((t) => toInterval(t.startsAt, t.endsAt)),
+      ...externalRows
+        .filter((e) => e.stylistProfileId === row.id)
+        .map((e) => toInterval(e.startsAt, e.endsAt)),
     ]
 
     const work = [...Object.values(perDay).flat(), ...extra]

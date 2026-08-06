@@ -119,6 +119,9 @@ model Salon {
   aiUsage            AiUsageCounter[]
   integrations       IntegrationConnection[]
   publicAttempts     PublicActionAttempt[]
+  webhookEndpoints   WebhookEndpoint[]
+  webhookDeliveries  WebhookDelivery[]
+  externalBusy       ExternalBusy[]
 
   @@index([status])
 }
@@ -387,6 +390,7 @@ model StylistProfile {
   calibrations        StylistCalibration[]
   quoteAccuracy       QuoteAccuracy[]
   preferredByClients  ClientProfile[]
+  externalBusy        ExternalBusy[]
 
   @@index([salonId, isActive])
 }

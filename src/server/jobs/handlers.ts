@@ -3,6 +3,7 @@ import { unsafeDb } from '@/server/db/client'
 import { emailPort, smsPort, storagePort } from '@/ports/registry'
 import { assessPhoto } from '@/domain/hair/photo-quality'
 import { installOutboxSink } from '@/server/outbox-sink'
+import { WEBHOOK_TOPICS, type WebhookTopic } from '@/server/services/integrations'
 import { enqueue } from './queue'
 import type { NotificationTrigger } from '@prisma/client'
 import { DEFAULT_COPY, materialiseNotification } from '@/server/services/notifications'
@@ -110,6 +111,20 @@ const outboxDispatch = define({
           payload,
           dedupeKey: `materialize:${payload.appointmentId}`,
         })
+
+        /*
+         * And onto the stylist's own calendar, if they have connected one.
+         * `pushAppointment` was written for exactly this and nothing called it,
+         * so a salon could connect a calendar and watch nothing appear in it.
+         */
+        if (event.salonId && typeof payload.appointmentId === 'string') {
+          await enqueue({
+            type: 'calendar.push',
+            salonId: event.salonId,
+            payload: { appointmentId: payload.appointmentId, salonId: event.salonId },
+            dedupeKey: `calpush:${payload.appointmentId}`,
+          })
+        }
       }
       if (topic === 'appointment.cancelled') {
         await enqueue({
@@ -139,6 +154,24 @@ const outboxDispatch = define({
         if (typeof payload.appointmentId === 'string') {
           await mintCheckIn(event.salonId, payload.appointmentId)
         }
+      }
+
+      /*
+       * Out to whoever the salon has asked us to tell.
+       *
+       * Here rather than at each call site, because the outbox already carries
+       * every topic a webhook subscriber could want and doing it once means a
+       * new domain event reaches subscribers without anybody remembering to
+       * wire it. Queued, never posted inline — a booking must not wait on
+       * somebody else's endpoint.
+       */
+      if (event.salonId && WEBHOOK_TOPICS.includes(topic as WebhookTopic)) {
+        const { emitWebhook } = await import('@/server/services/integrations')
+        await emitWebhook({
+          salonId: event.salonId,
+          topic: topic as WebhookTopic,
+          payload,
+        })
       }
 
       const notify = NOTIFY_TOPICS[topic]
@@ -799,6 +832,91 @@ const systemReap = define({
   },
 })
 
+
+/**
+ * Put a booking on the stylist's own calendar.
+ *
+ * `pushAppointment` was written to run exactly here — "never called inline from
+ * booking" — and no job ever called it, so a salon could connect a calendar and
+ * watch nothing ever appear in it. Off the queue, so a provider being down
+ * delays a calendar entry rather than failing a booking.
+ */
+const calendarPush = define({
+  // The salon travels in the payload: a handler is given its payload and
+  // nothing else, and the Job row's own salonId is not handed back to it.
+  schema: z.object({ appointmentId: z.string(), salonId: z.string() }),
+  timeoutMs: 20_000,
+  maxAttempts: 5,
+  handler: async ({ appointmentId, salonId }) => {
+    const { pushAppointment } = await import('@/server/services/integrations')
+    await pushAppointment({ salonId, appointmentId })
+  },
+})
+
+/**
+ * Copy every connected stylist's outside commitments in.
+ *
+ * On a timer rather than during a slot search, which is the whole reason the
+ * mirror table exists: a booking search must not wait on somebody else's
+ * server, and a stylist whose calendar is unreachable should keep the hours the
+ * salon does know about rather than vanishing from the diary.
+ */
+const calendarPull = define({
+  schema: z.object({}).passthrough(),
+  timeoutMs: 120_000,
+  maxAttempts: 3,
+  handler: async () => {
+    const { syncExternalBusy } = await import('@/server/services/integrations')
+
+    const connections = await unsafeDb.integrationConnection.findMany({
+      where: {
+        provider: 'GOOGLE_CALENDAR',
+        isActive: true,
+        stylistProfileId: { not: null },
+        externalAccountId: { not: null },
+      },
+      select: { salonId: true, stylistProfileId: true },
+    })
+
+    for (const connection of connections) {
+      if (!connection.stylistProfileId) continue
+
+      const salon = await unsafeDb.salon.findUnique({
+        where: { id: connection.salonId },
+        select: { defaultTimezone: true },
+      })
+      if (!salon) continue
+
+      try {
+        await syncExternalBusy({
+          salonId: connection.salonId,
+          stylistProfileId: connection.stylistProfileId,
+          timeZone: salon.defaultTimezone,
+        })
+      } catch {
+        // Recorded against the connection by the service. One salon's expired
+        // token must not stop every other salon syncing.
+      }
+    }
+  },
+})
+
+/**
+ * Post what is waiting to whoever asked for it.
+ *
+ * The signing scheme, the topic vocabulary and the emitter all existed with
+ * nowhere to send anything, while the pricing page sold API_ACCESS.
+ */
+const webhookDeliver = define({
+  schema: z.object({}).passthrough(),
+  timeoutMs: 120_000,
+  maxAttempts: 3,
+  handler: async () => {
+    const { deliverWebhooks } = await import('@/server/services/integrations')
+    await deliverWebhooks()
+  },
+})
+
 // ---------------------------------------------------------------------------
 
 export const JOB_REGISTRY: Record<string, AnyJobDefinition> = {
@@ -818,6 +936,9 @@ export const JOB_REGISTRY: Record<string, AnyJobDefinition> = {
   'import.source.reap': importSourceReap,
   'retention.rebook.nudge': rebookNudge,
   'membership.sweep': membershipSweep,
+  'calendar.push': calendarPush,
+  'calendar.pull': calendarPull,
+  'webhook.deliver': webhookDeliver,
 }
 
 export type JobType = keyof typeof JOB_REGISTRY
@@ -835,6 +956,8 @@ export const RECURRING: { key: string; type: string; everyMinutes: number }[] = 
   { key: 'import-files', type: 'import.source.reap', everyMinutes: 1440 },
   { key: 'rebook', type: 'retention.rebook.nudge', everyMinutes: 1440 },
   { key: 'memberships', type: 'membership.sweep', everyMinutes: 720 },
+  { key: 'webhooks', type: 'webhook.deliver', everyMinutes: 1 },
+  { key: 'calendars', type: 'calendar.pull', everyMinutes: 30 },
 ]
 
 function renderTemplate(body: string, vars: Record<string, string>): string {

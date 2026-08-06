@@ -324,3 +324,95 @@ model PublicActionAttempt {
   @@index([salonId, name, fingerprint, createdAt])
   @@index([createdAt])
 }
+
+/// Where a salon wants its own events delivered.
+///
+/// The signing machinery, the topic vocabulary and the emitter were all built
+/// with the integrations work and nothing stored an endpoint, so there was
+/// nowhere for an event to go — while the pricing page sold API_ACCESS. This
+/// is the missing half.
+///
+/// The secret is stored in the clear on purpose, and it is the one credential
+/// here that has to be: a signature the salon can verify requires that both
+/// sides hold the same value, so it cannot be a one-way hash the way a feed
+/// token is. It is never rendered after creation.
+model WebhookEndpoint {
+  id      String @id @default(cuid())
+  salonId String
+  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+
+  url    String
+  secret String
+  /// Empty means every topic. Named topics mean only those.
+  topics String[]
+
+  isActive        Boolean   @default(true)
+  lastDeliveredAt DateTime? @db.Timestamptz(3)
+  lastError       String?   @db.Text
+  /// Consecutive failures. A endpoint that has been dead for a long time stops
+  /// being retried forever — a salon's queue should not be permanently full of
+  /// deliveries to a URL nobody owns any more.
+  failureCount    Int       @default(0)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+
+  deliveries WebhookDelivery[]
+
+  @@index([salonId, isActive])
+}
+
+/// One attempt to deliver one event to one endpoint.
+///
+/// Recorded rather than fire-and-forget, because "we sent it" is a claim a
+/// salon will need to make to whoever is on the other end, and an unlogged
+/// POST cannot support it.
+model WebhookDelivery {
+  id         String          @id @default(cuid())
+  salonId    String
+  salon      Salon           @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  endpointId String
+  endpoint   WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Cascade)
+
+  topic        String
+  payloadJson  Json
+  status       WebhookDeliveryStatus @default(PENDING)
+  attempts     Int                   @default(0)
+  responseCode Int?
+  error        String?               @db.Text
+  deliveredAt  DateTime?             @db.Timestamptz(3)
+  createdAt    DateTime              @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, status, createdAt])
+  @@index([endpointId, createdAt])
+}
+
+enum WebhookDeliveryStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
+/// A commitment on a stylist's own calendar that the salon does not own.
+///
+/// Mirrored on a timer rather than fetched during a slot search. `externalBusy`
+/// was written to be called from the solver, and doing that would put somebody
+/// else's server in the booking hot path: every search would wait on Google,
+/// and a slow token refresh would read to a client as "this salon has nothing
+/// free". The loader reads these rows like any other blocked interval.
+model ExternalBusy {
+  id               String         @id @default(cuid())
+  salonId          String
+  salon            Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  stylistProfileId String
+  stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
+
+  startsAt DateTime @db.Timestamptz(3)
+  endsAt   DateTime @db.Timestamptz(3)
+  /// Which sync wrote it, so a re-sync can replace its own rows and only its
+  /// own. Two connections for one stylist must not delete each other's work.
+  source   String
+
+  syncedAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([salonId, stylistProfileId, startsAt])
+  @@index([salonId, source])
+}

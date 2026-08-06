@@ -276,25 +276,325 @@ export function verifyWebhook(input: {
   return constantTimeEquals(signWebhook(input.secret, input.body, input.timestamp), input.signature)
 }
 
+/** After this many consecutive failures an endpoint stops being tried. */
+const DEAD_AFTER_FAILURES = 20
+
 /**
- * Queue an outbound webhook.
+ * Queue an outbound webhook to every endpoint that wants this topic.
  *
- * Through the job queue, so delivery retries with backoff and a receiver being
- * down is their problem rather than the salon's. Nothing here calls out
- * inline; a booking must never wait on somebody else's endpoint.
+ * This used to write an `Outbox` row, which was wrong twice over: nothing
+ * delivered it anywhere, and `Outbox` is the salon's own notification pipeline,
+ * so calling it would have double-fired the client-facing messages that
+ * `outboxDispatch` materialises from the same topic names.
+ *
+ * One `WebhookDelivery` row per endpoint, written here and posted by the job.
+ * Recorded rather than fire-and-forget, because "we sent it" is a claim a salon
+ * will have to make to whoever is on the other end, and an unlogged POST cannot
+ * support it.
  */
 export async function emitWebhook(input: {
   salonId: string
   topic: WebhookTopic
   payload: Record<string, unknown>
-}): Promise<void> {
-  await unsafeDb.outbox.create({
-    data: {
+}): Promise<{ queued: number }> {
+  const endpoints = await unsafeDb.webhookEndpoint.findMany({
+    where: {
       salonId: input.salonId,
+      isActive: true,
+      failureCount: { lt: DEAD_AFTER_FAILURES },
+    },
+    select: { id: true, topics: true },
+  })
+
+  // An empty topic list means everything. Named topics mean only those.
+  const wanted = endpoints.filter(
+    (endpoint) => endpoint.topics.length === 0 || endpoint.topics.includes(input.topic),
+  )
+  if (wanted.length === 0) return { queued: 0 }
+
+  await unsafeDb.webhookDelivery.createMany({
+    data: wanted.map((endpoint) => ({
+      salonId: input.salonId,
+      endpointId: endpoint.id,
       topic: input.topic,
       payloadJson: input.payload as never,
+    })),
+  })
+
+  return { queued: wanted.length }
+}
+
+/**
+ * Post what is waiting.
+ *
+ * Run from the job queue on a timer. Failures are recorded against the
+ * endpoint and the delivery rather than thrown: one salon's broken URL must not
+ * stop another salon's events going out, and the sweep runs again in a minute.
+ */
+export async function deliverWebhooks(limit = 50): Promise<{ sent: number; failed: number }> {
+  const pending = await unsafeDb.webhookDelivery.findMany({
+    where: { status: 'PENDING' },
+    orderBy: { createdAt: 'asc' },
+    take: limit,
+    include: { endpoint: true },
+  })
+
+  let sent = 0
+  let failed = 0
+
+  for (const delivery of pending) {
+    const endpoint = delivery.endpoint
+    if (!endpoint.isActive || endpoint.failureCount >= DEAD_AFTER_FAILURES) {
+      await unsafeDb.webhookDelivery.update({
+        where: { id: delivery.id },
+        data: {
+          status: 'FAILED',
+          error: 'The endpoint is switched off or has failed too many times.',
+          attempts: { increment: 1 },
+        },
+      })
+      failed += 1
+      continue
+    }
+
+    const timestamp = Math.floor(Date.now() / 1000)
+    const body = JSON.stringify({
+      id: delivery.id,
+      topic: delivery.topic,
+      createdAt: delivery.createdAt.toISOString(),
+      data: delivery.payloadJson,
+    })
+
+    try {
+      const response = await fetch(endpoint.url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          /*
+           * Timestamp and signature as separate headers, over both values. A
+           * signature over the body alone is valid forever, so a request
+           * captured once can be replayed indefinitely.
+           */
+          'x-salon-timestamp': String(timestamp),
+          'x-salon-signature': signWebhook(endpoint.secret, body, timestamp),
+          'x-salon-topic': delivery.topic,
+        },
+        body,
+        signal: AbortSignal.timeout(10_000),
+      })
+
+      if (response.ok) {
+        await unsafeDb.$transaction([
+          unsafeDb.webhookDelivery.update({
+            where: { id: delivery.id },
+            data: {
+              status: 'DELIVERED',
+              responseCode: response.status,
+              deliveredAt: new Date(),
+              attempts: { increment: 1 },
+              error: null,
+            },
+          }),
+          unsafeDb.webhookEndpoint.update({
+            where: { id: endpoint.id },
+            data: { lastDeliveredAt: new Date(), lastError: null, failureCount: 0 },
+          }),
+        ])
+        sent += 1
+        continue
+      }
+
+      await recordFailure(delivery.id, endpoint.id, `HTTP ${response.status}`, response.status)
+      failed += 1
+    } catch (err) {
+      await recordFailure(delivery.id, endpoint.id, (err as Error).message.slice(0, 500), null)
+      failed += 1
+    }
+  }
+
+  return { sent, failed }
+}
+
+/**
+ * A delivery that did not land.
+ *
+ * Left PENDING below the attempt ceiling so the next sweep tries again; a
+ * receiver being briefly down is the ordinary case and should not need anybody
+ * to do anything.
+ */
+async function recordFailure(
+  deliveryId: string,
+  endpointId: string,
+  message: string,
+  code: number | null,
+): Promise<void> {
+  const delivery = await unsafeDb.webhookDelivery.update({
+    where: { id: deliveryId },
+    data: { attempts: { increment: 1 }, error: message, responseCode: code },
+    select: { attempts: true },
+  })
+
+  await unsafeDb.webhookEndpoint.update({
+    where: { id: endpointId },
+    data: { lastError: message, failureCount: { increment: 1 } },
+  })
+
+  if (delivery.attempts >= 8) {
+    await unsafeDb.webhookDelivery.update({
+      where: { id: deliveryId },
+      data: { status: 'FAILED' },
+    })
+  }
+}
+
+// --- Endpoint management -------------------------------------------------------
+
+export const WEBHOOK_TOPICS: readonly WebhookTopic[] = [
+  'appointment.booked',
+  'appointment.cancelled',
+  'appointment.completed',
+  'consultation.submitted',
+  'consultation.approved',
+  'payment.captured',
+]
+
+/**
+ * Register a URL.
+ *
+ * The secret is minted here and returned exactly once. It is stored in the
+ * clear because a signature the receiver can verify requires both sides to
+ * hold the same value — unlike a feed token, it cannot be a one-way hash.
+ * Everywhere else it is treated as a credential: never listed, never re-shown.
+ */
+export async function addEndpoint(input: {
+  salonId: string
+  url: string
+  topics: WebhookTopic[]
+}): Promise<{ id: string; secret: string }> {
+  let parsed: URL
+  try {
+    parsed = new URL(input.url)
+  } catch {
+    throw new DomainError('INVALID_INPUT', 'That does not look like a web address.')
+  }
+
+  /*
+   * HTTPS only. A signed payload sent over plain HTTP is signed and readable,
+   * which defeats the point of signing it — and these carry client names.
+   */
+  if (parsed.protocol !== 'https:') {
+    throw new DomainError('INVALID_INPUT', 'The address has to start with https.')
+  }
+
+  const secret = `whsec_${randomBytes(24).toString('base64url')}`
+
+  const endpoint = await unsafeDb.webhookEndpoint.create({
+    data: {
+      salonId: input.salonId,
+      url: parsed.toString(),
+      secret,
+      topics: input.topics,
+    },
+    select: { id: true },
+  })
+
+  return { id: endpoint.id, secret }
+}
+
+export async function removeEndpoint(salonId: string, endpointId: string): Promise<void> {
+  const endpoint = await unsafeDb.webhookEndpoint.findFirst({
+    where: { id: endpointId, salonId },
+    select: { id: true },
+  })
+  if (!endpoint) throw new DomainError('NOT_FOUND', 'That endpoint no longer exists.')
+
+  await unsafeDb.webhookEndpoint.delete({ where: { id: endpoint.id } })
+}
+
+/** What is registered, and how it has been behaving. Never the secret. */
+export async function listEndpoints(salonId: string) {
+  const endpoints = await unsafeDb.webhookEndpoint.findMany({
+    where: { salonId },
+    orderBy: { createdAt: 'asc' },
+    select: {
+      id: true,
+      url: true,
+      topics: true,
+      isActive: true,
+      lastDeliveredAt: true,
+      lastError: true,
+      failureCount: true,
+      _count: { select: { deliveries: true } },
     },
   })
+
+  return endpoints.map((endpoint) => ({
+    ...endpoint,
+    deliveries: endpoint._count.deliveries,
+    // Said plainly, because an endpoint that has quietly stopped being tried
+    // looks identical to one that is working until somebody goes looking.
+    dead: endpoint.failureCount >= DEAD_AFTER_FAILURES,
+  }))
+}
+
+// --- Mirroring an external calendar --------------------------------------------
+
+/** How far ahead a pull looks. Beyond this the diary is mostly empty anyway. */
+const SYNC_DAYS = 21
+
+/**
+ * Copy a stylist's outside commitments in, so the solver can avoid them.
+ *
+ * `externalBusy` was written to be called from the availability solver, and
+ * doing that would have put somebody else's server in the booking hot path:
+ * every slot search would wait on Google, and a slow token refresh would read
+ * to a client as "this salon has nothing free". Mirrored on a timer instead,
+ * into rows the loader already knows how to treat as blocked time.
+ *
+ * Rows are replaced per (stylist, source) rather than cleared wholesale, so two
+ * connections for one stylist cannot delete each other's work.
+ */
+export async function syncExternalBusy(input: {
+  salonId: string
+  stylistProfileId: string
+  timeZone: string
+  days?: number
+  today?: string
+}): Promise<{ mirrored: number }> {
+  const days = input.days ?? SYNC_DAYS
+  const start = input.today ?? new Date().toISOString().slice(0, 10)
+  const source = `google:${input.stylistProfileId}`
+
+  const intervals: { startsAt: Date; endsAt: Date }[] = []
+  for (let offset = 0; offset < days; offset += 1) {
+    const date = new Date(`${start}T00:00:00Z`)
+    date.setUTCDate(date.getUTCDate() + offset)
+    const localDate = date.toISOString().slice(0, 10)
+
+    intervals.push(
+      ...(await externalBusy({
+        salonId: input.salonId,
+        stylistProfileId: input.stylistProfileId,
+        localDate,
+        timeZone: input.timeZone,
+      })),
+    )
+  }
+
+  await unsafeDb.$transaction([
+    unsafeDb.externalBusy.deleteMany({ where: { salonId: input.salonId, source } }),
+    unsafeDb.externalBusy.createMany({
+      data: intervals.map((interval) => ({
+        salonId: input.salonId,
+        stylistProfileId: input.stylistProfileId,
+        startsAt: interval.startsAt,
+        endsAt: interval.endsAt,
+        source,
+      })),
+    }),
+  ])
+
+  return { mirrored: intervals.length }
 }
 
 // --- Connection management -----------------------------------------------------

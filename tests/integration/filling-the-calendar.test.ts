@@ -178,6 +178,7 @@ beforeEach(async () => {
   await unsafeDb.patchTest.deleteMany({ where: { salonId: S } })
   await unsafeDb.clientProfile.deleteMany({ where: { salonId: S } })
   await unsafeDb.outbox.deleteMany({ where: { salonId: S } })
+  await unsafeDb.externalBusy.deleteMany({ where: { salonId: S } })
   invalidateAvailabilityCache(S)
 })
 
@@ -208,6 +209,53 @@ async function givePatchTest(clientProfileId: string) {
 }
 
 // ---------------------------------------------------------------------------
+
+describe('a stylist\'s own calendar', () => {
+  it('blocks a slot the salon does not otherwise know is taken', async () => {
+    /*
+     * `externalBusy` was written to be called from the availability solver, and
+     * calling it there would have put somebody else's server in the booking hot
+     * path: every search waiting on Google, and a slow token refresh reading to
+     * a client as "this salon has nothing free". Mirrored on a timer instead,
+     * into rows the loader treats like any other blocked interval — which is
+     * only worth anything if the solver actually respects them.
+     */
+    const before = await findSlotsForServices({
+      salonId: S,
+      serviceIds: ['fc_cut'],
+      fromDate: DATE,
+      toDate: DATE,
+      now: NOW,
+    })
+    const taken = before.slots[0]!
+
+    await unsafeDb.externalBusy.create({
+      data: {
+        salonId: S,
+        stylistProfileId: 'fc_sty',
+        startsAt: new Date(taken.startsAt),
+        endsAt: new Date(new Date(taken.startsAt).getTime() + 4 * 3_600_000),
+        source: 'google:fc_sty',
+      },
+    })
+    // The first search populated the loader's cache; the mirror job runs on a
+    // timer and does the same thing in production.
+    invalidateAvailabilityCache(S)
+
+    const after = await findSlotsForServices({
+      salonId: S,
+      serviceIds: ['fc_cut'],
+      fromDate: DATE,
+      toDate: DATE,
+      now: NOW,
+    })
+
+    expect(after.slots.some((slot) => slot.startsAt === taken.startsAt)).toBe(false)
+    // And the rest of the day is untouched — an outside commitment blocks the
+    // hours it covers, not the stylist.
+    expect(after.slots.length).toBeGreaterThan(0)
+  })
+})
 
 describe('a search with no plan behind it', () => {
   it('finds times for an arbitrary basket', async () => {
