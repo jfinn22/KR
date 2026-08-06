@@ -11,6 +11,8 @@ import { JourneyLadder } from '@/components/salon/journey-ladder'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionHeading } from '@/components/ui/data'
+import { requirementsFor } from '@/server/services/requirements'
+import { RequirementsPanel } from './requirements-panel'
 import { formatDayHeading, formatMinutes, formatTime, localDateIn } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
@@ -54,8 +56,9 @@ export default async function HandoffPage({
   const { salon, id } = await params
   const ctx = await pageContextFor(salon, 'appointment.viewAny')
 
-  const [card, aftercare, cost, todaysFormula, products] = await Promise.all([
-    handoffCard(ctx.salonId, id),
+  const card = await handoffCard(ctx.salonId, id)
+
+  const [aftercare, cost, todaysFormula, products, requirements] = await Promise.all([
     aftercareFor(ctx.salonId, id),
     costOfService(ctx.salonId, id),
     /*
@@ -70,6 +73,12 @@ export default async function HandoffPage({
       orderBy: { name: 'asc' },
       take: 30,
     }),
+    /*
+     * Read after the card, because a requirement hangs off the consultation the
+     * card resolves. These are the things the engine asked for before this work
+     * could happen — and until now nothing on any screen could answer one.
+     */
+    requirementsFor(ctx.salonId, { consultationId: card.appointment.consultationId ?? undefined }),
   ])
   const { appointment, client, stoppers, lastFormula, references, photos, journey, plan } = card
 
@@ -111,6 +120,29 @@ export default async function HandoffPage({
           </p>
         )}
       </header>
+
+      {requirements.length > 0 && (
+        <section>
+          <SectionHeading
+            title="What has to happen first"
+            description="Raised by the consultation. A strand test can be recorded here; going ahead without one needs a written reason."
+          />
+          <div className="mt-4">
+            <RequirementsPanel
+              salonSlug={salon}
+              clientProfileId={client.id}
+              consultationId={appointment.consultationId}
+              requirements={requirements.map((requirement) => ({
+                id: requirement.id,
+                kind: requirement.kind,
+                rationale: requirement.rationale,
+                status: requirement.status,
+                waiveReason: requirement.waiveReason,
+              }))}
+            />
+          </div>
+        </section>
+      )}
 
       {/* --- 1. Anything that stops the appointment --------------------------- */}
       {(live.length > 0 || client.priorReactionToColor || client.allergies.length > 0) && (

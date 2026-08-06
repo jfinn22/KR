@@ -38,6 +38,15 @@ export interface HandoffCard {
     consultedBy: string | null
     internalNote: string | null
     clientNote: string | null
+    /**
+     * Which consultation this came from, carried out rather than dropped.
+     *
+     * The requirements the engine raised hang off it, and answering one — doing
+     * the strand test it asked for — needs to say which consultation it is
+     * answering. Without this the screen can show a requirement and offer no
+     * way to satisfy it, which is the state this whole model was in.
+     */
+    consultationId: string | null
   }
   client: {
     id: string
@@ -314,6 +323,7 @@ export async function handoffCard(
           : null,
       internalNote: appointment.internalNote,
       clientNote: appointment.clientNote,
+      consultationId,
     },
     client: {
       id: client.id,
