@@ -132,5 +132,6 @@ const STAFF_NAV: { href: string; label: string; action: Action }[] = [
   { href: '/admin/memberships', label: 'Memberships', action: 'billing.manage' },
   { href: '/admin/billing', label: 'Your plan', action: 'billing.manage' },
   { href: '/admin/imports', label: 'Import', action: 'migration.import' },
+  { href: '/admin/audit', label: 'What was done', action: 'audit.view' },
   { href: '/admin/settings', label: 'Settings', action: 'settings.manage' },
 ]
