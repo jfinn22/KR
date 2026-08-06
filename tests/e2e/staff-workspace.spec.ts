@@ -327,6 +327,47 @@ test.describe('client notes', () => {
   })
 })
 
+test.describe('the catalogue', () => {
+  test('a price can actually be changed, which it could not be before', async ({ page }) => {
+    /*
+     * `saveServiceAction` shipped with the catalogue — eighteen fields covering
+     * price, the chemical flags, patch tests and online bookability — and had
+     * no caller anywhere. The phase editor could restructure a service and the
+     * salon still could not rename or reprice it. A salon's price list changes
+     * constantly; this one was read-only.
+     */
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/admin/services`)
+
+    await page.getByRole('link', { name: /cut & finish/i }).first().click()
+    await expect(page).toHaveURL(/\/admin\/services\/[a-z0-9]+/)
+
+    await page.getByRole('button', { name: /change what this service is/i }).click()
+    await page.getByLabel('Price', { exact: true }).fill('64')
+    await page.getByRole('button', { name: /^save$/i }).click()
+
+    // The form collapses only once the action has returned. Navigating on the
+    // click alone races the server and reads the list before the write lands.
+    await expect(page.getByRole('button', { name: /change what this service is/i })).toBeVisible()
+
+    await page.goto(`/s/${SALON}/admin/services`)
+    await expect(page.getByText('US$64', { exact: false }).first()).toBeVisible()
+  })
+
+  test('a new service can be added', async ({ page }) => {
+    await signIn(page, OWNER)
+    await page.goto(`/s/${SALON}/admin/services`)
+
+    await page.getByRole('button', { name: /add a service/i }).click()
+    await page.getByLabel(/what it is called/i).fill('Fringe trim')
+    await page.getByLabel('Price', { exact: true }).fill('30')
+    await page.getByRole('button', { name: /create it/i }).click()
+
+    await expect(page.getByRole('button', { name: /add a service/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /fringe trim/i })).toBeVisible()
+  })
+})
+
 test.describe('the phase editor tells the truth about capacity', () => {
   test('it does not promise a gap the solver would re-block', async ({ page }) => {
     await signIn(page, OWNER)

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/feedback'
 import { chainStats } from '@/domain/scheduling/chain-stats'
 import { formatMinutes, formatMoney } from '@/lib/format'
+import { ServiceForm } from './service-form'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,6 +45,17 @@ export default async function ServicesPage({ params }: { params: Promise<{ salon
           processing gap frees the chair for somebody else; one long block does not.
         </p>
       </header>
+
+      {/*
+       * The catalogue was read-only from every screen: `saveServiceAction` had
+       * no caller, so a salon could restructure a service's phases and still
+       * not rename it, reprice it, or take it off online booking.
+       */}
+      <ServiceForm
+        salonSlug={salon}
+        categories={categories.map((category) => ({ id: category.id, name: category.name }))}
+        service={null}
+      />
 
       {categories.map((category) => (
         <section key={category.id}>

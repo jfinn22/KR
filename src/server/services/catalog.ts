@@ -260,6 +260,24 @@ export async function upsertService(
     return serviceId
   }
 
+  /*
+   * The web address has to be unique within the salon, and until the editor
+   * existed nothing could ever hit that constraint — so a collision surfaced as
+   * whatever a raw database error maps to. Now that a salon can actually add a
+   * service, "Scalp treatment" when there is already a scalp treatment is an
+   * ordinary Tuesday, and it should say which field to change.
+   */
+  const clash = await unsafeDb.service.findFirst({
+    where: { salonId, slug: input.slug },
+    select: { name: true },
+  })
+  if (clash) {
+    throw new DomainError(
+      'CONFLICT',
+      `${clash.name} already uses that web address. Give this one a different one.`,
+    )
+  }
+
   const created = await unsafeDb.service.create({
     data: { ...input, salonId },
     select: { id: true },

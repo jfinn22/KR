@@ -1,9 +1,10 @@
 import Link from 'next/link'
 import { pageContextFor } from '@/server/auth/page'
-import { getService } from '@/server/services/catalog'
+import { getService, listCatalog } from '@/server/services/catalog'
 import { Button } from '@/components/ui/button'
 import { interleaveSettings } from '@/server/services/settings'
 import { ServiceEditor } from './service-editor'
+import { ServiceForm } from '../service-form'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,9 +24,10 @@ export default async function ServiceEditorPage({
   const { salon, id } = await params
   const ctx = await pageContextFor(salon, 'service.manage')
 
-  const [service, interleave] = await Promise.all([
+  const [service, interleave, categories] = await Promise.all([
     getService(ctx.salonId, id),
     interleaveSettings(ctx.salonId),
+    listCatalog(ctx.salonId),
   ])
 
   return (
@@ -43,6 +45,35 @@ export default async function ServiceEditorPage({
           what lets the diary hand the processing gap to another client.
         </p>
       </header>
+
+      {/*
+       * What it IS, above what it is made of. A salon coming here to change a
+       * price should not have to read the phase editor first — and until now
+       * there was nowhere at all to change one.
+       */}
+      <ServiceForm
+        salonSlug={salon}
+        categories={categories.map((category) => ({ id: category.id, name: category.name }))}
+        service={{
+          id: service.id,
+          name: service.name,
+          slug: service.slug,
+          categoryId: service.categoryId,
+          description: service.description ?? '',
+          basePriceCents: service.basePriceCents,
+          baseComplexity: service.baseComplexity,
+          isChemical: service.isChemical,
+          isLightening: service.isLightening,
+          containsDye: service.containsDye,
+          isExtensionInstall: service.isExtensionInstall,
+          requiresConsultation: service.requiresConsultation,
+          requiresPatchTest: service.requiresPatchTest,
+          bufferBeforeMin: service.bufferBeforeMin,
+          bufferAfterMin: service.bufferAfterMin,
+          isBookableOnline: service.isBookableOnline,
+          isActive: service.isActive,
+        }}
+      />
 
       <ServiceEditor
         salonSlug={salon}
