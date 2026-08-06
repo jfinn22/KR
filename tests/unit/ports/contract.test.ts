@@ -556,8 +556,6 @@ describe('ai port', () => {
       'photo.analysis',
       'inspiration.attributes',
       'risk.explain',
-      'plan.narrative',
-      'message.draft',
       'formula.suggest',
       'intake.normalize',
     ] as const) {

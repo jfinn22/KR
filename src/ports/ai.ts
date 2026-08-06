@@ -17,8 +17,6 @@ export type AiTask =
   | 'photo.analysis'
   | 'inspiration.attributes'
   | 'risk.explain'
-  | 'plan.narrative'
-  | 'message.draft'
   | 'formula.suggest'
   | 'intake.normalize'
 
@@ -180,22 +178,6 @@ function mockPayload(task: AiTask, hash: string): unknown {
           'Home colour builds up on the ends over time, so it lifts unevenly. Taking it lighter ' +
           'gradually protects the condition of your hair and gives a much cleaner result than ' +
           'forcing it in one appointment.',
-      }
-
-    case 'plan.narrative':
-      return {
-        narrative:
-          'We have planned this across a couple of visits so your hair stays strong. You will ' +
-          'leave the first appointment looking finished — just not quite at the final shade — and ' +
-          'we will take it the rest of the way next time.',
-      }
-
-    case 'message.draft':
-      return {
-        subject: 'About your appointment',
-        body:
-          'Hi! Thanks for sending your consultation through. I have had a look at your photos and ' +
-          'I would love to talk through the plan with you before we book. Would a quick call suit?',
       }
 
     case 'formula.suggest':
@@ -423,12 +405,6 @@ const SYSTEM_PROMPTS: Record<AiTask, string> = {
   'risk.explain':
     'Explain, warmly and in plain language, a concern a stylist has already identified. ' +
     'Two or three sentences. Do not add new concerns and do not contradict the stylist.',
-  'plan.narrative':
-    'Write a short, reassuring description of a multi-visit plan for the client. ' +
-    'Emphasise what they will see at each stage.',
-  'message.draft':
-    'Draft a short, warm message from a salon to a client. A human will review and send it, ' +
-    'so write it as a starting point rather than a final word.',
   'formula.suggest':
     'Suggest a starting colour formula given the history and target. Always include cautions. ' +
     'The stylist decides; this is a starting point only.',

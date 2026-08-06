@@ -36,8 +36,6 @@ const TASK_TO_KIND: Record<AiTask, string> = {
   'photo.analysis': 'PHOTO_ANALYSIS',
   'inspiration.attributes': 'INSPIRATION_ATTRIBUTES',
   'risk.explain': 'RISK_EXPLAIN',
-  'plan.narrative': 'PLAN_NARRATIVE',
-  'message.draft': 'MESSAGE_DRAFT',
   'formula.suggest': 'FORMULA_SUGGEST',
   'intake.normalize': 'INTAKE_NORMALIZE',
 }
@@ -298,36 +296,6 @@ export async function explainFlag(input: {
   return result.value?.plainEnglish ?? null
 }
 
-const MessageSchema = z.object({
-  body: z.string().max(600),
-})
-
-/**
- * Draft a message.
- *
- * Drafted, never sent. The suggestion is returned to a human who edits and
- * sends it, and the send is a separate, permissioned action — an AI that can
- * message clients unsupervised is an AI that will eventually message the wrong
- * one.
- */
-export async function draftMessage(input: {
-  salonId: string
-  threadId: string
-  purpose: 'FOLLOW_UP' | 'NEEDS_INFO' | 'DECLINE' | 'REBOOK'
-  context: Record<string, unknown>
-}): Promise<{ body: string | null; suggestionId: string | null }> {
-  const result = await run({
-    salonId: input.salonId,
-    task: 'message.draft',
-    refType: 'MessageThread',
-    refId: input.threadId,
-    schema: MessageSchema,
-    payload: redactForAi({ purpose: input.purpose, ...input.context }),
-    effort: 'low',
-  })
-
-  return { body: result.value?.body ?? null, suggestionId: result.suggestionId }
-}
 
 const FormulaSchema = z.object({
   rationale: z.string().max(400),

@@ -127,7 +127,13 @@ export default async function ReviewPage({
         </Card>
       )}
 
-      <PlanSummary evaluation={evaluation} currency={ctx.currency} serviceNames={serviceNames} />
+      <PlanSummary
+        evaluation={evaluation}
+        currency={ctx.currency}
+        serviceNames={serviceNames}
+        salonSlug={salon}
+        consultationId={id}
+      />
 
       {/*
        * Deliberately after the plan, not before: a client should read what we

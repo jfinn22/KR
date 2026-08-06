@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { RiskFlagCard } from '@/components/ui/feedback'
 import type { EvaluationResult, ResolvedRiskFlag } from '@/domain/consultation/types'
+import { ExplainFlag } from './explain-flag'
 import { formatDuration, formatMoney } from '@/lib/format'
 
 /**
@@ -32,6 +33,13 @@ export interface PlanSummaryProps {
   currency?: string
   serviceNames?: Readonly<Record<string, string>>
   className?: string
+  /*
+   * Both, or neither. The re-wording button needs a consultation to ask about
+   * and a salon to ask it of; the same summary is rendered in places that have
+   * neither, and it must still work there.
+   */
+  salonSlug?: string
+  consultationId?: string
 }
 
 export function PlanSummary({
@@ -39,6 +47,8 @@ export function PlanSummary({
   currency = 'GBP',
   serviceNames = {},
   className,
+  salonSlug,
+  consultationId,
 }: PlanSummaryProps) {
   const { price, duration, plan, deposit, requirements } = evaluation
   const money = (cents: number) => formatMoney(cents, currency)
@@ -123,7 +133,16 @@ export function PlanSummary({
 
           <div className="mt-5 flex flex-col gap-4">
             {[...evaluation.flags].sort(bySeverity).map((flag) => (
-              <ClientRiskFlag key={flag.code} flag={flag} />
+              <div key={flag.code}>
+                <ClientRiskFlag flag={flag} />
+                {salonSlug && consultationId && (
+                  <ExplainFlag
+                    salonSlug={salonSlug}
+                    consultationId={consultationId}
+                    code={flag.code}
+                  />
+                )}
+              </div>
             ))}
           </div>
         </section>

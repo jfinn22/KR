@@ -261,3 +261,45 @@ export const submitConsultationAction = withAuthz(
     return { evaluation, servicePlanId }
   },
 )
+
+/**
+ * Say a flag again, in the client's own words.
+ *
+ * `explainFlag` was built with the AI layer and had no caller, so the only
+ * wording a client ever saw was the rule author's `clientExplanation` — which
+ * is written once, in advance, for everybody, and cannot know that this
+ * particular person asked for platinum on a level 3 with box dye in the ends.
+ *
+ * On demand rather than on page load, for the same reason `summariseAction`
+ * is: a client who understood the sentence first time should not have cost the
+ * salon a model call, and generating one for every flag on every render bills
+ * for a rewording nobody read. Null when AI is off or the model failed — the
+ * card works without it, which is the whole point of it being advisory.
+ */
+export const explainFlagAction = withAuthz(
+  {
+    action: 'consultation.view',
+    feature: 'AI_SUMMARIES',
+    schema: z.object({ consultationId: cuid, code: z.string().min(1).max(64) }),
+    resource: (input, ctx) => consultationResource(input.consultationId, ctx),
+  },
+  async (input, ctx) => {
+    const flag = await unsafeDb.riskFlag.findFirst({
+      where: { salonId: ctx.salonId, consultationId: input.consultationId, code: input.code },
+      orderBy: { createdAt: 'desc' },
+      select: { detail: true, recommendedPath: true },
+    })
+    if (!flag) throw new DomainError('NOT_FOUND', 'That is not on this consultation.')
+
+    const { explainFlag } = await import('@/server/services/ai')
+    const plainEnglish = await explainFlag({
+      salonId: ctx.salonId,
+      consultationId: input.consultationId,
+      code: input.code,
+      detail: flag.detail,
+      recommendedPath: flag.recommendedPath,
+    })
+
+    return { plainEnglish }
+  },
+)
