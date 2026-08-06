@@ -31,23 +31,3 @@ if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = unsafeDb
 
 export type Db = PrismaClient
 
-/**
- * Set the tenant GUC that the row-level-security policies read.
- *
- * Transaction-local (`set_config(..., true)`), so it is safe under PgBouncer
- * transaction pooling and cannot leak into the next request on a pooled
- * connection.
- *
- * NOTE: Postgres superusers bypass RLS. In development and CI the app connects
- * as `postgres`, so the policies installed by the migration are inert and
- * isolation rests on the Prisma extension plus the repository layer — both of
- * which are covered by tests. To make RLS genuinely enforcing, run the app as
- * the non-superuser role created by `scripts/sql/app-role.sql`. See
- * docs/ARCHITECTURE.md.
- */
-export async function setTenantGuc(
-  tx: Pick<PrismaClient, '$executeRawUnsafe'>,
-  salonId: string,
-): Promise<void> {
-  await tx.$executeRawUnsafe(`SELECT set_config('app.salon_id', $1, true)`, salonId)
-}

@@ -449,11 +449,17 @@ Nothing here is a stub pretending to be a feature.
   same chair. Any generated migration must have that line deleted before it is
   applied; the four booking-race integration tests are what catch it.
 
-- **RLS is inert in development and CI.** Postgres superusers bypass row-level
-  security, and the local and CI databases both connect as one. The policies
-  are real and applied; they simply cannot be proven by the test suite as it
-  stands. The tenancy tests exercise the application layer, which is what
-  actually runs in production too.
+- **RLS is installed and not active, anywhere.** The policies are real and
+  applied, and they read `app.salon_id` — which nothing sets. On top of that,
+  every environment connects as a superuser, and superusers bypass RLS
+  regardless. Measured, not assumed: as `postgres` a seeded table returns 43
+  rows; as a non-superuser with the GUC unset it returns 0; with the GUC set it
+  returns that tenant's 42. So the policies are correct and switching roles
+  alone would be an outage, not a tightening. Isolation is enforced by the
+  Prisma tenant extension and the repository layer, which is what the tenancy
+  tests exercise and what runs in production. Turning RLS into a real third
+  barrier means setting the GUC per transaction; there is deliberately no
+  half-built path toward it.
 - **Utilisation is still approximate.** It divides chair time by the days each
   stylist had any segment at all, at eight hours a day. The exact answer needs
   working hours minus time off, which is a heavier query than the screen

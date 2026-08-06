@@ -190,15 +190,19 @@ Isolation is structural, in layers:
    rather than being silently corrected.
 2. The repository layer — raw Prisma is exported only as `unsafeDb` and is
    lint-restricted.
-3. Row-level security policies on every table carrying a `salonId`.
-
 A test walks the Prisma DMMF and fails if any model is neither registered global
 nor carries `salonId`, so a model added later cannot skip the decision.
 
-> **RLS caveat:** Postgres superusers bypass RLS, and dev/CI connect as
-> `postgres`, so the policies are present but inert there. Run
-> `scripts/sql/app-role.sql` and point `DATABASE_URL` at the non-superuser role
-> to make RLS a genuine third barrier in a real deployment.
+> **On row-level security:** the migrations install `tenant_isolation` policies
+> on every table carrying a `salonId`, and they are **not active**. They read
+> `app.salon_id`, nothing sets it, and the app connects as a superuser — which
+> bypasses RLS regardless. Isolation is enforced by the two layers above, which
+> is what the tests cover and what runs in production.
+>
+> Switching to a non-superuser role without also setting that GUC per
+> transaction would not tighten anything; it would return **zero rows** from
+> every tenant-scoped table. Making RLS a genuine third barrier means routing
+> scoped queries through a transaction that sets it first. That is not built.
 
 ---
 
