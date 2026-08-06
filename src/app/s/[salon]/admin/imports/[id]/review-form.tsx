@@ -4,7 +4,11 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Field, Select } from '@/components/ui/field'
-import { commitImportAction, undoImportAction } from '@/server/actions/migration'
+import {
+  commitImportAction,
+  reviewImportAction,
+  undoImportAction,
+} from '@/server/actions/migration'
 import type { NameMatch } from '@/server/services/migration/review'
 
 /**
@@ -59,6 +63,36 @@ export function ReviewForm({
    */
   const unassigned = stylists.filter((match) => !stylistMap[match.name])
   const lostRows = unassigned.reduce((total, match) => total + match.rows, 0)
+
+  /*
+   * Save the reading, redraw the preview, run nothing.
+   *
+   * This is the whole point of `reviewImportAction`, which was written and
+   * then reachable from nowhere. Getting the date order wrong moves a salon's
+   * entire history by up to eleven months, and until now the only way to find
+   * out which way round the file was read was to commit four thousand rows and
+   * look. The preview above is parsed from the stored options, so saving them
+   * and refreshing is the same table drawn the other way round.
+   */
+  const dirty = order !== initialDateOrder || callingCode !== initialCallingCode
+
+  async function redraw() {
+    setBusy(true)
+    setError(null)
+
+    const result = await reviewImportAction(salonSlug, {
+      batchId,
+      dateOrder: order,
+      defaultCallingCode: callingCode.trim() === '' ? null : callingCode.trim(),
+    })
+    setBusy(false)
+
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    router.refresh()
+  }
 
   async function commit() {
     setBusy(true)
@@ -119,6 +153,17 @@ export function ReviewForm({
             className="w-32 rounded-md border border-line bg-surface px-3 py-2 text-body text-ink"
           />
         </Field>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <Button variant="secondary" onClick={redraw} disabled={busy || !dirty}>
+            {busy ? 'Redrawing…' : 'Show me the dates that way'}
+          </Button>
+          <span className="text-secondary text-ink-muted">
+            {dirty
+              ? 'Redraws the table above. Nothing is imported.'
+              : 'The table above is drawn this way.'}
+          </span>
+        </div>
       </section>
 
       <MapSection

@@ -50,26 +50,3 @@ export function isSharedLibraryModel(model: string): boolean {
   return SHARED_LIBRARY_MODELS.has(model)
 }
 
-/** Operations whose `where` clause must be narrowed to the tenant. */
-export const READ_OPERATIONS: ReadonlySet<string> = new Set([
-  'findUnique',
-  'findUniqueOrThrow',
-  'findFirst',
-  'findFirstOrThrow',
-  'findMany',
-  'count',
-  'aggregate',
-  'groupBy',
-])
-
-/** Operations that both narrow `where` and stamp `salonId` onto writes. */
-export const WRITE_OPERATIONS: ReadonlySet<string> = new Set([
-  'create',
-  'createMany',
-  'createManyAndReturn',
-  'update',
-  'updateMany',
-  'upsert',
-  'delete',
-  'deleteMany',
-])

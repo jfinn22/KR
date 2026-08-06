@@ -131,5 +131,3 @@ export const ACTIONS = [
 ] as const
 
 export type Action = (typeof ACTIONS)[number]
-
-export const ACTION_SET: ReadonlySet<string> = new Set(ACTIONS)

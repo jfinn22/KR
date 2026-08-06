@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import { pageContextFor } from '@/server/auth/page'
 import { clientAppointments, hairTimeline } from '@/server/services/client-portal'
 import { clientRecord } from '@/server/services/front-desk'
-import { consentState } from '@/server/services/compliance'
+import { consentState, verifySubmission } from '@/server/services/compliance'
 import { predictionFor } from '@/server/services/hair-prediction'
 import { membershipFor, salonPlans } from '@/server/services/memberships'
 import { strandTestsFor } from '@/server/services/requirements'
@@ -12,6 +12,9 @@ import { ConsentPanel } from './consent-panel'
 import { NotesPanel } from './notes-panel'
 import { FeesPanel } from './fees-panel'
 import { DepositsPanel } from './deposits-panel'
+import { SubjectRights } from './subject-rights'
+import { FormsPanel } from './forms-panel'
+import { permitted } from '@/server/auth/context'
 import { HairForm } from './hair-form'
 import { MembershipPanel } from './membership-panel'
 import { Badge } from '@/components/ui/badge'
@@ -71,6 +74,50 @@ export default async function ClientRecordPage({
        */
       strandTestsFor(ctx.salonId, id),
     ])
+
+  /*
+   * One row per form the salon publishes, carrying whichever signature is the
+   * most recent for this client.
+   *
+   * Driven off the templates rather than the submissions, because the useful
+   * question at a desk is "what has this person not signed" — a list built
+   * from submissions can only ever show what has already been done.
+   *
+   * `verifySubmission` re-hashes the wording, so a form signed against text
+   * that has since been edited is shown as exactly that rather than as a valid
+   * consent to words nobody agreed to.
+   */
+  const forms = await Promise.all(
+    consent.templates
+      .filter((template) => template.requiresSignature)
+      .map(async (template) => {
+        const latest = consent.submissions.find(
+          (submission) => submission.formTemplateId === template.id,
+        )
+        const check = latest ? await verifySubmission(ctx.salonId, latest.id) : null
+
+        return {
+          key: template.key,
+          name: template.name,
+          version: template.version,
+          bodyMarkdown: template.bodyMarkdown,
+          isLegalPlaceholder: template.isLegalPlaceholder,
+          signed: latest
+            ? {
+                signerName: latest.signature?.signerName ?? null,
+                signerRelationship: latest.signature?.signerRelationship ?? null,
+                signedOn: formatDayHeading(
+                  localDateIn(ctx.timezone, latest.submittedAt),
+                  ctx.timezone,
+                ),
+                current: check?.matches ?? true,
+                signedVersion: check?.signedVersion ?? template.version,
+                currentVersion: check?.currentVersion ?? template.version,
+              }
+            : null,
+        }
+      }),
+  )
 
   return (
     <div className="flex flex-col gap-10">
@@ -271,6 +318,38 @@ export default async function ClientRecordPage({
               validUntil: test.validUntil.toISOString(),
               isCurrent: test.isCurrent,
             }))}
+          />
+        </div>
+      </section>
+
+      {forms.length > 0 && (
+        <section>
+          <SectionHeading
+            title="Forms"
+            description="What this salon asks people to sign, and who signed it."
+          />
+          <div className="mt-6">
+            <FormsPanel salonSlug={salon} clientProfileId={client.id} forms={forms} />
+          </div>
+        </section>
+      )}
+
+      {/*
+       * Immediately after consent, because they are the same conversation:
+       * what this salon may do with somebody's information, and what that
+       * person may ask it to hand over or destroy.
+       */}
+      <section>
+        <SectionHeading
+          title="What they can ask for"
+          description="A copy of everything held about them, and — where the law gives them the right — its removal."
+        />
+        <div className="mt-6">
+          <SubjectRights
+            salonSlug={salon}
+            clientProfileId={client.id}
+            clientName={`${client.firstName} ${client.lastName ?? ''}`.trim()}
+            canErase={permitted(ctx, 'client.erase', { salonId: ctx.salonId })}
           />
         </div>
       </section>

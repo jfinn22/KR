@@ -5,7 +5,7 @@ import { dbFor, type TenantDb } from '@/server/db/tenant-client'
 import type { Action } from '@/domain/authz/actions'
 import type { Principal, ResourceRef, StaffRole } from '@/domain/authz/principal'
 import { can } from '@/domain/authz/policy'
-import { hasFeature, type Feature, type PlanCode } from '@/domain/authz/plan-features'
+import type { PlanCode } from '@/domain/authz/plan-features'
 
 /**
  * The one place a request's identity, tenant and permissions are established.
@@ -168,16 +168,3 @@ export function needsReason(ctx: TenantContext, action: Action, resource?: Resou
   return r.allowed === true && r.requiresReason === true
 }
 
-export function planHas(ctx: TenantContext, feature: Feature): boolean {
-  return hasFeature(ctx.plan, feature)
-}
-
-/** Convenience for a stylist acting on their own rows. */
-export function ownResource(ctx: TenantContext, clientProfileId?: string | null): ResourceRef {
-  return {
-    salonId: ctx.salonId,
-    ownerStylistId: ctx.principal.kind === 'staff' ? ctx.principal.stylistProfileId : null,
-    clientProfileId:
-      clientProfileId ?? (ctx.principal.kind === 'client' ? ctx.principal.clientProfileId : null),
-  }
-}

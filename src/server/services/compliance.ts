@@ -348,7 +348,7 @@ export async function hasConsent(
 
 /** Everything on file for a client, for the consent screen. */
 export async function consentState(salonId: string, clientProfileId: string) {
-  const [grants, submissions, patchTests] = await Promise.all([
+  const [grants, submissions, patchTests, templates] = await Promise.all([
     unsafeDb.consentGrant.findMany({
       where: { salonId, clientProfileId },
       orderBy: { grantedAt: 'desc' },
@@ -358,7 +358,7 @@ export async function consentState(salonId: string, clientProfileId: string) {
       orderBy: { submittedAt: 'desc' },
       include: {
         formTemplate: { select: { name: true, kind: true, isLegalPlaceholder: true } },
-        signature: { select: { signerName: true, signedAt: true } },
+        signature: { select: { signerName: true, signerRelationship: true, signedAt: true } },
       },
     }),
     unsafeDb.patchTest.findMany({
@@ -366,12 +366,35 @@ export async function consentState(salonId: string, clientProfileId: string) {
       orderBy: { appliedAt: 'desc' },
       take: 5,
     }),
+    /*
+     * What this salon asks people to sign.
+     *
+     * Five of these ship in the seed, every one of them PUBLISHED and
+     * requiresSignature, and nothing in the product could sign one — a
+     * chemical service consent form that exists and cannot be signed is worse
+     * than no form at all, because the salon believes it has one.
+     */
+    unsafeDb.formTemplate.findMany({
+      where: { salonId, status: 'PUBLISHED' },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        key: true,
+        name: true,
+        kind: true,
+        version: true,
+        bodyMarkdown: true,
+        requiresSignature: true,
+        isLegalPlaceholder: true,
+      },
+    }),
   ])
 
   const now = new Date()
   return {
     grants,
     submissions,
+    templates,
     patchTests: patchTests.map((test) => ({
       ...test,
       isCurrent: test.result === 'NEGATIVE' && test.validUntil > now,

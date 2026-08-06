@@ -125,11 +125,6 @@ export function esignPort(): EsignPort {
   })
 }
 
-/** Drop every memoised adapter. Tests and env changes only. */
-export function resetPorts(): void {
-  cache.clear()
-  sink = null
-}
 
 /** What each port resolved to — surfaced on the admin integrations screen. */
 export function adapterReport(): { port: string; mode: string; name: string }[] {

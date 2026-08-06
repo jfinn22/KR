@@ -4,7 +4,6 @@ import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
 import {
-  loadConsultation,
   saveAnswer,
   startConsultation,
   submitConsultation,
@@ -149,15 +148,6 @@ export const saveAnswerAction = withAuthz(
   },
 )
 
-/** Progress and branching, for the guided flow to re-render against. */
-export const loadConsultationAction = withAuthz(
-  {
-    action: 'consultation.view',
-    schema: z.object({ consultationId: cuid }),
-    resource: (input, ctx) => consultationResource(input.consultationId, ctx),
-  },
-  async (input, ctx) => loadConsultation(ctx.salonId, input.consultationId),
-)
 
 /**
  * Submit, evaluate, and approve where the salon has said that is acceptable.

@@ -55,31 +55,6 @@ export async function audit(ctx: TenantContext, entry: AuditEntry): Promise<void
   })
 }
 
-/**
- * Record an override — a stylist proceeding past a risk flag, a manager
- * waiving a patch-test requirement, a discount above the cap.
- *
- * These are the rows that matter most: they are how a salon later answers
- * "who decided this was safe, and why?".
- */
-export async function auditOverride(
-  ctx: TenantContext,
-  params: {
-    action: string
-    entityType: string
-    entityId: string
-    reason: string
-    detail?: unknown
-  },
-): Promise<void> {
-  await audit(ctx, {
-    action: `override.${params.action}`,
-    entityType: params.entityType,
-    entityId: params.entityId,
-    reason: params.reason,
-    after: params.detail,
-  })
-}
 
 /**
  * Audit an action taken by somebody with no account.

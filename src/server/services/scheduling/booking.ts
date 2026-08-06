@@ -5,7 +5,6 @@ import {
   localDateOfEpochMinutes,
   toEpochMinutes,
 } from '@/domain/scheduling/zoned'
-import { chainDuration } from '@/domain/scheduling/chain'
 import { DomainError } from '@/server/errors'
 import { invalidateAvailabilityCache } from './loader'
 import { assessCancellation } from '@/server/services/commerce'
@@ -443,5 +442,3 @@ export async function cancelAppointment(input: CancelInput): Promise<void> {
   }
 }
 
-/** Duration of a chain, exposed so callers do not recompute it inconsistently. */
-export const totalChainMinutes = chainDuration

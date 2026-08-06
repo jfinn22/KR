@@ -114,7 +114,3 @@ export function adapterModeFor(port: PortName): 'mock' | 'real' {
   return override ?? env.ADAPTER_MODE
 }
 
-/** Reset the env cache. Tests only. */
-export function __resetEnvCache() {
-  cached = null
-}

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireContext } from '@/server/auth/context'
 import { hasFeature } from '@/domain/authz/plan-features'
 import { readInspiration } from '@/server/services/ai'
+import { hasConsent } from '@/server/services/compliance'
 import { authorize } from '@/server/auth/context'
 import { toActionError } from '@/server/actions/guard'
 import { DomainError } from '@/server/errors'
@@ -132,12 +133,24 @@ export async function POST(request: Request) {
        * itself is NOT gated: a Starter salon still gets the picture, they just
        * do not get the machine's opinion of it.
        *
+       * Two gates, and they are different questions. The plan decides whether
+       * this salon has bought the capability; the client's own
+       * AI_PHOTO_ANALYSIS grant decides whether a model may look at a
+       * photograph of them. A grant kind that exists, is offered on the consent
+       * screen, and is then ignored at the one moment it applies is a consent
+       * mechanism that does nothing — which is worse than not asking, because
+       * the client was told they had a choice.
+       *
        * Deliberately not awaited into the response's success. A model that is
        * slow, down, or over its budget must not stop a client attaching the
        * photograph they came here to attach — the attributes it writes are an
        * addition to the client's own tags, never a replacement for them.
        */
-      if (hasFeature(ctx.plan, 'AI_PHOTO_ANALYSIS')) {
+      const mayAnalyse =
+        hasFeature(ctx.plan, 'AI_PHOTO_ANALYSIS') &&
+        (await hasConsent(ctx.salonId, owner.clientProfileId, 'AI_PHOTO_ANALYSIS'))
+
+      if (mayAnalyse) {
         try {
           await readInspiration({
             salonId: ctx.salonId,
