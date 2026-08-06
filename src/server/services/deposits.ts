@@ -181,29 +181,6 @@ export async function captureDeposit(input: {
   return { capturedCents: captured.capturedCents, status: 'CAPTURED' }
 }
 
-/**
- * The money moves, and it moves onto a bill.
- *
- * Captures first, then marks. Deliberately does NOT credit the invoice a
- * second time: `buildInvoice` already nets a held deposit off through
- * `paidCents`, computed from the same AUTHORIZED/CAPTURED rows. Crediting
- * again here would take the deposit off the bill twice, which the client would
- * notice and the salon would not.
- */
-export async function applyDepositToInvoice(input: {
-  salonId: string
-  depositId: string
-  invoiceId: string
-  paymentId?: string | null
-}): Promise<{ capturedCents: number }> {
-  const { capturedCents } = await captureDeposit({
-    salonId: input.salonId,
-    depositId: input.depositId,
-  })
-
-  await markDepositApplied(input)
-  return { capturedCents }
-}
 
 /**
  * Record which bill consumed this deposit.

@@ -216,6 +216,28 @@ export const removePhotoAction = withAuthz(
 )
 
 /**
+ * Remove a clip.
+ *
+ * `removeConsultationVideo` was written alongside the photo removal, in the
+ * same shape and with the same care about ordering, and nothing called it — so
+ * a client who filmed the wrong thing, or filmed their face, or filmed
+ * somebody else's kitchen, had no way to take it back, and it went through to
+ * the stylist's review screen exactly as it was.
+ */
+export const removeVideoAction = withAuthz(
+  {
+    action: 'consultation.create',
+    schema: z.object({ consultationId: cuid, videoId: cuid }),
+    resource: (input, ctx) => consultationResource(input.consultationId, ctx),
+  },
+  async (input, ctx) => {
+    const { removeConsultationVideo } = await import('@/server/services/consultation-video')
+    await removeConsultationVideo({ salonId: ctx.salonId, videoId: input.videoId })
+    return { removed: true }
+  },
+)
+
+/**
  * Remove a reference picture.
  *
  * A misfired upload used to be permanent for the life of the consultation, and

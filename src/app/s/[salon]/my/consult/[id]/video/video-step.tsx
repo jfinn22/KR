@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Field, Textarea } from '@/components/ui/field'
+import { removeVideoAction } from '@/server/actions/consultation'
 
 /**
  * Recording a clip, from a phone.
@@ -174,11 +175,39 @@ export function VideoStep({
             <figure key={video.id} className="overflow-hidden rounded-lg border border-line">
               {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
               <video src={video.url} controls playsInline className="w-full" />
-              <figcaption className="p-3">
-                {video.prompt && <p className="text-secondary text-ink">{video.prompt}</p>}
-                {video.clientNote && (
-                  <p className="mt-1 text-secondary text-ink-muted">{video.clientNote}</p>
-                )}
+              <figcaption className="flex flex-wrap items-start justify-between gap-3 p-3">
+                <div className="min-w-0">
+                  {video.prompt && <p className="text-secondary text-ink">{video.prompt}</p>}
+                  {video.clientNote && (
+                    <p className="mt-1 text-secondary text-ink-muted">{video.clientNote}</p>
+                  )}
+                </div>
+                {/*
+                 * A misfired clip used to be permanent for the life of the
+                 * consultation — and a video of the wrong thing is a more
+                 * uncomfortable thing to be stuck with than a photograph.
+                 */}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true)
+                    setError(null)
+                    const result = await removeVideoAction(salonSlug, {
+                      consultationId,
+                      videoId: video.id,
+                    })
+                    setBusy(false)
+                    if (!result.ok) {
+                      setError(result.error)
+                      return
+                    }
+                    router.refresh()
+                  }}
+                >
+                  Remove
+                </Button>
               </figcaption>
             </figure>
           ))}

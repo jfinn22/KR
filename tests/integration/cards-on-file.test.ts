@@ -5,7 +5,7 @@ import { paymentsPort } from '@/ports/registry'
 import { POST } from '@/app/api/webhooks/payments/route'
 import { beginCardSetup, cardsFor, removeCard, syncCards } from '@/server/services/cards'
 import {
-  applyDepositToInvoice,
+  markDepositApplied,
   authorizeDeposit,
   canTransition,
   chargeConsultationFee,
@@ -343,8 +343,14 @@ describe('the deposit state machine', () => {
     const row = await unsafeDb.invoice.findUniqueOrThrow({ where: { id: invoice.invoiceId } })
     expect(row.paidCents).toBe(5_000)
 
-    // Applying again is a no-op rather than a second credit.
-    await applyDepositToInvoice({
+    /*
+     * Applying again is a no-op rather than a second credit. Asserted against
+     * `markDepositApplied` because that is what `buildInvoice` actually calls:
+     * the capture has to happen before the invoice exists and the marking after
+     * it, so the two cannot be one call, and a wrapper that pretended otherwise
+     * was tested here and used nowhere.
+     */
+    await markDepositApplied({
       salonId: S,
       depositId: deposit.id,
       invoiceId: invoice.invoiceId,

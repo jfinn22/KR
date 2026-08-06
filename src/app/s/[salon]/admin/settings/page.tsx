@@ -6,6 +6,7 @@ import { hasFeature } from '@/domain/authz/plan-features'
 import { SectionHeading } from '@/components/ui/data'
 import { SchedulingSettingsForm } from './scheduling-form'
 import { BrandingForm } from './branding-form'
+import { LogoForm } from './logo-form'
 import { JoinForm } from './join-form'
 import { DiscountForm } from './discount-form'
 import { toDataURL } from 'qrcode'
@@ -97,6 +98,11 @@ export default async function SettingsPage({ params }: { params: Promise<{ salon
           <BrandingForm
             salonSlug={salon}
             initialAccent={branding?.accentHex ?? null}
+            available={mayBrand}
+          />
+          <LogoForm
+            salonSlug={salon}
+            logoUrl={branding?.logoUrl ?? null}
             available={mayBrand}
           />
         </div>
