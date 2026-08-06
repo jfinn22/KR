@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { pageContextFor } from '@/server/auth/page'
-import { ownerDashboard } from '@/server/services/analytics'
+import { lastDays, ownerDashboard } from '@/server/services/analytics'
+import { backbarSummary } from '@/server/services/backbar'
 import { membershipRevenue } from '@/server/services/memberships'
 import { aiUsage } from '@/server/services/ai'
 import { Badge } from '@/components/ui/badge'
@@ -41,10 +42,17 @@ export default async function InsightsPage({
   const ctx = await pageContextFor(salon, 'report.viewSalon')
 
   const days = RANGES.find((r) => String(r.days) === query.days)?.days ?? 30
-  const [data, ai, memberships] = await Promise.all([
+  const range = lastDays(days, ctx.timezone)
+  const [data, ai, memberships, backbar] = await Promise.all([
     ownerDashboard(ctx.salonId, ctx.timezone, days),
     aiUsage(ctx.salonId),
     membershipRevenue(ctx.salonId),
+    /*
+     * What the colour in the bowl actually cost. `backbarSummary` was written
+     * with the backbar capture in P8 and never read by a screen, so a salon
+     * could record every gram and never see the total.
+     */
+    backbarSummary(ctx.salonId, range),
   ])
 
   const { accuracy, funnel, utilisation, rules, revenue } = data
@@ -256,6 +264,37 @@ export default async function InsightsPage({
           <Stat label="Cancelled" value={revenue.cancelled} />
         </div>
       </section>
+
+      {/* --- What the colour cost ---------------------------------------------- */}
+      {backbar.appointments > 0 && (
+        <section>
+          <SectionHeading
+            title="What went in the bowl"
+            description="Recorded at the chair, gram by gram. Waste is what was mixed and not used — the number a salon can actually act on."
+          />
+          <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat label="Product used" value={formatMoney(backbar.spentCents, ctx.currency)} />
+            <Stat
+              label="Mixed and thrown away"
+              tone={backbar.wasteCents > 0 ? 'hair' : undefined}
+              value={formatMoney(backbar.wasteCents, ctx.currency)}
+              hint={
+                backbar.spentCents > 0
+                  ? `${Math.round((backbar.wasteCents / backbar.spentCents) * 100)}% of what was mixed`
+                  : undefined
+              }
+            />
+            <Stat label="Appointments costed" value={backbar.appointments} />
+            <Stat
+              label="Average per visit"
+              value={formatMoney(
+                Math.round(backbar.spentCents / backbar.appointments),
+                ctx.currency,
+              )}
+            />
+          </div>
+        </section>
+      )}
 
       {/* --- Memberships ------------------------------------------------------- */}
       {memberships.members > 0 && (

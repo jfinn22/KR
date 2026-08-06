@@ -6,6 +6,7 @@ import { clientRecord } from '@/server/services/front-desk'
 import { consentState } from '@/server/services/compliance'
 import { predictionFor } from '@/server/services/hair-prediction'
 import { membershipFor, salonPlans } from '@/server/services/memberships'
+import { strandTestsFor } from '@/server/services/requirements'
 import { HairTimeline } from '@/components/salon/hair-timeline'
 import { ConsentPanel } from './consent-panel'
 import { NotesPanel } from './notes-panel'
@@ -39,7 +40,7 @@ export default async function ClientRecordPage({
 
   const { client, accuracy, overrunCount, averageOverrunMin } = record
 
-  const [{ upcoming, past }, timeline, consent, prediction, hair, membership, plans] =
+  const [{ upcoming, past }, timeline, consent, prediction, hair, membership, plans, strandTests] =
     await Promise.all([
     clientAppointments(ctx.salonId, client.id),
     hairTimeline(ctx.salonId, client.id),
@@ -61,6 +62,12 @@ export default async function ClientRecordPage({
     }),
       membershipFor(ctx.salonId, id),
       salonPlans(ctx.salonId),
+      /*
+       * Every strand test on this client. `strandTestsFor` had only a test
+       * reading it — and a strand test that cannot be looked up later is
+       * evidence nobody can produce when it matters.
+       */
+      strandTestsFor(ctx.salonId, id),
     ])
 
   return (
@@ -308,6 +315,42 @@ export default async function ClientRecordPage({
           </div>
         </div>
       </section>
+
+      {strandTests.length > 0 && (
+        <section>
+          <SectionHeading
+            title="Strand tests"
+            description="What the hair actually did, before the work. The record somebody reads back if there is ever a question about it."
+          />
+          <ul className="mt-6 flex flex-col divide-y divide-line border-y border-line">
+            {strandTests.map((test) => (
+              <li key={test.id} className="flex flex-wrap items-baseline justify-between gap-3 py-3">
+                <div>
+                  <p className="text-body text-ink">
+                    {formatDayHeading(localDateIn(ctx.timezone, test.performedAt), ctx.timezone)}
+                    {test.startLevel !== null && test.liftAchievedLevel !== null && (
+                      <span className="text-ink-muted">
+                        {' '}
+                        · lifted {test.startLevel} to {test.liftAchievedLevel}
+                      </span>
+                    )}
+                  </p>
+                  {test.resultNotes && (
+                    <p className="mt-1 text-secondary text-ink-muted">{test.resultNotes}</p>
+                  )}
+                </div>
+                <Badge tone={test.decision === 'ABORT' ? 'danger' : test.decision === 'MODIFY' ? 'warn' : 'success'}>
+                  {test.decision === 'ABORT'
+                    ? 'do not do it'
+                    : test.decision === 'MODIFY'
+                      ? 'change the plan'
+                      : 'go ahead'}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section>
         <SectionHeading

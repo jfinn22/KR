@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { pageContextFor } from '@/server/auth/page'
 import { attachmentRate, firstTimerInterventions, rebookReport } from '@/server/services/retention'
 import { unhappyCheckIns } from '@/server/services/check-in'
+import { ResolveCheckInButton } from './resolve-button'
 import { lastDays } from '@/server/services/analytics'
 import { FIRST_TIMER_GRACE_DAYS, REBOOK_WINDOW_DAYS } from '@/domain/retention/windows'
 import { SectionHeading, Stat, Table, TableWrap, Td, Th, Tr } from '@/components/ui/data'
@@ -70,6 +71,7 @@ export default async function RetentionPage({ params }: { params: Promise<{ salo
                   </span>
                 </div>
                 {row.note && <p className="mt-2 text-body text-ink">“{row.note}”</p>}
+                <ResolveCheckInButton salonSlug={salon} checkInId={row.id} />
               </li>
             ))}
           </ul>

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
 import { unsafeDb } from '@/server/db/client'
 import { recordAftercare, settleRecommendation } from '@/server/services/retention'
+import { resolveCheckIn } from '@/server/services/check-in'
 
 /**
  * Aftercare, written at the chair.
@@ -108,5 +109,29 @@ export const settleRecommendationAction = withAuthz(
     })
     revalidatePath(`/s/${ctx.salonSlug}/desk`)
     return result
+  },
+)
+
+/**
+ * Mark an unhappy check-in as dealt with.
+ *
+ * `resolveCheckIn` existed and had no caller, so the "somebody is not happy"
+ * list could only ever grow. A list that never shrinks is one the front desk
+ * stops reading, which costs the salon the exact clients it exists to save.
+ */
+export const resolveCheckInAction = withAuthz(
+  {
+    action: 'client.edit',
+    schema: z.object({ checkInId: cuid }),
+    auditAs: (input) => ({ entityType: 'PostVisitCheckIn', entityId: input.checkInId }),
+  },
+  async (input, ctx) => {
+    await resolveCheckIn(
+      ctx.salonId,
+      input.checkInId,
+      ctx.principal.kind === 'staff' ? ctx.principal.userId : null,
+    )
+    revalidatePath(`/s/${ctx.salonSlug}/desk/retention`)
+    return { resolved: true }
   },
 )
