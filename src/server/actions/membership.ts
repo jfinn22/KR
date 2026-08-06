@@ -5,7 +5,12 @@ import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
 import { unsafeDb } from '@/server/db/client'
 import { paymentsPort } from '@/ports/registry'
-import { cancelMembership, changePlan, subscribeClient } from '@/server/services/memberships'
+import {
+  cancelMembership,
+  changePlan,
+  setMembershipPaused,
+  subscribeClient,
+} from '@/server/services/memberships'
 
 /**
  * Selling, changing and stopping a membership.
@@ -72,6 +77,23 @@ export const cancelMembershipAction = withAuthz(
       salonId: ctx.salonId,
       membershipId: input.membershipId,
       immediately: input.immediately,
+    })
+    revalidatePath(`/s/${ctx.salonSlug}/desk/clients`)
+    return result
+  },
+)
+
+export const setMembershipPausedAction = withAuthz(
+  {
+    action: 'billing.manage',
+    schema: z.object({ membershipId: cuid, paused: z.boolean() }),
+    auditAs: (input) => ({ entityType: 'ClientMembership', entityId: input.membershipId }),
+  },
+  async (input, ctx) => {
+    const result = await setMembershipPaused({
+      salonId: ctx.salonId,
+      membershipId: input.membershipId,
+      paused: input.paused,
     })
     revalidatePath(`/s/${ctx.salonSlug}/desk/clients`)
     return result

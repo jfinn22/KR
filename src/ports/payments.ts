@@ -212,6 +212,20 @@ export interface PaymentsPort {
     idempotencyKey: string
   }): Promise<SubscriptionResult>
 
+  /**
+   * Stop collecting for a while, without ending the subscription.
+   *
+   * The distinction that makes pausing worth having: a client going away for
+   * three months keeps their membership and their history, and is not charged
+   * for months they cannot use. A pause that kept billing would be strictly
+   * worse for them than cancelling, which is the version nobody should ship.
+   */
+  pauseSubscription(input: {
+    subscriptionRef: string
+    paused: boolean
+    idempotencyKey: string
+  }): Promise<SubscriptionResult>
+
   parseWebhook(payload: string, signature: string): Promise<WebhookEvent>
 
   /**
@@ -530,6 +544,21 @@ export class MockPaymentsAdapter implements PaymentsPort {
     idempotencyKey: string
   }): Promise<{ id: string }> {
     return { id: mockId('price', input.idempotencyKey) }
+  }
+
+  async pauseSubscription(input: {
+    subscriptionRef: string
+    paused: boolean
+    idempotencyKey: string
+  }): Promise<SubscriptionResult> {
+    const existing = this.subscriptions.get(input.subscriptionRef)
+    if (!existing) {
+      throw new AdapterError('payments', 'NOT_FOUND', 'No such subscription.')
+    }
+    // The period is untouched either way: a pause is not a renewal, and the
+    // client keeps whatever they had already paid for when they come back.
+    this.subscriptions.set(existing.id, existing)
+    return { ...existing }
   }
 
   async cancelSubscription(input: {
@@ -876,6 +905,28 @@ export class StripePaymentsAdapter implements PaymentsPort {
       { idempotencyKey: input.idempotencyKey },
     )
     return { id: price.id }
+  }
+
+  async pauseSubscription(input: {
+    subscriptionRef: string
+    paused: boolean
+    idempotencyKey: string
+  }): Promise<SubscriptionResult> {
+    const stripe = await this.client()
+    const sub = await stripe.subscriptions.update(
+      input.subscriptionRef,
+      {
+        /*
+         * `void` rather than `keep_as_draft`: invoices raised while paused are
+         * discarded outright. Keeping them as drafts would present the client
+         * with a bill for the months they were away the moment they came back,
+         * which is the pause failing at exactly the point it mattered.
+         */
+        pause_collection: input.paused ? { behavior: 'void' } : null,
+      },
+      { idempotencyKey: input.idempotencyKey },
+    )
+    return toSubscriptionResult(sub)
   }
 
   async cancelSubscription(input: {

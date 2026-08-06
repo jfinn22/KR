@@ -396,6 +396,71 @@ export async function cancelMembership(input: {
 }
 
 /**
+ * Put it on hold, or take it off hold.
+ *
+ * `ClientMembershipStatus.PAUSED` has been read in four places since the
+ * schema was written — `membershipFor` reports it as suspended and
+ * `benefitsForBill` withholds against it — and no code path could ever produce
+ * it. This is the writer.
+ *
+ * Worth having because the alternative a client is offered otherwise is
+ * cancelling, and a cancelled member is one the salon has to sell all over
+ * again. Somebody away for three months keeps their membership, their history
+ * and their price, and is not charged for months they cannot use — collection
+ * stops at the provider too, because a pause that kept billing would be
+ * strictly worse for them than cancelling.
+ */
+export async function setMembershipPaused(input: {
+  salonId: string
+  membershipId: string
+  paused: boolean
+  now?: Date
+}): Promise<{ status: string }> {
+  const now = input.now ?? new Date()
+  const db = dbFor(input.salonId)
+
+  const membership = await db.clientMembership.findFirst({
+    where: { id: input.membershipId, salonId: input.salonId },
+    select: { id: true, status: true, stripeSubscriptionId: true },
+  })
+  if (!membership) throw new DomainError('NOT_FOUND', 'That membership is not here.')
+  if (membership.status === 'CANCELLED') {
+    throw new DomainError('CONFLICT', 'That membership has already ended.')
+  }
+  if (input.paused && membership.status === 'PAUSED') {
+    throw new DomainError('CONFLICT', 'That membership is already on hold.')
+  }
+  if (!input.paused && membership.status !== 'PAUSED') {
+    throw new DomainError('CONFLICT', 'That membership is not on hold.')
+  }
+
+  /*
+   * A membership that was overdue when it was paused comes back overdue. The
+   * money owed did not stop being owed because the client went away, and
+   * resuming to ACTIVE would quietly forgive it.
+   */
+  if (membership.stripeSubscriptionId) {
+    try {
+      await paymentsPort().pauseSubscription({
+        subscriptionRef: membership.stripeSubscriptionId,
+        paused: input.paused,
+        idempotencyKey: `pause:${membership.id}:${input.paused ? 'on' : 'off'}:${now.getTime()}`,
+      })
+    } catch (err) {
+      if (!(err instanceof AdapterError) || err.code !== 'NOT_FOUND') throw err
+    }
+  }
+
+  const status = input.paused ? 'PAUSED' : 'ACTIVE'
+  await db.clientMembership.update({
+    where: { id: membership.id },
+    data: { status },
+  })
+
+  return { status }
+}
+
+/**
  * Move to a different plan, with the difference worked out.
  *
  * The proration is returned as well as applied, so the person at the counter

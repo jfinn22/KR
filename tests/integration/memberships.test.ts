@@ -9,6 +9,7 @@ import {
   membershipRevenue,
   recordBenefitUse,
   releaseBenefitUse,
+  setMembershipPaused,
   subscribeClient,
   sweepCancellations,
   sweepDunning,
@@ -398,6 +399,51 @@ describe('changing and stopping', () => {
     await expect(
       changePlan({ salonId: S, membershipId, newPlanId: 'mb_plus', now: NOW }),
     ).resolves.toBeTruthy()
+  })
+
+  it('puts one on hold and takes it off again', async () => {
+    /*
+     * `PAUSED` was read in four places and written by nothing, so the only
+     * thing a client going away for three months could be offered was
+     * cancelling — and a cancelled member has to be sold the whole thing again.
+     */
+    await membership()
+
+    expect(await setMembershipPaused({ salonId: S, membershipId: 'mb_m1', paused: true })).toEqual({
+      status: 'PAUSED',
+    })
+    const held = await unsafeDb.clientMembership.findUniqueOrThrow({ where: { id: 'mb_m1' } })
+    expect(held.status).toBe('PAUSED')
+
+    await setMembershipPaused({ salonId: S, membershipId: 'mb_m1', paused: false })
+    const back = await unsafeDb.clientMembership.findUniqueOrThrow({ where: { id: 'mb_m1' } })
+    expect(back.status).toBe('ACTIVE')
+  })
+
+  it('withholds the benefits while it is on hold', async () => {
+    await membership()
+    await setMembershipPaused({ salonId: S, membershipId: 'mb_m1', paused: true })
+
+    const benefits = await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW)
+    expect(benefits?.totalCents).toBe(0)
+    expect(benefits?.withheldReason).not.toBeNull()
+  })
+
+  it('keeps the period, so they come back to what they paid for', async () => {
+    await membership()
+    await setMembershipPaused({ salonId: S, membershipId: 'mb_m1', paused: true })
+    await setMembershipPaused({ salonId: S, membershipId: 'mb_m1', paused: false })
+
+    const row = await unsafeDb.clientMembership.findUniqueOrThrow({ where: { id: 'mb_m1' } })
+    expect(row.currentPeriodStart).toEqual(PERIOD_START)
+    expect(row.renewsAt).toEqual(PERIOD_END)
+  })
+
+  it('refuses to hold one that has already ended', async () => {
+    await membership({ status: 'CANCELLED', cancelledAt: NOW })
+    await expect(
+      setMembershipPaused({ salonId: S, membershipId: 'mb_m1', paused: true }),
+    ).rejects.toThrow(/already ended/)
   })
 
   it('lets them keep what they paid for when they cancel', async () => {

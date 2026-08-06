@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import {
   cancelMembershipAction,
   changeMembershipPlanAction,
+  setMembershipPausedAction,
   subscribeClientAction,
 } from '@/server/actions/membership'
 
@@ -106,7 +107,15 @@ export function MembershipPanel({
         <span className="text-body text-ink-muted">
           {(membership.priceCents / 100).toFixed(2)}
         </span>
-        {membership.suspended && <Badge tone="warn">Benefits paused</Badge>}
+        {/*
+         * Two different situations that both withhold benefits, said
+         * differently: one the client chose, one they need to fix.
+         */}
+        {membership.status === 'PAUSED' ? (
+          <Badge tone="neutral">On hold</Badge>
+        ) : (
+          membership.suspended && <Badge tone="warn">Benefits paused</Badge>
+        )}
         {membership.cancelAtPeriodEnd && <Badge tone="neutral">Ends at the period</Badge>}
         {membership.status === 'PAST_DUE' && <Badge tone="danger">Payment failed</Badge>}
       </div>
@@ -176,6 +185,33 @@ export function MembershipPanel({
 
       {note && <p className="text-secondary text-ink">{note}</p>}
       {error && <p className="text-secondary text-danger">{error}</p>}
+
+      {/*
+       * Offered before "stop it", deliberately. Somebody going away for three
+       * months is choosing between pausing and cancelling, and a cancelled
+       * member is one the salon has to sell all over again.
+       */}
+      <div className="flex items-center gap-4">
+        <Button
+          variant="secondary"
+          disabled={busy}
+          onClick={() =>
+            run(() =>
+              setMembershipPausedAction(salonSlug, {
+                membershipId: membership.id,
+                paused: membership.status !== 'PAUSED',
+              }),
+            )
+          }
+        >
+          {membership.status === 'PAUSED' ? 'Start it again' : 'Put it on hold'}
+        </Button>
+        <p className="text-secondary text-ink-muted">
+          {membership.status === 'PAUSED'
+            ? 'They are not being charged while it is on hold.'
+            : 'They keep their plan and their price, and are not charged until they are back.'}
+        </p>
+      </div>
 
       {!membership.cancelAtPeriodEnd && (
         <div className="flex items-center gap-4">

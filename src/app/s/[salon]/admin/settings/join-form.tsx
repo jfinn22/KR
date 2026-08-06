@@ -24,11 +24,14 @@ export function JoinForm({
   salonName,
   initialCode,
   appUrl,
+  qrDataUrl,
 }: {
   salonSlug: string
   salonName: string
   initialCode: string | null
   appUrl: string
+  /** The join link as a QR code, rendered server-side into a data URI. */
+  qrDataUrl: string
 }) {
   const router = useRouter()
   const [code, setCode] = React.useState(initialCode ?? '')
@@ -77,9 +80,30 @@ export function JoinForm({
           </Button>
         </div>
         <p className="mt-2 text-secondary text-ink-muted">
-          Put this anywhere your clients already look — your Instagram bio, your Google listing, a
-          QR code on the mirror. It opens a page wearing {salonName}&rsquo;s own colour.
+          Put this anywhere your clients already look — your Instagram bio, your Google listing, the
+          mirror in front of the chair. It opens a page wearing {salonName}&rsquo;s own colour.
         </p>
+
+        <div className="mt-5 flex flex-wrap items-center gap-5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={qrDataUrl}
+            alt={`QR code linking to ${link}`}
+            width={144}
+            height={144}
+            className="rounded-lg border border-line bg-canvas p-2"
+          />
+          <div className="flex flex-col items-start gap-2">
+            <p className="max-w-xs text-secondary text-ink-muted">
+              Print it, or save it and send it to whoever does your signage.
+            </p>
+            <Button variant="secondary" size="sm" asChild>
+              <a href={qrDataUrl} download={`${salonSlug}-join-qr.png`}>
+                Download the code
+              </a>
+            </Button>
+          </div>
+        </div>
       </div>
 
       <Field

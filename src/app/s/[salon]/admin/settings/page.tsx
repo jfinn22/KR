@@ -8,6 +8,7 @@ import { SchedulingSettingsForm } from './scheduling-form'
 import { BrandingForm } from './branding-form'
 import { JoinForm } from './join-form'
 import { DiscountForm } from './discount-form'
+import { toDataURL } from 'qrcode'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,6 +35,23 @@ export default async function SettingsPage({ params }: { params: Promise<{ salon
 
   const mayBrand = hasFeature(ctx.plan, 'BRANDED_EXPERIENCE')
 
+  /*
+   * The QR code this section has been promising in words.
+   *
+   * The copy has told owners to put "a QR code on the mirror" since the join
+   * link shipped, `qrcode` has been a dependency the whole time, and nothing
+   * ever produced one — so the salon was told to go and make it themselves.
+   * Rendered server-side into a data URI: the library never reaches the
+   * browser, and the image works in a page saved or printed offline, which is
+   * what "on the mirror" actually means.
+   */
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? ''
+  const joinQr = await toDataURL(`${appUrl}/join/${salon}`, {
+    width: 512,
+    margin: 1,
+    errorCorrectionLevel: 'M',
+  })
+
   return (
     <div className="flex flex-col gap-12">
       <header>
@@ -54,7 +72,8 @@ export default async function SettingsPage({ params }: { params: Promise<{ salon
             salonSlug={salon}
             salonName={ctx.salonName}
             initialCode={joinCode}
-            appUrl={process.env.NEXT_PUBLIC_APP_URL ?? ''}
+            appUrl={appUrl}
+            qrDataUrl={joinQr}
           />
         </div>
       </section>
