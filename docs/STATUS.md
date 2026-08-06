@@ -39,9 +39,9 @@ followed, in dependency order. Each ends green on `pnpm verify` plus
 | **P4** Money at the chair        | Ad-hoc invoice lines; editable prices; an owner-written discount catalogue with a real cap and an escalation path; gift cards on a ledger; and one authority for what a deposit costs                                                                  |
 | **P5** Cards on file             | A card kept at the provider and never here; the deposit lifecycle made real, from owed through held, taken, spent or kept; a signed webhook that reconciles what the provider says; cancellations and no-shows that settle the money; paid corrective consultations, credited against the work |
 | **P6** Filling the calendar      | A slot search with no plan behind it; one decision about when a consultation is actually needed, with an audited way past it; booking from the desk; the gold processing gaps made bookable; "come in and let me look at it" turned into an appointment the client picks; a waitlist that honours what people asked for and holds what it offers; and every visit of a plan booked in one pass |
-| **P9** Memberships and billing   | Something a client pays for monthly and gets back every visit — applied at the till where they can watch it land; a lifecycle that survives an expired card, a plan change mid-period and a cancellation somebody has already paid past; and the platform's own subscription, which finally writes the columns it has carried since the first migration |
-| **P8** Retention and migration   | A salon's whole history brought across from the platform they are leaving, with one-operation undo; upcoming appointments booked for real rather than inserted, so a parallel run cannot cause the double-booking it exists to prevent; aftercare written at the chair with the reason attached; the clients a salon is quietly losing, listed while somebody can still ring them; a 72-hour check-in that is one tap from a text; and what the colour in the bowl actually cost |
 | **P7** The differentiator        | The middle of the journey, drawn honestly — including the visits that leave somebody orange; a handoff card carrying everything the consultation found onto one screen; photo coaching that names the actual problem; consultations filled in with the client in the chair; and a short clip of the hair moving, for the assessments a still cannot serve |
+| **P8** Retention and migration   | A salon's whole history brought across from the platform they are leaving, with one-operation undo; upcoming appointments booked for real rather than inserted, so a parallel run cannot cause the double-booking it exists to prevent; aftercare written at the chair with the reason attached; the clients a salon is quietly losing, listed while somebody can still ring them; a 72-hour check-in that is one tap from a text; and what the colour in the bowl actually cost |
+| **P9** Memberships and billing   | Something a client pays for monthly and gets back every visit — applied at the till where they can watch it land; a lifecycle that survives an expired card, a plan change mid-period and a cancellation somebody has already paid past; and the platform's own subscription, which finally writes the columns it has carried since the first migration |
 
 ### What P9 changed, specifically
 
@@ -80,6 +80,16 @@ followed, in dependency order. Each ends green on `pnpm verify` plus
   plan, not the payment state, and that separation is deliberate. A salon whose
   card expired still has clients arriving at nine tomorrow, and taking their
   diary away over it would cost them their day and this platform its reputation.
+- **The platform's own till got a screen, because otherwise it had no door.**
+  `startPlatformSubscription` wrote the columns `Subscription` has carried since
+  the first migration — and nothing called it, so every salon stayed `TRIALING`
+  forever exactly as before. `/admin/billing` is what calls it. It leads with
+  the limits rather than the price: a salon that has grown to five stylists is
+  told Starter allows one *before* they pick it, and by how much they are over,
+  rather than after a save fails. Moving tier goes through a new
+  `updateSubscription` on the payments port instead of cancel-and-recreate,
+  which would end the period the salon has already bought and bill a fresh one
+  on top — the same double-charge the client-side plan change refuses to make.
 
 ### What P8 changed, specifically
 
@@ -392,10 +402,9 @@ Nothing here is a stub pretending to be a feature.
 | Area                      | State                                                                                                                                      |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | OAuth flows               | The calendar port and connection model are built and the feed works. Actually authorising a Google account needs the consent screen dance. |
-| Subscription billing      | The plan catalogue, feature gates and Stripe adapter exist. Nobody charges the salon yet.                                                  |
 | Loyalty, packages, retail | Schema and relations exist and are enforced. No services or screens.                                                                       |
 | Messaging inbox           | Threads, templates and the send path work. There is no two-way conversation view.                                                          |
-| Waitlist offers           | Matching runs as a job. Offering a freed slot to a client is not surfaced.                                                                 |
+| Dunning the salon itself  | A failed platform payment moves the status and records an outbox event. Nobody has written the email that chases it.                      |
 | Legal copy                | Every shipped form is marked `isLegalPlaceholder` and the UI says so. They need an actual lawyer.                                          |
 
 ## Known limits worth stating

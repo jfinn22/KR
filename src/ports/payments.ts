@@ -147,6 +147,22 @@ export interface PaymentsPort {
     trialDays?: number
     idempotencyKey: string
   }): Promise<SubscriptionResult>
+
+  /**
+   * Move a live subscription onto a different price.
+   *
+   * Not `cancel then create`: that ends the period the payer has already
+   * bought and starts a fresh one, which is the double-charge every
+   * subscription complaint is about. The provider prorates against the period
+   * already running, so a salon upgrading on the 20th pays the difference for
+   * eleven days rather than a second full month.
+   */
+  updateSubscription(input: {
+    subscriptionRef: string
+    priceId: string
+    idempotencyKey: string
+  }): Promise<SubscriptionResult>
+
   parseWebhook(payload: string, signature: string): Promise<WebhookEvent>
 
   /**
@@ -238,6 +254,7 @@ export class MockPaymentsAdapter implements PaymentsPort {
   private readonly customers = new Map<string, CustomerRef>()
   private readonly setups = new Map<string, SetupIntent>()
   private readonly cards = new Map<string, StoredCard[]>()
+  private readonly subscriptions = new Map<string, SubscriptionResult>()
 
   async createIntent(input: CreateIntentInput): Promise<PaymentIntent> {
     assertAmount(this.name, input.amountCents)
@@ -426,11 +443,34 @@ export class MockPaymentsAdapter implements PaymentsPort {
   }): Promise<SubscriptionResult> {
     const end = new Date(mockNow())
     end.setDate(end.getDate() + (input.trialDays ?? 30))
-    return {
+    const result: SubscriptionResult = {
       id: mockId('sub', input.idempotencyKey),
       status: input.trialDays ? 'TRIALING' : 'ACTIVE',
       currentPeriodEnd: end.toISOString(),
     }
+    this.subscriptions.set(result.id, result)
+    return { ...result }
+  }
+
+  /**
+   * Kept rather than recomputed, because the period end is the whole point.
+   *
+   * A mock that returned `now + 30 days` here would pass a test asserting the
+   * upgrade worked while hiding the bug that upgrade is most likely to have —
+   * a restarted period, billed again from scratch.
+   */
+  async updateSubscription(input: {
+    subscriptionRef: string
+    priceId: string
+    idempotencyKey: string
+  }): Promise<SubscriptionResult> {
+    const existing = this.subscriptions.get(input.subscriptionRef)
+    if (!existing) {
+      throw new AdapterError('payments', 'NOT_FOUND', 'No such subscription.')
+    }
+    const result: SubscriptionResult = { ...existing, status: 'ACTIVE' }
+    this.subscriptions.set(result.id, result)
+    return { ...result }
   }
 
   /**
@@ -469,6 +509,31 @@ export class MockPaymentsAdapter implements PaymentsPort {
   ): { payload: string; signature: string } {
     const payload = JSON.stringify(event)
     return { payload, signature: signMockPayload(payload, atEpochSeconds) }
+  }
+}
+
+const STRIPE_SUBSCRIPTION_STATUS: Record<string, SubscriptionResult['status']> = {
+  trialing: 'TRIALING',
+  active: 'ACTIVE',
+  past_due: 'PAST_DUE',
+  canceled: 'CANCELLED',
+}
+
+/**
+ * One reading of a Stripe subscription, so create and update cannot drift.
+ *
+ * `current_period_end` is read through a cast because it moved off the
+ * top-level subscription in a later API version than the types installed here
+ * describe; an absent value becomes epoch rather than `Invalid Date`, which is
+ * at least a value the caller can notice.
+ */
+function toSubscriptionResult(sub: { id: string; status: string }): SubscriptionResult {
+  return {
+    id: sub.id,
+    status: STRIPE_SUBSCRIPTION_STATUS[sub.status] ?? 'CANCELLED',
+    currentPeriodEnd: new Date(
+      ((sub as unknown as { current_period_end?: number }).current_period_end ?? 0) * 1000,
+    ).toISOString(),
   }
 }
 
@@ -680,19 +745,36 @@ export class StripePaymentsAdapter implements PaymentsPort {
       },
       { idempotencyKey: input.idempotencyKey },
     )
-    const statusMap: Record<string, SubscriptionResult['status']> = {
-      trialing: 'TRIALING',
-      active: 'ACTIVE',
-      past_due: 'PAST_DUE',
-      canceled: 'CANCELLED',
+    return toSubscriptionResult(sub)
+  }
+
+  async updateSubscription(input: {
+    subscriptionRef: string
+    priceId: string
+    idempotencyKey: string
+  }): Promise<SubscriptionResult> {
+    const stripe = await this.client()
+    const current = await stripe.subscriptions.retrieve(input.subscriptionRef)
+    const item = current.items.data[0]
+    if (!item) {
+      throw new AdapterError('payments', 'INVALID', 'That subscription has nothing on it to move.')
     }
-    return {
-      id: sub.id,
-      status: statusMap[sub.status] ?? 'CANCELLED',
-      currentPeriodEnd: new Date(
-        ((sub as unknown as { current_period_end: number }).current_period_end ?? 0) * 1000,
-      ).toISOString(),
-    }
+
+    const sub = await stripe.subscriptions.update(
+      input.subscriptionRef,
+      {
+        items: [{ id: item.id, price: input.priceId }],
+        /*
+         * The provider works out what is owed for the rest of the period the
+         * salon has already paid for. Left to default it would create the
+         * proration lines but not bill them until the next cycle, which reads
+         * to a salon as a free upgrade followed by a surprise.
+         */
+        proration_behavior: 'always_invoice',
+      },
+      { idempotencyKey: input.idempotencyKey },
+    )
+    return toSubscriptionResult(sub)
   }
 
   async parseWebhook(payload: string, signature: string): Promise<WebhookEvent> {

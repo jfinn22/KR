@@ -18,6 +18,112 @@ import { paymentsPort } from '@/ports/registry'
  * bookkeeper will fix on Monday is a salon that leaves.
  */
 
+export interface PlatformBillingView {
+  planCode: string
+  status: string
+  yearly: boolean
+  currentPeriodEnd: Date | null
+  trialEndsAt: Date | null
+  cancelAtPeriodEnd: boolean
+  /** True once the provider actually has a subscription for this salon. */
+  live: boolean
+  usage: { locations: number; stylists: number }
+  catalogue: {
+    code: string
+    name: string
+    descriptionText: string
+    monthlyPriceCents: number
+    yearlyPriceCents: number
+    maxLocations: number
+    maxStylists: number
+    /** Null where the platform has not configured a price at the provider. */
+    priceConfigured: boolean
+    /** What the salon would have to shed to move down to this one. */
+    overBy: { locations: number; stylists: number } | null
+  }[]
+}
+
+/**
+ * What this salon is on, what else there is, and whether they would fit.
+ *
+ * The last part is the reason this is a service rather than two queries in the
+ * page: a salon reading a cheaper tier needs to be told they have four
+ * stylists and it allows one BEFORE they pick it, not after the save fails.
+ */
+export async function platformBillingFor(salonId: string): Promise<PlatformBillingView | null> {
+  const [subscription, plans, locations, stylists] = await Promise.all([
+    unsafeDb.subscription.findUnique({
+      where: { salonId },
+      select: {
+        planCode: true,
+        status: true,
+        currentPeriodEnd: true,
+        trialEndsAt: true,
+        cancelAtPeriodEnd: true,
+        stripeSubscriptionId: true,
+      },
+    }),
+    unsafeDb.plan.findMany({
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        code: true,
+        name: true,
+        descriptionText: true,
+        monthlyPriceCents: true,
+        yearlyPriceCents: true,
+        maxLocations: true,
+        maxStylists: true,
+        stripePriceIdMonthly: true,
+        stripePriceIdYearly: true,
+      },
+    }),
+    unsafeDb.location.count({ where: { salonId, isActive: true } }),
+    unsafeDb.stylistProfile.count({ where: { salonId, isActive: true } }),
+  ])
+
+  if (!subscription) return null
+
+  const current = plans.find((p) => p.code === subscription.planCode)
+  /*
+   * Which of the two prices the salon is on is not stored — only the price id
+   * sent to the provider is, and that is on the Plan row rather than here.
+   * Read it back off the period: a year-long period is a yearly plan. Wrong
+   * only for a subscription somebody edited at the provider directly.
+   */
+  const yearly =
+    subscription.currentPeriodEnd !== null &&
+    subscription.currentPeriodEnd.getTime() - Date.now() > 200 * 24 * 60 * 60 * 1000
+
+  return {
+    planCode: subscription.planCode,
+    status: subscription.status,
+    yearly,
+    currentPeriodEnd: subscription.currentPeriodEnd,
+    trialEndsAt: subscription.trialEndsAt,
+    cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+    live: subscription.stripeSubscriptionId !== null,
+    usage: { locations, stylists },
+    catalogue: plans.map((plan) => {
+      const overLocations = Math.max(0, locations - plan.maxLocations)
+      const overStylists = Math.max(0, stylists - plan.maxStylists)
+      return {
+        code: plan.code,
+        name: plan.name,
+        descriptionText: plan.descriptionText,
+        monthlyPriceCents: plan.monthlyPriceCents,
+        yearlyPriceCents: plan.yearlyPriceCents,
+        maxLocations: plan.maxLocations,
+        maxStylists: plan.maxStylists,
+        priceConfigured: (yearly ? plan.stripePriceIdYearly : plan.stripePriceIdMonthly) !== null,
+        overBy:
+          plan.code === current?.code || (overLocations === 0 && overStylists === 0)
+            ? null
+            : { locations: overLocations, stylists: overStylists },
+      }
+    }),
+  }
+}
+
 export async function startPlatformSubscription(input: {
   salonId: string
   planCode: string
@@ -50,11 +156,26 @@ export async function startPlatformSubscription(input: {
     throw new DomainError('INVALID_INPUT', 'That plan has no price set up yet.')
   }
 
+  /*
+   * The salon's own contact email, read here rather than passed in. A caller
+   * supplying it could supply anybody's, and this is the address the provider
+   * sends receipts and card-expiry warnings to.
+   */
+  const contactEmail =
+    input.contactEmail ??
+    (
+      await unsafeDb.salon.findUnique({
+        where: { id: input.salonId },
+        select: { contactEmail: true },
+      })
+    )?.contactEmail ??
+    null
+
   const customerRef =
     subscription.stripeCustomerId ??
     (
       await paymentsPort().createCustomer({
-        email: input.contactEmail ?? null,
+        email: contactEmail,
         idempotencyKey: `platform-customer:${input.salonId}`,
         metadata: { salonId: input.salonId },
       })
@@ -78,6 +199,89 @@ export async function startPlatformSubscription(input: {
   })
 
   return { subscriptionRef: result.id }
+}
+
+/**
+ * Start paying, or move between tiers — whichever this salon needs.
+ *
+ * One entry point because the caller is a screen with one button on it, and
+ * making the page work out whether a salon has ever paid before is how the two
+ * paths drift. A salon that has never subscribed gets a subscription created; a
+ * salon that has gets theirs moved, keeping the period they have already bought.
+ */
+export async function choosePlatformPlan(input: {
+  salonId: string
+  planCode: string
+  yearly?: boolean
+  contactEmail?: string | null
+}): Promise<{ subscriptionRef: string | null; started: boolean }> {
+  const [subscription, plan] = await Promise.all([
+    unsafeDb.subscription.findUnique({
+      where: { salonId: input.salonId },
+      select: { id: true, planCode: true, stripeSubscriptionId: true },
+    }),
+    unsafeDb.plan.findUnique({
+      where: { code: input.planCode as never },
+      select: {
+        code: true,
+        name: true,
+        maxLocations: true,
+        maxStylists: true,
+        stripePriceIdMonthly: true,
+        stripePriceIdYearly: true,
+      },
+    }),
+  ])
+
+  if (!subscription) throw new DomainError('NOT_FOUND', 'That salon has no subscription record.')
+  if (!plan) throw new DomainError('NOT_FOUND', 'That plan does not exist.')
+  if (subscription.planCode === input.planCode && subscription.stripeSubscriptionId) {
+    throw new DomainError('CONFLICT', 'That is already the plan you are on.')
+  }
+
+  /*
+   * Refused here rather than left to fail later.
+   *
+   * `requireFeature` gates features by plan, but nothing counts rows against
+   * `maxStylists` — so a salon could drop to Starter, keep all eight stylists
+   * working, and be silently out of contract. Naming the numbers is also the
+   * only way the owner knows what to actually do about it.
+   */
+  const [locations, stylists] = await Promise.all([
+    unsafeDb.location.count({ where: { salonId: input.salonId, isActive: true } }),
+    unsafeDb.stylistProfile.count({ where: { salonId: input.salonId, isActive: true } }),
+  ])
+  if (locations > plan.maxLocations || stylists > plan.maxStylists) {
+    throw new DomainError(
+      'INVALID_INPUT',
+      `${plan.name} allows ${plan.maxStylists} ${plan.maxStylists === 1 ? 'stylist' : 'stylists'} and ${plan.maxLocations} ${plan.maxLocations === 1 ? 'location' : 'locations'}. You have ${stylists} and ${locations}.`,
+    )
+  }
+
+  if (!subscription.stripeSubscriptionId) {
+    const started = await startPlatformSubscription(input)
+    return { ...started, started: true }
+  }
+
+  const priceId = input.yearly ? plan.stripePriceIdYearly : plan.stripePriceIdMonthly
+  if (!priceId) throw new DomainError('INVALID_INPUT', 'That plan has no price set up yet.')
+
+  const result = await paymentsPort().updateSubscription({
+    subscriptionRef: subscription.stripeSubscriptionId,
+    priceId,
+    idempotencyKey: `platform-plan:${input.salonId}:${plan.code}:${input.yearly ? 'y' : 'm'}`,
+  })
+
+  await unsafeDb.subscription.update({
+    where: { salonId: input.salonId },
+    data: {
+      planCode: plan.code,
+      status: result.status === 'CANCELLED' ? 'CANCELLED' : result.status,
+      currentPeriodEnd: new Date(result.currentPeriodEnd),
+    },
+  })
+
+  return { subscriptionRef: result.id, started: false }
 }
 
 /**

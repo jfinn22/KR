@@ -52,9 +52,33 @@ async function main() {
 
   // --- Plans ---------------------------------------------------------------
   const plans = [
-    { code: 'STARTER' as const, name: 'Starter', monthly: 2900, yearly: 29000, loc: 1, sty: 1 },
-    { code: 'PRO' as const, name: 'Pro', monthly: 8900, yearly: 89000, loc: 1, sty: 8 },
-    { code: 'SALON' as const, name: 'Salon', monthly: 19900, yearly: 199000, loc: 25, sty: 100 },
+    {
+      code: 'STARTER' as const,
+      name: 'Starter',
+      blurb: 'For solo stylists and booth renters',
+      monthly: 2900,
+      yearly: 29000,
+      loc: 1,
+      sty: 1,
+    },
+    {
+      code: 'PRO' as const,
+      name: 'Pro',
+      blurb: 'For small salons that live and die by the colour book',
+      monthly: 8900,
+      yearly: 89000,
+      loc: 1,
+      sty: 8,
+    },
+    {
+      code: 'SALON' as const,
+      name: 'Salon',
+      blurb: 'For multi-stylist and multi-location businesses',
+      monthly: 19900,
+      yearly: 199000,
+      loc: 25,
+      sty: 100,
+    },
   ]
   for (const [index, plan] of plans.entries()) {
     await db.plan.upsert({
@@ -63,7 +87,7 @@ async function main() {
       create: {
         code: plan.code,
         name: plan.name,
-        descriptionText: `${plan.name} plan`,
+        descriptionText: plan.blurb,
         monthlyPriceCents: plan.monthly,
         yearlyPriceCents: plan.yearly,
         maxLocations: plan.loc,
@@ -71,6 +95,24 @@ async function main() {
         featuresJson: {},
         sortOrder: index,
       },
+    })
+
+    /*
+     * Mock price ids, but only where there is nothing there.
+     *
+     * The billing screen refuses a plan the platform has no price for, which
+     * would make it three cards and a dead button in dev and CI. Filling them
+     * unconditionally is the other failure: a seed run against a deployment
+     * that has real price ids would point live subscriptions at prices that do
+     * not exist. So: fill the gap, never overwrite.
+     */
+    await db.plan.updateMany({
+      where: { code: plan.code, stripePriceIdMonthly: null },
+      data: { stripePriceIdMonthly: `price_mock_${plan.code.toLowerCase()}_monthly` },
+    })
+    await db.plan.updateMany({
+      where: { code: plan.code, stripePriceIdYearly: null },
+      data: { stripePriceIdYearly: `price_mock_${plan.code.toLowerCase()}_yearly` },
     })
   }
 
