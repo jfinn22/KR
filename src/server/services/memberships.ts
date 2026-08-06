@@ -654,6 +654,29 @@ export async function sweepDunning(now = new Date()): Promise<{ suspended: numbe
 
   for (const membership of overdue) {
     const action = dunningAction(membership.pastDueSince!, now)
+
+    /*
+     * `tellClient` was computed at every stage and read by nobody, so the whole
+     * ladder ran in silence: benefits stopped at a week and the membership
+     * ended at three, and the first the client knew of either was a bill at the
+     * counter that was larger than they expected. Most of these failures are an
+     * expired card on somebody who fully intends to keep paying — which is the
+     * entire argument for waiting three weeks, and the argument is worthless if
+     * nobody is asked to fix it.
+     *
+     * Keyed on the STAGE rather than the day, so each of the three says its
+     * piece exactly once however often the sweep runs.
+     */
+    if (action.tellClient) {
+      await materialiseNotification({
+        salonId: membership.salonId,
+        trigger: 'DEPOSIT_DUE',
+        refType: 'ClientMembership',
+        refId: `${membership.id}:${action.stage}`,
+        clientProfileId: membership.clientProfileId,
+      })
+    }
+
     if (action.cancel) {
       await unsafeDb.clientMembership.update({
         where: { id: membership.id },

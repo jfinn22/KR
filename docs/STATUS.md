@@ -85,7 +85,10 @@ followed, in dependency order. Each ends green on `pnpm verify` plus
 - **Benefits stop at a week overdue; the membership ends at three.** A
   membership still giving away haircuts against a card that does not work is one
   the salon is paying for. Cancelling at the first decline is a client who has
-  to be re-sold something they already wanted.
+  to be re-sold something they already wanted. Each of the three stages tells
+  the client once — the waiting is only defensible if somebody is being asked to
+  fix it, and a client whose benefits stopped a fortnight ago learning it from a
+  bill at the counter is the failure the patience was meant to avoid.
 - **A plan change does not restart the period.** A client who upgrades on the
   20th has already paid to the end of the month, and resetting the clock charges
   a fresh period on top of the difference they just settled — the double-charge
@@ -421,6 +424,7 @@ Nothing here is a stub pretending to be a feature.
 | Loyalty, packages, retail | Schema and relations exist and are enforced. No services or screens.                                                                       |
 | Messaging inbox           | Threads, templates and the send path work. There is no two-way conversation view.                                                          |
 | Dunning the salon itself  | A failed platform payment moves the status and records an outbox event. Nobody has written the email that chases it.                      |
+| Membership proration      | The provider bills the difference on an upgrade. The figure read out at the counter is this platform's own straight-line arithmetic, and the two agree to rounding rather than by construction. |
 | Legal copy                | Every shipped form is marked `isLegalPlaceholder` and the UI says so. They need an actual lawyer.                                          |
 
 ## Known limits worth stating

@@ -651,6 +651,51 @@ describe('the status machine, which the provider talks to', () => {
   })
 })
 
+describe('the dunning ladder telling somebody', () => {
+  async function stagesTold(at: string) {
+    await unsafeDb.scheduledNotification.deleteMany({ where: { salonId: S } })
+    await sweepDunning(new Date(at))
+    const rows = await unsafeDb.scheduledNotification.findMany({
+      where: { salonId: S, refType: 'ClientMembership' },
+      select: { refId: true },
+    })
+    return rows.map((r) => r.refId)
+  }
+
+  beforeEach(async () => {
+    await membership({ status: 'PAST_DUE', pastDueSince: new Date('2026-06-01T00:00:00Z') })
+  })
+
+  it('says nothing in the grace period, while the provider is still retrying', async () => {
+    expect(await stagesTold('2026-06-01T06:00:00Z')).toEqual([])
+  })
+
+  it('asks them to sort the card the next day', async () => {
+    expect(await stagesTold('2026-06-03T00:00:00Z')).toEqual(['mb_m1:ASK'])
+  })
+
+  it('does not stop the benefits silently at a week', async () => {
+    // The client discovering their benefits have stopped from a bill at the
+    // counter is the failure this ladder exists to avoid.
+    expect(await stagesTold('2026-06-09T00:00:00Z')).toEqual(['mb_m1:SUSPEND'])
+  })
+
+  it('does not end the membership silently at three weeks', async () => {
+    expect(await stagesTold('2026-06-25T00:00:00Z')).toEqual(['mb_m1:CANCEL'])
+  })
+
+  it('says each stage once, however often the sweep runs', async () => {
+    await unsafeDb.scheduledNotification.deleteMany({ where: { salonId: S } })
+    await sweepDunning(new Date('2026-06-03T00:00:00Z'))
+    await sweepDunning(new Date('2026-06-04T00:00:00Z'))
+
+    const rows = await unsafeDb.scheduledNotification.findMany({
+      where: { salonId: S, refType: 'ClientMembership' },
+    })
+    expect(rows).toHaveLength(1)
+  })
+})
+
 describe('what the memberships are worth', () => {
   it('splits the fee into what has been earned and what has not', async () => {
     await membership()
