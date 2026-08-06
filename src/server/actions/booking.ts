@@ -120,6 +120,7 @@ export const findSlotsAction = withAuthz(
 export const holdSlotAction = withAuthz(
   {
     action: 'hold.create',
+    feature: 'HOLD_MY_SPOT',
     schema: searchSchema.extend({ token: z.string().min(3).max(200) }),
     resource: (input, ctx) => planResource(input.servicePlanId, ctx),
   },
@@ -567,6 +568,7 @@ async function waitlistResource(entryId: string, ctx: TenantContext) {
 export const joinWaitlistAction = withAuthz(
   {
     action: 'waitlist.manage',
+    feature: 'WAITLIST_AUTOFILL',
     schema: JOIN_WAITLIST,
     resource: (input, ctx) => clientResource(input.clientProfileId, ctx),
     auditAs: (input) => ({ entityType: 'ClientProfile', entityId: input.clientProfileId }),
@@ -581,6 +583,7 @@ export const joinWaitlistAction = withAuthz(
 export const leaveWaitlistAction = withAuthz(
   {
     action: 'waitlist.manage',
+    feature: 'WAITLIST_AUTOFILL',
     schema: z.object({ entryId: cuid }),
     resource: (input, ctx) => waitlistResource(input.entryId, ctx),
     auditAs: (input) => ({ entityType: 'WaitlistEntry', entityId: input.entryId }),

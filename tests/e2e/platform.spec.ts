@@ -16,8 +16,37 @@ test.describe('marketing surface', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText(
       /works out whether the appointment is right/i,
     )
-    await expect(page.getByRole('link', { name: /start free/i }).first()).toBeVisible()
-    await expect(page.getByRole('link', { name: /sign in/i })).toBeVisible()
+    await expect(page.getByRole('link', { name: /sign in/i }).first()).toBeVisible()
+  })
+
+  test('every call to action on it goes somewhere that exists', async ({ page }) => {
+    /*
+     * Both CTAs used to point at /signup and /pricing, and neither route
+     * existed — the platform's own front door was two 404s, which is the most
+     * expensive place in the product to have one.
+     */
+    await page.goto('/')
+
+    const hrefs = await page.locator('main a[href^="/"]').evaluateAll((links) =>
+      links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
+    )
+    expect(hrefs.length).toBeGreaterThan(0)
+
+    for (const href of new Set(hrefs)) {
+      const response = await page.request.get(href)
+      expect(response.status(), `${href} should not be a dead link`).toBeLessThan(400)
+    }
+  })
+
+  test('pricing is generated from the plans the software enforces', async ({ page }) => {
+    await page.goto('/pricing')
+
+    for (const name of ['Starter', 'Pro', 'Salon']) {
+      await expect(page.getByRole('columnheader', { name, exact: true })).toBeVisible()
+    }
+    // A feature only Salon has, so the table is showing real differences
+    // rather than three identical columns.
+    await expect(page.getByText('Your own colour and logo throughout')).toBeVisible()
   })
 
   test('the page has no horizontal overflow on a narrow viewport', async ({ page }) => {
@@ -32,7 +61,7 @@ test.describe('marketing surface', () => {
 
   test('sign in is reachable from the landing page', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('link', { name: /sign in/i }).click()
+    await page.getByRole('link', { name: /sign in/i }).first().click()
     await expect(page).toHaveURL(/\/login/)
   })
 })

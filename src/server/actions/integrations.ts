@@ -19,6 +19,7 @@ const cuid = z.string().min(1).max(64)
 export const issueFeedTokenAction = withAuthz(
   {
     action: 'integration.manage',
+    feature: 'API_ACCESS',
     schema: z.object({ stylistProfileId: cuid }),
     auditAs: (input) => ({ entityType: 'StylistProfile', entityId: input.stylistProfileId }),
   },

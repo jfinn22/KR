@@ -465,6 +465,7 @@ export const waiveFeeAction = withAuthz(
 export const takeDepositAction = withAuthz(
   {
     action: 'payment.take',
+    feature: 'DEPOSITS',
     schema: z.object({ servicePlanId: cuid }),
     resource: async (input, ctx) => {
       const plan = await unsafeDb.servicePlan.findFirst({

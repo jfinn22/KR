@@ -32,8 +32,18 @@ export default function LandingPage() {
             <Button variant="ghost" size="sm" asChild>
               <Link href="/login">Sign in</Link>
             </Button>
+            {/*
+             * "See pricing", not "Start free".
+             *
+             * Both CTAs on this page pointed at /signup and /pricing, and
+             * neither route existed — the platform's own front door was two
+             * 404s. There is also no self-serve way to create a salon: every
+             * salon on this platform is onboarded with its catalogue and staff
+             * in place, which is the honest thing to say rather than promising
+             * a free start that lands nowhere.
+             */}
             <Button size="sm" asChild>
-              <Link href="/signup">Start free</Link>
+              <Link href="/pricing">See pricing</Link>
             </Button>
           </div>
         </nav>
@@ -54,12 +64,16 @@ export default function LandingPage() {
           </p>
           <div className="mt-9 flex flex-wrap items-center gap-3">
             <Button size="lg" asChild>
-              <Link href="/signup">Start free</Link>
+              <Link href="/pricing">See what it costs</Link>
             </Button>
             <Button size="lg" variant="secondary" asChild>
-              <Link href="/pricing">See pricing</Link>
+              <Link href="/login">Sign in</Link>
             </Button>
           </div>
+          <p className="mt-4 text-secondary text-ink-muted">
+            Already a client of a salon on here? Use the link your salon gave you — there is no
+            directory, and that is deliberate.
+          </p>
         </section>
       </div>
 

@@ -20,6 +20,7 @@ const cuid = z.string().min(1).max(64)
 export const recordAftercareAction = withAuthz(
   {
     action: 'formula.write',
+    feature: 'RETENTION_AUTOMATION',
     schema: z.object({
       appointmentId: cuid,
       advice: z.string().max(4000),
