@@ -1,6 +1,6 @@
 import { fitsWithin, merge, overlaps, peakCoverage, subtract, type Interval } from './interval'
 import { chainDuration, chainOffersInterleave } from './chain'
-import { eachLocalDate, localDateOfEpochMinutes, localTimeToEpochMinutes } from './zoned'
+import { eachLocalDate, localTimeToEpochMinutes } from './zoned'
 import { ANY_TIME, allowsDate, isNarrowed, startBoundsOn } from './window'
 import type {
   AvailabilityRequest,
@@ -334,15 +334,5 @@ export function openIntervalsForDates(
     out[date] = closures.length > 0 ? subtract(intervals, closures) : merge(intervals)
   }
 
-  return out
-}
-
-/** Group slots by the local day they fall on, for rendering a picker. */
-export function groupByLocalDate(slots: readonly Slot[], timeZone: string): Record<string, Slot[]> {
-  const out: Record<string, Slot[]> = {}
-  for (const slot of slots) {
-    const key = slot.localDate || localDateOfEpochMinutes(slot.startMin, timeZone)
-    ;(out[key] ??= []).push(slot)
-  }
   return out
 }

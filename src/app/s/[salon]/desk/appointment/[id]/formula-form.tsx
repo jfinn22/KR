@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Field, Select, Textarea } from '@/components/ui/field'
-import { saveFormulaAction } from '@/server/actions/formula'
+import { saveFormulaAction, suggestFormulaAction } from '@/server/actions/formula'
 
 /**
  * What went on the hair.
@@ -44,11 +44,14 @@ const EMPTY: Line = { productName: '', shadeCode: '', parts: '', retailProductId
 export function FormulaForm({
   salonSlug,
   appointmentId,
+  clientProfileId,
   products,
   initial,
 }: {
   salonSlug: string
   appointmentId: string
+  /** Whose hair, so a suggestion can be asked for before mixing. */
+  clientProfileId: string
   products: { id: string; name: string; brand: string | null }[]
   initial: {
     purpose: string
@@ -60,6 +63,8 @@ export function FormulaForm({
   } | null
 }) {
   const router = useRouter()
+  const [suggesting, setSuggesting] = React.useState(false)
+  const [suggestion, setSuggestion] = React.useState<string | null>(null)
   const [purpose, setPurpose] = React.useState(initial?.purpose ?? 'GLOBAL_COLOR')
   const [developer, setDeveloper] = React.useState(String(initial?.developerVolume ?? ''))
   const [ratio, setRatio] = React.useState(initial?.ratio ?? '')
@@ -120,8 +125,47 @@ export function FormulaForm({
     router.refresh()
   }
 
+  async function askForSuggestion() {
+    setSuggesting(true)
+    setSuggestion(null)
+    const result = await suggestFormulaAction(salonSlug, { clientProfileId, targetLevel: null })
+    setSuggesting(false)
+
+    if (!result.ok) {
+      // Includes "not on your plan", which is the honest answer on Starter.
+      setSuggestion(result.error)
+      return
+    }
+    setSuggestion(
+      result.data.value
+        ? JSON.stringify(result.data.value, null, 2)
+        : 'Nothing came back — there may not be enough on file about their hair yet.',
+    )
+  }
+
   return (
     <div className="flex flex-col gap-5">
+      {/*
+       * `suggestFormula` existed from the day the AI layer was built and had no
+       * caller, while `acceptSuggestion` and `rejectSuggestion` were wired — so
+       * the loop had an ending and no beginning. A starting point only: what
+       * gets saved is whatever the colourist types below.
+       */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="secondary" size="sm" onClick={askForSuggestion} disabled={suggesting}>
+          {suggesting ? 'Thinking…' : 'Suggest a starting point'}
+        </Button>
+        <span className="text-secondary text-ink-muted">
+          A suggestion, not a formula. Nothing is saved until you write it.
+        </span>
+      </div>
+
+      {suggestion && (
+        <pre className="max-h-56 overflow-auto rounded-lg border border-line bg-surface p-4 text-secondary text-ink">
+          {suggestion}
+        </pre>
+      )}
+
       <div className="flex flex-wrap gap-5">
         <Field label="What it was">
           <Select value={purpose} onChange={(e) => setPurpose(e.target.value)} className="max-w-56">

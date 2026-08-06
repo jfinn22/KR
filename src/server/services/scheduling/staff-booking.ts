@@ -1,6 +1,6 @@
 import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
-import { bookingGate, type GateDecision } from '@/domain/scheduling/gate'
+import { bookingGate, isBookable, needsOverride, type GateDecision } from '@/domain/scheduling/gate'
 import { getServices } from '../catalog'
 import { validPatchTest } from '../compliance'
 import { bookFromHold, createHold } from './booking'
@@ -126,11 +126,17 @@ export async function assertGate(input: {
 }): Promise<DeskBookingContext> {
   const context = await deskBookingContext(input)
 
-  if (context.gate.decision === 'REFUSED') {
+  /*
+   * Through the gate's own predicates rather than comparing its strings here.
+   * Both were exported, tested, and called by nothing while this file
+   * open-coded them — which is fine until a fourth decision value is added and
+   * only one of the two places learns about it.
+   */
+  if (!isBookable(context.gate)) {
     throw new DomainError('CONFLICT', context.gate.reason)
   }
 
-  if (context.gate.decision === 'OVERRIDABLE') {
+  if (needsOverride(context.gate)) {
     if (!input.mayOverride) {
       throw new DomainError(
         'FORBIDDEN',

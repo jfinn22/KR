@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Field, Input } from '@/components/ui/field'
 import { joinWaitlistAction } from '@/server/actions/booking'
-import { DAY_LABELS, EVERY_DAY } from '@/domain/scheduling/window'
+import { DAY_LABELS, EVERY_DAY, dayInMask } from '@/domain/scheduling/window'
 
 /**
  * Getting onto the list.
@@ -101,7 +101,7 @@ export function JoinWaitlist({
         <legend className="label-caps mb-2">Days</legend>
         <div className="flex flex-wrap gap-2">
           {DAY_LABELS.map((label, day) => {
-            const on = (mask & (1 << day)) !== 0
+            const on = dayInMask(mask, day)
             return (
               <button
                 key={label}

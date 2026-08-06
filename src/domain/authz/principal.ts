@@ -64,16 +64,3 @@ export type PolicyResult =
 export function isStaff(p: Principal): p is Extract<Principal, { kind: 'staff' }> {
   return p.kind === 'staff'
 }
-
-/** The salon this principal is acting within, if any. */
-export function principalSalonId(p: Principal): string | null {
-  switch (p.kind) {
-    case 'staff':
-    case 'client':
-      return p.salonId
-    case 'system':
-      return p.salonId
-    case 'platform_admin':
-      return p.impersonatingSalonId
-  }
-}

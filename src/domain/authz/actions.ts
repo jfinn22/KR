@@ -133,7 +133,3 @@ export const ACTIONS = [
 export type Action = (typeof ACTIONS)[number]
 
 export const ACTION_SET: ReadonlySet<string> = new Set(ACTIONS)
-
-export function isAction(value: string): value is Action {
-  return ACTION_SET.has(value)
-}

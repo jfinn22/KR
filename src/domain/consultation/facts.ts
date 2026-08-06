@@ -161,29 +161,6 @@ export function monthsSince(facts: ConsultationFacts, kind: ChemicalKind): numbe
   return Math.min(...entries.map((h) => h.monthsAgo ?? 240))
 }
 
-/**
- * The same question, answered honestly.
- *
- * `monthsSince` has two sentinels and neither is null: `Infinity` when the kind
- * never occurred, and 240 when it did but nobody remembers when. Both are
- * deliberate — a rule asking "within 12 months?" wants a number it can compare,
- * and 240 correctly means "not recently" for something that definitely happened.
- *
- * They are exactly wrong for anything doing arithmetic FORWARD. A fade
- * prediction multiplying by elapsed weeks turns `Infinity` into a date that
- * does not exist and 240 into one twenty years out, and both render as
- * confident advice. Anything projecting from a date needs to be able to tell
- * "we do not know" from "a long time ago", so it gets its own accessor rather
- * than a caller remembering to check for two magic numbers.
- */
-export function monthsSinceOrNull(facts: ConsultationFacts, kind: ChemicalKind): number | null {
-  const entries = facts.history.filter((h) => h.kind === kind)
-  if (entries.length === 0) return null
-
-  const known = entries.flatMap((h) => (h.monthsAgo === null ? [] : [h.monthsAgo]))
-  return known.length === 0 ? null : Math.min(...known)
-}
-
 export function occurrencesOf(
   facts: ConsultationFacts,
   kind: ChemicalKind,

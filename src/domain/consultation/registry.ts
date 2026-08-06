@@ -27,8 +27,4 @@ export function getRuleset(version?: string | null): Ruleset {
   return found
 }
 
-export function listRulesetVersions(): string[] {
-  return Object.keys(REGISTRY).sort()
-}
-
 export { V2026_01_01 }

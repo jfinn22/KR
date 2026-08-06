@@ -365,6 +365,7 @@ export default async function HandoffPage({
         </p>
         <div className="mt-5">
           <FormulaForm
+            clientProfileId={client.id}
             salonSlug={salon}
             appointmentId={appointment.id}
             products={products}

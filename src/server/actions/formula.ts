@@ -2,6 +2,7 @@
 
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
+import { suggestFormula } from '@/server/services/ai'
 import { withAuthz, DomainError } from './guard'
 import { saveFormula } from '@/server/services/formulas'
 import { updateHairProfile } from '@/server/services/hair-prediction'
@@ -127,5 +128,56 @@ export const updateHairProfileAction = withAuthz(
 
     revalidatePath(`/s/${ctx.salonSlug}/desk/clients/${clientProfileId}`)
     return { saved: true }
+  },
+)
+
+/**
+ * Ask for a starting point before mixing.
+ *
+ * `suggestFormula` has existed since the AI layer was built and had no caller,
+ * while `acceptSuggestion` and `rejectSuggestion` — the half where a person
+ * takes responsibility for what the model said — were wired from the review
+ * screen. So the loop had an ending and no beginning, and AI_FORMULA_SUGGEST
+ * was a plan feature nothing could produce.
+ *
+ * Gated on that feature, so the pricing page and the product agree. The
+ * suggestion is a starting point a colourist accepts, edits or throws away —
+ * `acceptSuggestion` stores their edit separately from the model's answer,
+ * which is both the audit trail and the only honest measure of whether the
+ * suggestions are any good.
+ */
+export const suggestFormulaAction = withAuthz(
+  {
+    action: 'formula.write',
+    feature: 'AI_FORMULA_SUGGEST',
+    schema: z.object({ clientProfileId: z.string().min(1).max(64), targetLevel: z.number().int().min(1).max(10).nullish() }),
+    resource: (input, ctx) => ({ salonId: ctx.salonId, clientProfileId: input.clientProfileId }),
+    auditAs: (input) => ({ entityType: 'ClientProfile', entityId: input.clientProfileId }),
+  },
+  async (input, ctx) => {
+    const profile = await ctx.db.hairProfile.findFirst({
+      where: { salonId: ctx.salonId, clientProfileId: input.clientProfileId },
+      select: { naturalLevel: true, currentLevelRoots: true, porosity: true },
+    })
+
+    const history = await ctx.db.hairHistoryEvent.findMany({
+      where: { salonId: ctx.salonId, clientProfileId: input.clientProfileId },
+      orderBy: { occurredAt: 'desc' },
+      take: 10,
+      select: { type: true, occurredAt: true },
+    })
+
+    const now = Date.now()
+    return suggestFormula({
+      salonId: ctx.salonId,
+      clientProfileId: input.clientProfileId,
+      currentLevel: profile?.currentLevelRoots ?? profile?.naturalLevel ?? null,
+      targetLevel: input.targetLevel ?? null,
+      porosity: profile?.porosity ?? null,
+      history: history.map((event) => ({
+        kind: event.type,
+        monthsAgo: Math.floor((now - event.occurredAt.getTime()) / (30 * 86_400_000)),
+      })),
+    })
   },
 )

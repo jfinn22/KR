@@ -109,13 +109,25 @@ export function bookingGate(input: GateInput): GateDecision {
   return { decision: 'DIRECT', reason: null }
 }
 
-/** Whether this decision lets a booking through at all, with or without a name on it. */
-export function isBookable(gate: GateDecision): boolean {
+/**
+ * Whether this decision lets a booking through at all, with or without a name
+ * on it.
+ *
+ * A type guard rather than a plain boolean, so the refusing branch narrows to
+ * the variant that actually carries a reason — otherwise every caller has to
+ * cope with a `reason` that is only null on the decisions it is not handling,
+ * and reaches for the string comparison instead.
+ */
+export function isBookable(
+  gate: GateDecision,
+): gate is Exclude<GateDecision, { decision: 'REFUSED' }> {
   return gate.decision !== 'REFUSED'
 }
 
 /** Whether somebody has to hold the override action and give a reason. */
-export function needsOverride(gate: GateDecision): boolean {
+export function needsOverride(
+  gate: GateDecision,
+): gate is Extract<GateDecision, { decision: 'OVERRIDABLE' }> {
   return gate.decision === 'OVERRIDABLE'
 }
 
