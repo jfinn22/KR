@@ -5,7 +5,7 @@ import { capableStylists } from '@/server/services/catalog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionHeading } from '@/components/ui/data'
-import { formatDayHeading, formatMinutes, formatMoney } from '@/lib/format'
+import { formatDayHeading, formatMinutes, formatMoney, localDateIn } from '@/lib/format'
 import { describeShade, readShadeAnswer } from '@/domain/hair/tone'
 import { JourneyLadder } from '@/components/salon/journey-ladder'
 import { ReviewFlags } from './review-flags'
@@ -77,7 +77,7 @@ export default async function ReviewDetailPage({
           <p className="mt-2 text-body text-ink-muted">
             {services.map((service) => service.name).join(' + ')}
             {consultation.submittedAt
-              ? ` · sent ${formatDayHeading(consultation.submittedAt.toISOString().slice(0, 10), ctx.timezone)}`
+              ? ` · sent ${formatDayHeading(localDateIn(ctx.timezone, consultation.submittedAt), ctx.timezone)}`
               : ''}
           </p>
         </div>

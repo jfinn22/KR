@@ -1416,6 +1416,54 @@ async function main() {
     },
   })
 
+  // --- Memberships ----------------------------------------------------------
+  //
+  // Two, because the interesting behaviour is the difference between them: what
+  // a plan change costs, and which of two benefits a client gets on one bill.
+  // A single plan demonstrates a subscription; two demonstrate a lifecycle.
+  await db.clientMembershipPlan.createMany({
+    data: [
+      {
+        salonId: salon.id,
+        name: 'The Cut Club',
+        descriptionText: 'A cut and finish every month, and ten per cent off anything else.',
+        priceCents: 4500,
+        interval: 'MONTH',
+        includedJson: [
+          {
+            kind: 'FREE',
+            serviceId: serviceIds.get('cut-finish'),
+            label: 'A cut a month',
+            perPeriod: 1,
+          },
+          { kind: 'PERCENT_OFF', value: 1000, label: 'Ten per cent off everything else' },
+        ],
+      },
+      {
+        salonId: salon.id,
+        name: 'The Colour Club',
+        descriptionText: 'Everything in The Cut Club, plus twenty per cent off colour.',
+        priceCents: 7900,
+        interval: 'MONTH',
+        includedJson: [
+          {
+            kind: 'FREE',
+            serviceId: serviceIds.get('cut-finish'),
+            label: 'A cut a month',
+            perPeriod: 1,
+          },
+          {
+            kind: 'PERCENT_OFF',
+            serviceId: serviceIds.get('gloss'),
+            value: 2000,
+            label: 'Twenty per cent off a gloss',
+          },
+          { kind: 'PERCENT_OFF', value: 1000, label: 'Ten per cent off everything else' },
+        ],
+      },
+    ],
+  })
+
   // --- Consent forms (non-legal placeholders) ------------------------------
   const forms = [
     ['CHEMICAL_SERVICE_CONSENT', 'Chemical service consent', 'CHEMICAL_SERVICE'],

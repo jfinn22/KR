@@ -14,7 +14,7 @@ import { MembershipPanel } from './membership-panel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { SectionHeading, Stat } from '@/components/ui/data'
-import { formatDayHeading, formatMinutes, formatTime } from '@/lib/format'
+import { formatDayHeading, formatMinutes, formatTime, localDateIn } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
 
@@ -162,7 +162,7 @@ export default async function ClientRecordPage({
                   </p>
                   <p className="tabular text-label text-ink-subtle">
                     {formatDayHeading(
-                      appointment.startsAt.toISOString().slice(0, 10),
+                      localDateIn(ctx.timezone, appointment.startsAt),
                       ctx.timezone,
                     )}{' '}
                     at {formatTime(appointment.startsAt.toISOString(), ctx.timezone)} ·{' '}
@@ -256,7 +256,14 @@ export default async function ClientRecordPage({
           ) : (
             <div className="rounded-lg border-l-4 border-l-gold-500 bg-gold-100/50 px-5 py-4">
               <p className="font-display text-display-sm text-ink">
-                {formatDayHeading(prediction.dueAt.toISOString(), ctx.timezone)}
+                {/*
+                  * `formatDayHeading` takes a local calendar date, not an
+                  * instant. Handing it an ISO string builds
+                  * `2026-08-15T12:34:56.789ZT12:00:00Z`, which is an Invalid
+                  * Date, and `Intl` throws on it — a server-side exception
+                  * rather than a wrong-looking date.
+                  */}
+                {formatDayHeading(localDateIn(ctx.timezone, prediction.dueAt), ctx.timezone)}
               </p>
               <p className="mt-1 text-body text-ink">
                 {prediction.driver === 'ROOTS'
