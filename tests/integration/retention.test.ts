@@ -4,6 +4,7 @@ import { advanceAppointment } from '@/server/services/appointment-lifecycle'
 import {
   aftercareFor,
   attachmentRate,
+  settleRecommendation,
   firstTimerInterventions,
   recordAftercare,
 } from '@/server/services/retention'
@@ -276,11 +277,41 @@ describe('aftercare', () => {
     const range = { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) }
     expect(await attachmentRate(S, range)).toMatchObject({ recommended: 1, purchased: 0, rate: 0 })
 
-    await unsafeDb.productRecommendation.updateMany({
-      where: { salonId: S },
-      data: { status: 'PURCHASED' },
-    })
+    /*
+     * Through the real path, not a raw updateMany. This test used to write the
+     * status directly, which is exactly how it passed while `PURCHASED` had no
+     * writer anywhere in the product — the KPI could only ever read zero and
+     * the test could not tell.
+     */
+    const rec = await unsafeDb.productRecommendation.findFirstOrThrow({ where: { salonId: S } })
+    await settleRecommendation({ salonId: S, recommendationId: rec.id, taken: true })
+
     expect(await attachmentRate(S, range)).toMatchObject({ recommended: 1, purchased: 1, rate: 1 })
+  })
+
+  it('counts a refusal as recommended but not purchased', async () => {
+    await makeClient('rt_c11')
+    await makeAppointment('rt_a13', 'rt_c11', day(1))
+    await recordAftercare({
+      salonId: S,
+      appointmentId: 'rt_a13',
+      advice: 'Cool water on the rinse.',
+      products: [{ retailProductId: 'rt_prod', reason: 'Tone will go otherwise.' }],
+      byUserId: null,
+    })
+
+    const rec = await unsafeDb.productRecommendation.findFirstOrThrow({ where: { salonId: S } })
+    await settleRecommendation({ salonId: S, recommendationId: rec.id, taken: false })
+
+    const range = { from: new Date(Date.now() - 86_400_000), to: new Date(Date.now() + 86_400_000) }
+    // "They said no" is the more useful half, and the till never sees it.
+    expect(await attachmentRate(S, range)).toMatchObject({ recommended: 1, purchased: 0, rate: 0 })
+  })
+
+  it('refuses a recommendation from another salon', async () => {
+    await expect(
+      settleRecommendation({ salonId: S, recommendationId: 'not_ours', taken: true }),
+    ).rejects.toThrow(/not here/)
   })
 
   it('says nothing rather than zero when nothing was suggested', async () => {

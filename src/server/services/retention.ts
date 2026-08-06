@@ -278,6 +278,37 @@ export async function aftercareFor(salonId: string, appointmentId: string) {
 }
 
 /**
+ * Say whether they took it.
+ *
+ * `ProductRecStatus.PURCHASED` and `DECLINED` had no writer anywhere, so every
+ * recommendation stayed `RECOMMENDED` forever — which made `attachmentRate`
+ * below structurally zero, a KPI that could only ever report failure. The
+ * aftercare form even rendered a "bought" marker that nothing could produce.
+ *
+ * Recorded by the stylist rather than inferred from the till, because a till
+ * retail line is free text with no product on it — and because "they said no"
+ * is information the till never sees at all, and is the more useful half. A
+ * recommendation nobody took is worth knowing about; one that was never
+ * discussed is a different problem.
+ */
+export async function settleRecommendation(input: {
+  salonId: string
+  recommendationId: string
+  taken: boolean
+}): Promise<{ status: string }> {
+  const status = input.taken ? 'PURCHASED' : 'DECLINED'
+
+  const changed = await unsafeDb.productRecommendation.updateMany({
+    where: { id: input.recommendationId, salonId: input.salonId },
+    data: { status },
+  })
+  if (changed.count === 0) {
+    throw new DomainError('NOT_FOUND', 'That recommendation is not here.')
+  }
+  return { status }
+}
+
+/**
  * How much of what was recommended was actually bought.
  *
  * Recommended versus purchased, and nothing else — no revenue attribution, no

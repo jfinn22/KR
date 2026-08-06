@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Field, Textarea } from '@/components/ui/field'
-import { recordAftercareAction } from '@/server/actions/retention'
+import { recordAftercareAction, settleRecommendationAction } from '@/server/actions/retention'
 
 /**
  * What to do with it once they leave.
@@ -37,6 +37,18 @@ export function AftercareForm({
   const [error, setError] = React.useState<string | null>(null)
   const [saved, setSaved] = React.useState(false)
 
+  async function settle(recommendationId: string, taken: boolean) {
+    setBusy(true)
+    setError(null)
+    const result = await settleRecommendationAction(salonSlug, { recommendationId, taken })
+    setBusy(false)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    router.refresh()
+  }
+
   async function save() {
     setBusy(true)
     setError(null)
@@ -66,10 +78,39 @@ export function AftercareForm({
       {initialProducts.length > 0 && (
         <ul className="flex flex-col gap-2">
           {initialProducts.map((product) => (
-            <li key={product.id} className="text-secondary text-ink-muted">
-              <span className="text-ink">{product.name}</span>
-              {product.reason && ` — ${product.reason}`}
-              {product.status === 'PURCHASED' && <span className="ml-2 text-success">bought</span>}
+            <li key={product.id} className="flex flex-wrap items-center gap-3 text-secondary text-ink-muted">
+              <span>
+                <span className="text-ink">{product.name}</span>
+                {product.reason && ` — ${product.reason}`}
+              </span>
+              {/*
+               * This row used to show a "bought" marker that nothing could ever
+               * produce: PURCHASED and DECLINED had no writer, so every
+               * recommendation stayed RECOMMENDED and the attachment rate on
+               * the retention screen could only ever read zero.
+               */}
+              {product.status === 'PURCHASED' && <span className="text-success">bought</span>}
+              {product.status === 'DECLINED' && <span className="text-ink-subtle">not taken</span>}
+              {product.status === 'RECOMMENDED' && (
+                <span className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => settle(product.id, true)}
+                  >
+                    They took it
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => settle(product.id, false)}
+                  >
+                    They did not
+                  </Button>
+                </span>
+              )}
             </li>
           ))}
         </ul>

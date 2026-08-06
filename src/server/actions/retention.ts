@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
 import { unsafeDb } from '@/server/db/client'
-import { recordAftercare } from '@/server/services/retention'
+import { recordAftercare, settleRecommendation } from '@/server/services/retention'
 
 /**
  * Aftercare, written at the chair.
@@ -74,6 +74,39 @@ export const recordAftercareAction = withAuthz(
 
     revalidatePath(`/s/${ctx.salonSlug}/desk/appointment/${input.appointmentId}`)
     revalidatePath(`/s/${ctx.salonSlug}/my/timeline`)
+    return result
+  },
+)
+
+export const settleRecommendationAction = withAuthz(
+  {
+    action: 'formula.write',
+    schema: z.object({ recommendationId: cuid, taken: z.boolean() }),
+    /*
+     * Same OWN-grant problem as `recordAftercareAction`: without a resource the
+     * guard sees only a salon id and the stylists who actually have this
+     * conversation are the ones locked out of recording it.
+     */
+    resource: async (input, ctx) => {
+      const rec = await ctx.db.productRecommendation.findFirst({
+        where: { id: input.recommendationId, salonId: ctx.salonId },
+        select: { clientProfileId: true, appointment: { select: { primaryStylistId: true } } },
+      })
+      return {
+        salonId: ctx.salonId,
+        ownerStylistId: rec?.appointment?.primaryStylistId ?? null,
+        clientProfileId: rec?.clientProfileId ?? null,
+      }
+    },
+    auditAs: (input) => ({ entityType: 'ProductRecommendation', entityId: input.recommendationId }),
+  },
+  async (input, ctx) => {
+    const result = await settleRecommendation({
+      salonId: ctx.salonId,
+      recommendationId: input.recommendationId,
+      taken: input.taken,
+    })
+    revalidatePath(`/s/${ctx.salonSlug}/desk`)
     return result
   },
 )
