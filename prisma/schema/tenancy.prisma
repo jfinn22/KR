@@ -73,7 +73,6 @@ model Salon {
   locations          Location[]
   resources          Resource[]
   memberships        Membership[]
-  invitations        Invitation[]
   stylistProfiles    StylistProfile[]
   clientProfiles     ClientProfile[]
   serviceCategories  ServiceCategory[]
@@ -98,18 +97,14 @@ model Salon {
   hairProfiles       HairProfile[]
   hairHistory        HairHistoryEvent[]
   formulas           Formula[]
-  conditionChecks    HairConditionAssessment[]
   deposits           Deposit[]
   invoices           Invoice[]
   payments           Payment[]
   discountReasons    DiscountReason[]
   giftCards          GiftCard[]
   savedCards         SavedCard[]
-  loyaltyAccounts    LoyaltyAccount[]
   membershipPlans    ClientMembershipPlan[]
-  packages           PackageDefinition[]
   retailProducts     RetailProduct[]
-  messageThreads     MessageThread[]
   messageTemplates   MessageTemplate[]
   notifySchedules    NotificationSchedule[]
   formTemplates      FormTemplate[]
@@ -117,11 +112,9 @@ model Salon {
   patchTests         PatchTest[]
   strandTests        StrandTest[]
   consentGrants      ConsentGrant[]
-  policies           Policy[]
   auditLogs          AuditLog[]
   quoteAccuracy      QuoteAccuracy[]
   calibrations       StylistCalibration[]
-  metricSnapshots    MetricSnapshot[]
   aiSuggestions      AiSuggestion[]
   aiUsage            AiUsageCounter[]
   integrations       IntegrationConnection[]
@@ -356,22 +349,6 @@ model Membership {
   @@index([salonId, role, status])
 }
 
-model Invitation {
-  id              String    @id @default(cuid())
-  salonId         String
-  salon           Salon     @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  email           String
-  role            StaffRole
-  tokenHash       String    @unique
-  invitedByUserId String
-  expiresAt       DateTime  @db.Timestamptz(3)
-  acceptedAt      DateTime? @db.Timestamptz(3)
-  revokedAt       DateTime? @db.Timestamptz(3)
-  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
-
-  @@index([salonId, email])
-}
-
 /// The service-providing side of a staff member.
 model StylistProfile {
   id           String     @id @default(cuid())
@@ -463,7 +440,6 @@ model ClientProfile {
   updatedAt          DateTime        @updatedAt @db.Timestamptz(3)
 
   hairProfile            HairProfile?
-  loyaltyAccount         LoyaltyAccount?
   appointments           Appointment[]
   bookingHolds           BookingHold[]
   waitlistEntries        WaitlistEntry[]
@@ -472,27 +448,22 @@ model ClientProfile {
   servicePlans           ServicePlan[]
   hairHistory            HairHistoryEvent[]
   formulas               Formula[]
-  conditionChecks        HairConditionAssessment[]
   photoAssets            PhotoAsset[]
   deposits               Deposit[]
   invoices               Invoice[]
   payments               Payment[]
-  giftCardsBought        GiftCard[]                @relation("GiftCardPurchaser")
+  giftCardsBought        GiftCard[]              @relation("GiftCardPurchaser")
   savedCards             SavedCard[]
   /// The provider's customer for this person at this salon. A client of two
   /// salons has two, because each salon's provider account is its own.
   paymentsCustomerRef    String?
-  messageThreads         MessageThread[]
   contactConsents        ContactConsent[]
   formSubmissions        FormSubmission[]
   patchTests             PatchTest[]
   strandTests            StrandTest[]
   consentGrants          ConsentGrant[]
-  policyAcks             PolicyAcknowledgement[]
   memberships            ClientMembership[]
-  packagePurchases       PackagePurchase[]
   productRecs            ProductRecommendation[]
-  noShowScores           NoShowScore[]
   scheduledNotifications ScheduledNotification[]
 
   @@unique([salonId, userId])

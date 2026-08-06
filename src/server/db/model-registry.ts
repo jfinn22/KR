@@ -20,7 +20,6 @@ export const GLOBAL_MODELS: ReadonlySet<string> = new Set([
   // Cross-tenant infrastructure. The worker reads these as the admin client
   // and sets app.salon_id per job.
   'Job',
-  'RecurringSchedule',
   'Outbox',
   'IdempotencyKey',
   'SuppressionEntry',

@@ -30,7 +30,6 @@ enum InvoiceLineKind {
   FEE
   DISCOUNT
   DEPOSIT_APPLIED
-  PACKAGE_REDEMPTION
   GIFT_CARD
   TIP
 }
@@ -73,44 +72,44 @@ enum ProductRecStatus {
 }
 
 model Deposit {
-  id      String @id @default(cuid())
-  salonId String
-  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
   clientProfileId String
   clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
-  servicePlanId String?
-  appointmentId String?
-  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  servicePlanId   String?
+  appointmentId   String?
+  appointment     Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   /// A paid consultation is a deposit against the assessment rather than the
   /// appointment. Same lifecycle, same machinery, same audit trail — a
   /// corrective consult that costs a stylist an hour is not free labour, and
   /// crediting it against the work is what keeps it from being a fee.
-  consultationId String?
-  consultation   Consultation? @relation(fields: [consultationId], references: [id], onDelete: SetNull)
+  consultationId  String?
+  consultation    Consultation? @relation(fields: [consultationId], references: [id], onDelete: SetNull)
 
   /// The card this was or will be charged against.
   savedCardId String?
   savedCard   SavedCard? @relation(fields: [savedCardId], references: [id], onDelete: SetNull)
 
-  amountCents Int
-  status      DepositStatus @default(PENDING)
-  providerIntentId String?
-  authorizationExpiresAt DateTime? @db.Timestamptz(3)
+  amountCents            Int
+  status                 DepositStatus @default(PENDING)
+  providerIntentId       String?
+  authorizationExpiresAt DateTime?     @db.Timestamptz(3)
   appliedToPaymentId     String?
   /// The bill this was spent on. Not derivable from `appointmentId`: a paid
   /// consultation is credited against the corrective work booked afterwards,
   /// which is a different appointment entirely.
-  appliedToInvoiceId String?
-  appliedToInvoice   Invoice? @relation(fields: [appliedToInvoiceId], references: [id], onDelete: SetNull)
+  appliedToInvoiceId     String?
+  appliedToInvoice       Invoice?      @relation(fields: [appliedToInvoiceId], references: [id], onDelete: SetNull)
   /// The deposit policy as it stood when the client agreed to it.
-  policySnapshotJson Json?
-  refundableUntil DateTime? @db.Timestamptz(3)
+  policySnapshotJson     Json?
+  refundableUntil        DateTime?     @db.Timestamptz(3)
   /// Why a charge failed, in the provider's words, so the client can be told
   /// something they can act on rather than "payment failed".
-  failureCode    String?
-  failureMessage String?
-  createdAt DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  failureCode            String?
+  failureMessage         String?
+  createdAt              DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime      @updatedAt @db.Timestamptz(3)
 
   /// The provider is the source of truth for payment state, and a webhook is
   /// how it says so. One live deposit per intent, so a redelivered event
@@ -126,22 +125,22 @@ model Deposit {
 /// digits and the brand a person needs to recognise which card they are
 /// looking at. Stealing every row of this table gets you nothing chargeable.
 model SavedCard {
-  id      String @id @default(cuid())
-  salonId String
-  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
   clientProfileId String
   clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
 
   providerRef String
-  brand    String
-  last4    String
-  expMonth Int
-  expYear  Int
-  isDefault Boolean @default(false)
+  brand       String
+  last4       String
+  expMonth    Int
+  expYear     Int
+  isDefault   Boolean   @default(false)
   /// Removed by the client rather than deleted, because a deposit already
   /// charged against it still has to be explainable.
-  detachedAt DateTime? @db.Timestamptz(3)
-  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  detachedAt  DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
 
   deposits Deposit[]
 
@@ -150,11 +149,11 @@ model SavedCard {
 }
 
 model Invoice {
-  id      String @id @default(cuid())
-  salonId String
-  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  appointmentId String? @unique
-  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  appointmentId   String?       @unique
+  appointment     Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   clientProfileId String
   clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
 
@@ -171,11 +170,11 @@ model Invoice {
   createdAt     DateTime      @default(now()) @db.Timestamptz(3)
 
   /// Why this bill is less than the price list. Nullable because most are not.
-  discountReasonId String?
-  discountReason   DiscountReason? @relation(fields: [discountReasonId], references: [id], onDelete: SetNull)
+  discountReasonId         String?
+  discountReason           DiscountReason? @relation(fields: [discountReasonId], references: [id], onDelete: SetNull)
   /// Required by the policy layer when the discount exceeded the giver's cap,
   /// and previously accepted by the action schema and read by nothing.
-  discountNote     String? @db.Text
+  discountNote             String?         @db.Text
   discountApprovedByUserId String?
 
   lines    InvoiceLine[]
@@ -187,25 +186,25 @@ model Invoice {
 }
 
 model InvoiceLine {
-  id        String          @id @default(cuid())
-  salonId   String
-  invoiceId String
-  invoice   Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  kind      InvoiceLineKind
-  refType   String?
-  refId     String?
-  description String
-  quantity    Int  @default(1)
+  id             String          @id @default(cuid())
+  salonId        String
+  invoiceId      String
+  invoice        Invoice         @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  kind           InvoiceLineKind
+  refType        String?
+  refId          String?
+  description    String
+  quantity       Int             @default(1)
   unitPriceCents Int
   totalCents     Int
-  taxRateBps     Int @default(0)
-  sequence       Int @default(0)
+  taxRateBps     Int             @default(0)
+  sequence       Int             @default(0)
 
   /// What was taken off this line, after clamping. Computed in pricing.ts and
   /// previously thrown away — only the net survived, so a receipt could not
   /// show "was 95, now 80" and a month-end could not tell a discounted line
   /// from a cheap one.
-  discountCents Int @default(0)
+  discountCents        Int  @default(0)
   /// What the client agreed to before anyone touched it at the till. Equal to
   /// unitPriceCents unless the price was edited, which is what makes an edit
   /// visible rather than merely effective.
@@ -225,15 +224,15 @@ model DiscountReason {
   salonId String
   salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
 
-  label String
-  kind  DiscountKind @default(PERCENT)
+  label     String
+  kind      DiscountKind @default(PERCENT)
   /// PERCENT: basis points. FIXED: cents. OPEN: unused, the till names it.
-  value Int          @default(0)
+  value     Int          @default(0)
   /// The owner's ceiling for this reason, independent of the role cap.
-  maxCents Int?
-  isActive  Boolean @default(true)
-  sortOrder Int     @default(0)
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  maxCents  Int?
+  isActive  Boolean      @default(true)
+  sortOrder Int          @default(0)
+  createdAt DateTime     @default(now()) @db.Timestamptz(3)
 
   invoices Invoice[]
 
@@ -260,10 +259,10 @@ model GiftCard {
 
   /// Shown to the buyer and typed in at redemption. Unique per salon, not
   /// globally: a card is a promise by one salon and means nothing at another.
-  code String
+  code         String
   initialCents Int
-  status GiftCardStatus @default(ACTIVE)
-  expiresAt DateTime? @db.Timestamptz(3)
+  status       GiftCardStatus @default(ACTIVE)
+  expiresAt    DateTime?      @db.Timestamptz(3)
 
   /// Who bought it, when it was sold on a bill. Null for one issued by hand.
   purchasedByClientId String?
@@ -296,16 +295,16 @@ model GiftCardEntry {
   giftCard   GiftCard @relation(fields: [giftCardId], references: [id], onDelete: Cascade)
 
   /// Positive on issue and top-up, negative on redemption.
-  amountCents Int
-  kind        GiftCardEntryKind
-  invoiceId   String?
-  paymentId   String?
+  amountCents     Int
+  kind            GiftCardEntryKind
+  invoiceId       String?
+  paymentId       String?
   /// One entry per (card, idempotency key). A double-tapped redemption at the
   /// till writes one row, not two, and the unique index is what enforces it
   /// rather than a check-then-write that races.
-  idempotencyKey String
+  idempotencyKey  String
   createdByUserId String?
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
 
   @@unique([giftCardId, idempotencyKey])
   @@index([salonId, giftCardId])
@@ -320,26 +319,26 @@ enum GiftCardEntryKind {
 }
 
 model Payment {
-  id      String @id @default(cuid())
-  salonId String
-  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  invoiceId String?
-  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
-  appointmentId String?
-  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  invoiceId       String?
+  invoice         Invoice?      @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  appointmentId   String?
+  appointment     Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
   clientProfileId String
   clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
 
-  amountCents Int
-  tipCents    Int           @default(0)
-  method      PaymentMethod @default(CARD)
-  status      PaymentStatus @default(PENDING)
-  providerRef String?
+  amountCents    Int
+  tipCents       Int           @default(0)
+  method         PaymentMethod @default(CARD)
+  status         PaymentStatus @default(PENDING)
+  providerRef    String?
   /// Guards against the double-tap that dominates real-world duplicate charges.
-  idempotencyKey String? @unique
+  idempotencyKey String?       @unique
   failureCode    String?
-  capturedAt     DateTime? @db.Timestamptz(3)
-  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  capturedAt     DateTime?     @db.Timestamptz(3)
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
 
   refunds Refund[]
 
@@ -348,79 +347,48 @@ model Payment {
 }
 
 model Refund {
-  id        String @id @default(cuid())
-  salonId   String
-  paymentId String
-  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  amountCents Int
-  reason      String?
-  status      PaymentStatus @default(PENDING)
-  providerRef String?
+  id             String        @id @default(cuid())
+  salonId        String
+  paymentId      String
+  payment        Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  amountCents    Int
+  reason         String?
+  status         PaymentStatus @default(PENDING)
+  providerRef    String?
   issuedByUserId String?
-  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, paymentId])
 }
 
 model CancellationFee {
-  id            String      @id @default(cuid())
-  salonId       String
-  appointmentId String      @unique
-  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  id                 String      @id @default(cuid())
+  salonId            String
+  appointmentId      String      @unique
+  appointment        Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   policySnapshotJson Json
-  computedCents  Int
-  chargedCents   Int       @default(0)
-  status         FeeStatus @default(PENDING)
-  waivedByUserId String?
-  waiveReason    String?   @db.Text
-  paymentId      String?
-  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  computedCents      Int
+  chargedCents       Int         @default(0)
+  status             FeeStatus   @default(PENDING)
+  waivedByUserId     String?
+  waiveReason        String?     @db.Text
+  paymentId          String?
+  createdAt          DateTime    @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, status])
 }
 
-model LoyaltyAccount {
-  id              String        @id @default(cuid())
-  salonId         String
-  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  clientProfileId String        @unique
-  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
-  pointsBalance   Int           @default(0)
-  tier            String        @default("STANDARD")
-  lifetimeSpendCents Int        @default(0)
-  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
-
-  transactions LoyaltyTransaction[]
-
-  @@index([salonId])
-}
-
-model LoyaltyTransaction {
-  id        String         @id @default(cuid())
-  salonId   String
-  accountId String
-  account   LoyaltyAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  delta     Int
-  reason    String
-  refType   String?
-  refId     String?
-  expiresAt DateTime? @db.Timestamptz(3)
-  createdAt DateTime  @default(now()) @db.Timestamptz(3)
-
-  @@index([salonId, accountId, createdAt])
-}
-
 model ClientMembershipPlan {
-  id       String @id @default(cuid())
-  salonId  String
-  salon    Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  name     String
+  id              String  @id @default(cuid())
+  salonId         String
+  salon           Salon   @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  name            String
   descriptionText String?
-  priceCents Int
-  interval   String  @default("MONTH")
-  includedJson Json?
-  stripePriceId String?
-  isActive   Boolean @default(true)
+  priceCents      Int
+  interval        String  @default("MONTH")
+  includedJson    Json?
+  stripePriceId   String?
+  isActive        Boolean @default(true)
 
   memberships ClientMembership[]
 
@@ -428,32 +396,32 @@ model ClientMembershipPlan {
 }
 
 model ClientMembership {
-  id              String        @id @default(cuid())
-  salonId         String
-  clientProfileId String
-  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
-  planId          String
-  plan            ClientMembershipPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-  status          ClientMembershipStatus @default(ACTIVE)
-  startedAt       DateTime  @default(now()) @db.Timestamptz(3)
+  id                   String                 @id @default(cuid())
+  salonId              String
+  clientProfileId      String
+  clientProfile        ClientProfile          @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  planId               String
+  plan                 ClientMembershipPlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  status               ClientMembershipStatus @default(ACTIVE)
+  startedAt            DateTime               @default(now()) @db.Timestamptz(3)
   /// The period the client has actually paid for.
   ///
   /// Both ends, because every piece of arithmetic a membership needs — what a
   /// plan change costs, how much of the fee is earned, how many free cuts are
   /// left — is a fraction of a period, and a single `renewsAt` cannot say how
   /// long the period was.
-  currentPeriodStart DateTime? @db.Timestamptz(3)
-  renewsAt        DateTime? @db.Timestamptz(3)
+  currentPeriodStart   DateTime?              @db.Timestamptz(3)
+  renewsAt             DateTime?              @db.Timestamptz(3)
   /// Asked to stop, but paid up until the period ends.
   ///
   /// Distinct from `cancelledAt`: somebody who cancels on the 3rd has bought
   /// the rest of the month and is entitled to it. Ending it the moment they
   /// click is taking money for a service withdrawn.
-  cancelAtPeriodEnd Boolean @default(false)
-  cancelledAt     DateTime? @db.Timestamptz(3)
+  cancelAtPeriodEnd    Boolean                @default(false)
+  cancelledAt          DateTime?              @db.Timestamptz(3)
   /// When the payment first failed, which is what the dunning clock runs from.
-  pastDueSince    DateTime? @db.Timestamptz(3)
-  creditsRemaining Int      @default(0)
+  pastDueSince         DateTime?              @db.Timestamptz(3)
+  creditsRemaining     Int                    @default(0)
   stripeSubscriptionId String?
 
   benefitUses MembershipBenefitUse[]
@@ -470,80 +438,34 @@ model ClientMembership {
 /// it against. Rows can be counted per period, and a refunded invoice can take
 /// its own use back out.
 model MembershipBenefitUse {
-  id           String           @id @default(cuid())
-  salonId      String
-  membershipId String
-  membership   ClientMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
-  invoiceId    String?
+  id             String           @id @default(cuid())
+  salonId        String
+  membershipId   String
+  membership     ClientMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  invoiceId      String?
   /// Identifies WHICH entitlement, so an allowance is per benefit and not per
   /// membership — a plan with a free cut and a discounted colour has two.
   entitlementKey String
   label          String
   discountCents  Int
   /// The period it was used in, so an allowance resets without anybody sweeping.
-  periodStart  DateTime @db.Timestamptz(3)
-  usedAt       DateTime @default(now()) @db.Timestamptz(3)
+  periodStart    DateTime         @db.Timestamptz(3)
+  usedAt         DateTime         @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, membershipId, periodStart])
   @@index([salonId, invoiceId])
 }
 
-model PackageDefinition {
-  id        String  @id @default(cuid())
-  salonId   String
-  salon     Salon   @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  name      String
-  serviceId String
-  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  sessionsIncluded Int
-  priceCents       Int
-  expiresInDays    Int     @default(365)
-  isActive         Boolean @default(true)
-
-  purchases PackagePurchase[]
-
-  @@index([salonId, isActive])
-}
-
-model PackagePurchase {
-  id                  String        @id @default(cuid())
-  salonId             String
-  clientProfileId     String
-  clientProfile       ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
-  packageDefinitionId String
-  packageDefinition   PackageDefinition @relation(fields: [packageDefinitionId], references: [id], onDelete: Cascade)
-  sessionsRemaining   Int
-  purchasedAt         DateTime  @default(now()) @db.Timestamptz(3)
-  expiresAt           DateTime  @db.Timestamptz(3)
-  invoiceId           String?
-
-  redemptions PackageRedemption[]
-
-  @@index([salonId, clientProfileId])
-}
-
-model PackageRedemption {
-  id                String          @id @default(cuid())
-  salonId           String
-  packagePurchaseId String
-  packagePurchase   PackagePurchase @relation(fields: [packagePurchaseId], references: [id], onDelete: Cascade)
-  appointmentId     String
-  appointment       Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  redeemedAt        DateTime        @default(now()) @db.Timestamptz(3)
-
-  @@index([salonId, packagePurchaseId])
-}
-
 model RetailProduct {
-  id       String  @id @default(cuid())
-  salonId  String
-  salon    Salon   @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  sku      String
-  name     String
-  brand    String?
-  category String?
-  priceCents Int
-  costCents  Int    @default(0)
+  id                  String  @id @default(cuid())
+  salonId             String
+  salon               Salon   @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  sku                 String
+  name                String
+  brand               String?
+  category            String?
+  priceCents          Int
+  costCents           Int     @default(0)
   /// Grams in one unit, for anything mixed at the bowl.
   ///
   /// Backbar cost is per gram and a purchase is per tube, and nothing else in
@@ -552,13 +474,12 @@ model RetailProduct {
   backbarGramsPerUnit Int?
   /// Used on clients rather than sold to them. Both is common — the same
   /// shampoo goes on the shelf and in the basin.
-  isBackbar  Boolean @default(false)
-  stockQty   Int    @default(0)
-  reorderLevel Int  @default(0)
-  attributesJson Json?
-  isActive   Boolean @default(true)
+  isBackbar           Boolean @default(false)
+  stockQty            Int     @default(0)
+  reorderLevel        Int     @default(0)
+  attributesJson      Json?
+  isActive            Boolean @default(true)
 
-  sales           RetailSale[]
   usage           ProductUsage[]
   recommendations ProductRecommendation[]
 
@@ -566,52 +487,37 @@ model RetailProduct {
   @@index([salonId, isActive])
 }
 
-model RetailSale {
-  id            String        @id @default(cuid())
-  salonId       String
-  productId     String
-  product       RetailProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
-  appointmentId String?
-  appointment   Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
-  invoiceLineId String?
-  quantity      Int      @default(1)
-  priceCents    Int
-  soldAt        DateTime @default(now()) @db.Timestamptz(3)
-
-  @@index([salonId, soldAt])
-}
-
 /// Back-bar consumption. `wasteGrams` is what drives the product-waste KPI —
 /// the difference between mixed and used is real money.
 model ProductUsage {
-  id            String        @id @default(cuid())
+  id            String         @id @default(cuid())
   salonId       String
   appointmentId String
-  appointment   Appointment   @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  appointment   Appointment    @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
   productId     String?
   product       RetailProduct? @relation(fields: [productId], references: [id], onDelete: SetNull)
   productName   String?
-  grams         Decimal  @db.Decimal(7, 1)
-  wasteGrams    Decimal  @default(0) @db.Decimal(7, 1)
-  costCents     Int      @default(0)
-  recordedAt    DateTime @default(now()) @db.Timestamptz(3)
+  grams         Decimal        @db.Decimal(7, 1)
+  wasteGrams    Decimal        @default(0) @db.Decimal(7, 1)
+  costCents     Int            @default(0)
+  recordedAt    DateTime       @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, appointmentId])
 }
 
 model ProductRecommendation {
-  id              String        @id @default(cuid())
-  salonId         String
-  clientProfileId String
-  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
-  appointmentId   String?
-  appointment     Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
-  retailProductId String
-  retailProduct   RetailProduct @relation(fields: [retailProductId], references: [id], onDelete: Cascade)
+  id                  String           @id @default(cuid())
+  salonId             String
+  clientProfileId     String
+  clientProfile       ClientProfile    @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  appointmentId       String?
+  appointment         Appointment?     @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  retailProductId     String
+  retailProduct       RetailProduct    @relation(fields: [retailProductId], references: [id], onDelete: Cascade)
   recommendedByUserId String?
-  reason          String?          @db.Text
-  status          ProductRecStatus @default(RECOMMENDED)
-  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  reason              String?          @db.Text
+  status              ProductRecStatus @default(RECOMMENDED)
+  createdAt           DateTime         @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, clientProfileId, status])
 }

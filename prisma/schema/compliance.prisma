@@ -53,35 +53,25 @@ enum GrantKind {
   CORRECTION_SERVICE
 }
 
-enum PolicyType {
-  CANCELLATION
-  NO_SHOW
-  DEPOSIT_FORFEITURE
-  RESCHEDULE
-  PHOTO_USAGE
-  LATE_ARRIVAL
-  MINORS
-}
-
 model FormTemplate {
-  id      String   @id @default(cuid())
-  salonId String?
-  salon   Salon?   @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  key     String
-  version Int      @default(1)
-  name    String
-  kind    FormKind
-  bodyMarkdown String @db.Text
-  schemaJson   Json?
-  requiresSignature Boolean @default(true)
-  validForDays      Int?
+  id                  String         @id @default(cuid())
+  salonId             String?
+  salon               Salon?         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  key                 String
+  version             Int            @default(1)
+  name                String
+  kind                FormKind
+  bodyMarkdown        String         @db.Text
+  schemaJson          Json?
+  requiresSignature   Boolean        @default(true)
+  validForDays        Int?
   appliesToServiceIds String[]
   /// TRUE for everything shipped with the platform. The UI refuses to hide
   /// the attorney-review notice while this is set.
-  isLegalPlaceholder Boolean        @default(true)
-  isSystem           Boolean        @default(false)
-  status             TemplateStatus @default(DRAFT)
-  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  isLegalPlaceholder  Boolean        @default(true)
+  isSystem            Boolean        @default(false)
+  status              TemplateStatus @default(DRAFT)
+  createdAt           DateTime       @default(now()) @db.Timestamptz(3)
 
   submissions FormSubmission[]
 
@@ -90,25 +80,25 @@ model FormTemplate {
 }
 
 model FormSubmission {
-  id             String       @id @default(cuid())
-  salonId        String
-  salon          Salon        @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  formTemplateId String
-  formTemplate   FormTemplate @relation(fields: [formTemplateId], references: [id], onDelete: Cascade)
+  id              String        @id @default(cuid())
+  salonId         String
+  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  formTemplateId  String
+  formTemplate    FormTemplate  @relation(fields: [formTemplateId], references: [id], onDelete: Cascade)
   templateVersion Int
   clientProfileId String
   clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
-  appointmentId  String?
-  appointment    Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
-  consultationId String?
-  consultation   Consultation? @relation(fields: [consultationId], references: [id], onDelete: SetNull)
-  servicePlanId  String?
+  appointmentId   String?
+  appointment     Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  consultationId  String?
+  consultation    Consultation? @relation(fields: [consultationId], references: [id], onDelete: SetNull)
+  servicePlanId   String?
 
-  answersJson Json?
-  submittedAt DateTime  @default(now()) @db.Timestamptz(3)
-  expiresAt   DateTime? @db.Timestamptz(3)
-  ipAddress   String?
-  userAgent   String?
+  answersJson  Json?
+  submittedAt  DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt    DateTime? @db.Timestamptz(3)
+  ipAddress    String?
+  userAgent    String?
   /// Hash of the exact rendered document the client agreed to, so a later
   /// template edit can never change what they are shown to have signed.
   documentHash String
@@ -121,19 +111,19 @@ model FormSubmission {
 }
 
 model Signature {
-  id               String         @id @default(cuid())
-  salonId          String
-  formSubmissionId String         @unique
-  formSubmission   FormSubmission @relation(fields: [formSubmissionId], references: [id], onDelete: Cascade)
-  signerUserId     String?
-  signerName       String
+  id                 String          @id @default(cuid())
+  salonId            String
+  formSubmissionId   String          @unique
+  formSubmission     FormSubmission  @relation(fields: [formSubmissionId], references: [id], onDelete: Cascade)
+  signerUserId       String?
+  signerName         String
   signerRelationship String?
-  method           SignatureMethod @default(DRAWN)
-  imageStorageKey  String?
-  documentHash     String
-  signedAt         DateTime        @default(now()) @db.Timestamptz(3)
-  ipAddress        String?
-  userAgent        String?
+  method             SignatureMethod @default(DRAWN)
+  imageStorageKey    String?
+  documentHash       String
+  signedAt           DateTime        @default(now()) @db.Timestamptz(3)
+  ipAddress          String?
+  userAgent          String?
 
   @@index([salonId, signedAt])
 }
@@ -149,18 +139,18 @@ model PatchTest {
   servicePlanId   String?
   servicePlan     ServicePlan?  @relation(fields: [servicePlanId], references: [id], onDelete: SetNull)
 
-  productBrand String?
-  productRef   String?
-  appliedAt    DateTime   @db.Timestamptz(3)
+  productBrand    String?
+  productRef      String?
+  appliedAt       DateTime   @db.Timestamptz(3)
   appliedByUserId String?
-  readAt       DateTime?  @db.Timestamptz(3)
-  result       TestResult @default(PENDING)
-  notes        String?    @db.Text
-  photoAssetId String?
+  readAt          DateTime?  @db.Timestamptz(3)
+  result          TestResult @default(PENDING)
+  notes           String?    @db.Text
+  photoAssetId    String?
   /// A patch test on file is only useful while it is current; the rules engine
   /// treats an expired one as absent.
-  validUntil   DateTime   @db.Timestamptz(3)
-  createdAt    DateTime   @default(now()) @db.Timestamptz(3)
+  validUntil      DateTime   @db.Timestamptz(3)
+  createdAt       DateTime   @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, clientProfileId, validUntil])
 }
@@ -191,49 +181,18 @@ model StrandTest {
 }
 
 model ConsentGrant {
-  id              String        @id @default(cuid())
-  salonId         String
-  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  clientProfileId String
-  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
-  kind            GrantKind
-  scope           String?
-  status          ConsentStatus @default(GRANTED)
-  grantedAt       DateTime      @default(now()) @db.Timestamptz(3)
-  revokedAt       DateTime?     @db.Timestamptz(3)
+  id                       String          @id @default(cuid())
+  salonId                  String
+  salon                    Salon           @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  clientProfileId          String
+  clientProfile            ClientProfile   @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  kind                     GrantKind
+  scope                    String?
+  status                   ConsentStatus   @default(GRANTED)
+  grantedAt                DateTime        @default(now()) @db.Timestamptz(3)
+  revokedAt                DateTime?       @db.Timestamptz(3)
   evidenceFormSubmissionId String?
   evidenceFormSubmission   FormSubmission? @relation(fields: [evidenceFormSubmissionId], references: [id], onDelete: SetNull)
 
   @@index([salonId, clientProfileId, kind])
-}
-
-model Policy {
-  id            String     @id @default(cuid())
-  salonId       String
-  salon         Salon      @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  type          PolicyType
-  version       Int        @default(1)
-  bodyMarkdown  String     @db.Text
-  configJson    Json
-  effectiveFrom DateTime   @default(now()) @db.Timestamptz(3)
-  isActive      Boolean    @default(true)
-
-  acknowledgements PolicyAcknowledgement[]
-
-  @@unique([salonId, type, version])
-  @@index([salonId, type, isActive])
-}
-
-model PolicyAcknowledgement {
-  id              String        @id @default(cuid())
-  salonId         String
-  clientProfileId String
-  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
-  policyId        String
-  policy          Policy        @relation(fields: [policyId], references: [id], onDelete: Cascade)
-  policyVersion   Int
-  acknowledgedAt  DateTime      @default(now()) @db.Timestamptz(3)
-  ipAddress       String?
-
-  @@index([salonId, clientProfileId])
 }

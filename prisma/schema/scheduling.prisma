@@ -178,26 +178,20 @@ model Appointment {
   createdAt       DateTime @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime @updatedAt @db.Timestamptz(3)
 
-  services           AppointmentService[]
-  segments           AppointmentSegment[]
-  photos             AppointmentPhoto[]
-  formulas           Formula[]
-  conditionChecks    HairConditionAssessment[]
-  hairHistory        HairHistoryEvent[]
-  deposits           Deposit[]
-  invoice            Invoice?
-  payments           Payment[]
-  cancellationFee    CancellationFee?
-  quoteAccuracy      QuoteAccuracy?
-  noShowScores       NoShowScore[]
-  productUsage       ProductUsage[]
-  retailSales        RetailSale[]
-  productRecs        ProductRecommendation[]
-  packageRedemptions PackageRedemption[]
-  formSubmissions    FormSubmission[]
-  patchTests         PatchTest[]
-  messageThreads     MessageThread[]
-  postVisitCheckIn   PostVisitCheckIn?
+  services         AppointmentService[]
+  segments         AppointmentSegment[]
+  formulas         Formula[]
+  hairHistory      HairHistoryEvent[]
+  deposits         Deposit[]
+  invoice          Invoice?
+  payments         Payment[]
+  cancellationFee  CancellationFee?
+  quoteAccuracy    QuoteAccuracy?
+  productUsage     ProductUsage[]
+  productRecs      ProductRecommendation[]
+  formSubmissions  FormSubmission[]
+  patchTests       PatchTest[]
+  postVisitCheckIn PostVisitCheckIn?
 
   @@index([salonId, startsAt])
   @@index([salonId, primaryStylistId, startsAt])

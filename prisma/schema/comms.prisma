@@ -12,18 +12,6 @@ enum MessageChannel {
   PUSH
 }
 
-enum MessageDirection {
-  INBOUND
-  OUTBOUND
-}
-
-enum MessageAuthor {
-  CLIENT
-  STAFF
-  SYSTEM
-  AI_DRAFT
-}
-
 enum MessageStatus {
   DRAFT
   QUEUED
@@ -31,12 +19,6 @@ enum MessageStatus {
   DELIVERED
   READ
   FAILED
-}
-
-enum ThreadStatus {
-  OPEN
-  SNOOZED
-  CLOSED
 }
 
 enum NotificationTrigger {
@@ -69,74 +51,21 @@ enum SuppressionReason {
   MANUAL
 }
 
-model MessageThread {
-  id              String        @id @default(cuid())
-  salonId         String
-  salon           Salon         @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  clientProfileId String
-  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
-
-  subject        String?
-  primaryChannel MessageChannel @default(IN_APP)
-  status         ThreadStatus   @default(OPEN)
-  assignedToUserId String?
-  appointmentId  String?
-  appointment    Appointment?   @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
-  consultationId String?
-  lastMessageAt  DateTime       @default(now()) @db.Timestamptz(3)
-  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
-
-  messages Message[]
-
-  @@index([salonId, status, lastMessageAt])
-  @@index([salonId, clientProfileId])
-}
-
-model Message {
-  id       String        @id @default(cuid())
-  salonId  String
-  threadId String
-  thread   MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
-
-  direction  MessageDirection
-  channel    MessageChannel
-  authorType MessageAuthor
-  authorUserId String?
-  body       String  @db.Text
-  bodyHtml   String? @db.Text
-  attachmentsJson Json?
-
-  status            MessageStatus @default(QUEUED)
-  providerMessageId String?
-  sentAt            DateTime?     @db.Timestamptz(3)
-  deliveredAt       DateTime?     @db.Timestamptz(3)
-  readAt            DateTime?     @db.Timestamptz(3)
-  failureReason     String?
-
-  /// An AI draft is never sent without a staff member clicking send.
-  aiSuggestionId   String?
-  approvedByUserId String?
-  createdAt        DateTime @default(now()) @db.Timestamptz(3)
-
-  @@index([salonId, threadId, createdAt])
-  @@index([salonId, status])
-}
-
 model MessageTemplate {
-  id      String  @id @default(cuid())
-  salonId String?
-  salon   Salon?  @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  key     String
-  name    String
-  category String  @default("GENERAL")
-  channel MessageChannel
-  locale  String  @default("en-US")
-  subject String?
+  id       String         @id @default(cuid())
+  salonId  String?
+  salon    Salon?         @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  key      String
+  name     String
+  category String         @default("GENERAL")
+  channel  MessageChannel
+  locale   String         @default("en-US")
+  subject  String?
   /// Handlebars-style `{{client.firstName}}` interpolation.
-  body    String  @db.Text
-  version Int     @default(1)
-  isSystem Boolean @default(false)
-  isActive Boolean @default(true)
+  body     String         @db.Text
+  version  Int            @default(1)
+  isSystem Boolean        @default(false)
+  isActive Boolean        @default(true)
 
   schedules NotificationSchedule[]
 
@@ -145,18 +74,18 @@ model MessageTemplate {
 }
 
 model NotificationSchedule {
-  id      String @id @default(cuid())
-  salonId String
-  salon   Salon  @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  key     String
-  trigger NotificationTrigger
+  id            String              @id @default(cuid())
+  salonId       String
+  salon         Salon               @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  key           String
+  trigger       NotificationTrigger
   /// Negative is before the anchor, positive after. -1440 = 24h before.
   offsetMinutes Int
-  channel    MessageChannel
-  templateId String
-  template   MessageTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  audience   String  @default("CLIENT")
-  isEnabled  Boolean @default(true)
+  channel       MessageChannel
+  templateId    String
+  template      MessageTemplate     @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  audience      String              @default("CLIENT")
+  isEnabled     Boolean             @default(true)
 
   scheduled ScheduledNotification[]
 
@@ -165,12 +94,12 @@ model NotificationSchedule {
 }
 
 model ScheduledNotification {
-  id         String                @id @default(cuid())
-  salonId    String
-  scheduleId String?
-  schedule   NotificationSchedule? @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  id              String                @id @default(cuid())
+  salonId         String
+  scheduleId      String?
+  schedule        NotificationSchedule? @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
   clientProfileId String
-  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  clientProfile   ClientProfile         @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
 
   /// Why this exists. Denormalised from the schedule on purpose: `scheduleId`
   /// is nullable, so a notification for a trigger the salon has not configured
@@ -179,25 +108,25 @@ model ScheduledNotification {
   /// decision. Nullable only so existing rows need no backfill.
   trigger NotificationTrigger?
 
-  refType String
-  refId   String
-  channel MessageChannel
-  sendAt  DateTime      @db.Timestamptz(3)
-  status  MessageStatus @default(QUEUED)
-  jobId   String?
+  refType     String
+  refId       String
+  channel     MessageChannel
+  sendAt      DateTime       @db.Timestamptz(3)
+  status      MessageStatus  @default(QUEUED)
+  jobId       String?
   /// Makes re-materialisation after a reschedule idempotent.
-  dedupeKey   String    @unique
-  cancelledAt DateTime? @db.Timestamptz(3)
-  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  dedupeKey   String         @unique
+  cancelledAt DateTime?      @db.Timestamptz(3)
+  createdAt   DateTime       @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, status, sendAt])
 }
 
 model ContactConsent {
-  id              String        @id @default(cuid())
+  id              String         @id @default(cuid())
   salonId         String
   clientProfileId String
-  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
+  clientProfile   ClientProfile  @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
   channel         MessageChannel
   purpose         ConsentPurpose
   status          ConsentStatus  @default(GRANTED)
@@ -284,7 +213,7 @@ model PostVisitCheckIn {
   note      String?           @db.Text
 
   /// Set when somebody at the salon has dealt with a bad one.
-  resolvedAt     DateTime? @db.Timestamptz(3)
+  resolvedAt       DateTime? @db.Timestamptz(3)
   resolvedByUserId String?
 
   createdAt DateTime @default(now()) @db.Timestamptz(3)

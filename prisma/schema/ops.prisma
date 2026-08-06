@@ -19,18 +19,6 @@ enum JobStatus {
   CANCELLED
 }
 
-enum MetricPeriod {
-  DAY
-  WEEK
-  MONTH
-}
-
-enum RiskBand {
-  LOW
-  MEDIUM
-  HIGH
-}
-
 enum AiKind {
   CONSULTATION_SUMMARY
   PHOTO_ANALYSIS
@@ -66,23 +54,23 @@ enum IntegrationProvider {
 }
 
 model AuditLog {
-  id        String    @id @default(cuid())
-  salonId   String?
-  salon     Salon?    @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  actorType ActorType @default(USER)
+  id          String    @id @default(cuid())
+  salonId     String?
+  salon       Salon?    @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  actorType   ActorType @default(USER)
   actorUserId String?
-  actorUser   User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
-  actorRole String?
-  action    String
-  entityType String
-  entityId   String?
-  beforeJson Json?
-  afterJson  Json?
-  reason     String?  @db.Text
-  ip         String?
-  userAgent  String?
-  requestId  String?
-  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  actorUser   User?     @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorRole   String?
+  action      String
+  entityType  String
+  entityId    String?
+  beforeJson  Json?
+  afterJson   Json?
+  reason      String?   @db.Text
+  ip          String?
+  userAgent   String?
+  requestId   String?
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, createdAt])
   @@index([salonId, entityType, entityId])
@@ -93,12 +81,12 @@ model AuditLog {
 /// accuracy dashboard possible and what feeds StylistCalibration — the loop
 /// that makes the platform's estimates get better the more it is used.
 model QuoteAccuracy {
-  id            String      @id @default(cuid())
-  salonId       String
-  salon         Salon       @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  appointmentId String      @unique
-  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  servicePlanId String?
+  id               String         @id @default(cuid())
+  salonId          String
+  salon            Salon          @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  appointmentId    String         @unique
+  appointment      Appointment    @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  servicePlanId    String?
   stylistProfileId String
   stylistProfile   StylistProfile @relation(fields: [stylistProfileId], references: [id], onDelete: Cascade)
 
@@ -112,10 +100,10 @@ model QuoteAccuracy {
   actualDurationMin    Int
   estimatedPriceCents  Int
   actualPriceCents     Int
-  overranByMin         Int  @default(0)
-  requiredInterleave   Boolean @default(false)
+  overranByMin         Int      @default(0)
+  requiredInterleave   Boolean  @default(false)
   factorsSnapshotJson  Json?
-  computedAt DateTime @default(now()) @db.Timestamptz(3)
+  computedAt           DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([salonId, stylistProfileId, computedAt])
   @@index([salonId, computedAt])
@@ -132,52 +120,17 @@ model StylistCalibration {
   serviceId        String?
   service          Service?       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
-  sampleCount  Int
-  medianRatio  Decimal @db.Decimal(5, 3)
-  p90Ratio     Decimal? @db.Decimal(5, 3)
-  shrunkFactor Decimal @db.Decimal(5, 3)
+  sampleCount    Int
+  medianRatio    Decimal  @db.Decimal(5, 3)
+  p90Ratio       Decimal? @db.Decimal(5, 3)
+  shrunkFactor   Decimal  @db.Decimal(5, 3)
   manualOverride Decimal? @db.Decimal(5, 3)
-  windowStart  DateTime @db.Date
-  windowEnd    DateTime @db.Date
-  computedAt   DateTime @default(now()) @db.Timestamptz(3)
+  windowStart    DateTime @db.Date
+  windowEnd      DateTime @db.Date
+  computedAt     DateTime @default(now()) @db.Timestamptz(3)
 
   @@unique([stylistProfileId, serviceId])
   @@index([salonId])
-}
-
-model MetricSnapshot {
-  id          String       @id @default(cuid())
-  salonId     String
-  salon       Salon        @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  locationId  String?
-  stylistProfileId String?
-  period      MetricPeriod
-  periodStart DateTime     @db.Date
-  metricKey   String
-  value       Decimal      @db.Decimal(18, 4)
-  dimensionHash String     @default("")
-  dimensionsJson Json?
-  computedAt  DateTime     @default(now()) @db.Timestamptz(3)
-
-  @@unique([salonId, period, periodStart, metricKey, dimensionHash])
-  @@index([salonId, metricKey, periodStart])
-}
-
-model NoShowScore {
-  id              String        @id @default(cuid())
-  salonId         String
-  clientProfileId String
-  clientProfile   ClientProfile @relation(fields: [clientProfileId], references: [id], onDelete: Cascade)
-  appointmentId   String
-  appointment     Appointment   @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-  score        Decimal  @db.Decimal(4, 3)
-  band         RiskBand
-  featuresJson Json?
-  modelVersion String
-  computedAt   DateTime @default(now()) @db.Timestamptz(3)
-
-  @@index([salonId, appointmentId])
-  @@index([salonId, band, computedAt])
 }
 
 /// Everything the model produced, with its cost and review state. Nothing here
@@ -191,15 +144,15 @@ model AiSuggestion {
   refType String
   refId   String
 
-  model         String
-  promptVersion String
-  inputHash     String
-  rawResponseJson Json?
-  parsedJson      Json?
-  editedJson      Json?
-  status          AiStatus @default(DRAFT)
+  model            String
+  promptVersion    String
+  inputHash        String
+  rawResponseJson  Json?
+  parsedJson       Json?
+  editedJson       Json?
+  status           AiStatus  @default(DRAFT)
   reviewedByUserId String?
-  reviewedAt      DateTime? @db.Timestamptz(3)
+  reviewedAt       DateTime? @db.Timestamptz(3)
 
   tokensIn   Int      @default(0)
   tokensOut  Int      @default(0)
@@ -227,10 +180,10 @@ model AiUsageCounter {
 
 /// Postgres-backed job queue. Claimed with FOR UPDATE SKIP LOCKED; no broker.
 model Job {
-  id      String @id @default(cuid())
-  salonId String?
-  queue   String @default("default")
-  type    String
+  id          String    @id @default(cuid())
+  salonId     String?
+  queue       String    @default("default")
+  type        String
   payloadJson Json
   priority    Int       @default(100)
   runAt       DateTime  @default(now()) @db.Timestamptz(3)
@@ -251,19 +204,6 @@ model Job {
   @@index([salonId, type, createdAt])
 }
 
-model RecurringSchedule {
-  key         String    @id
-  cron        String
-  jobType     String
-  payloadJson Json?
-  salonId     String?
-  isEnabled   Boolean   @default(true)
-  lastRunAt   DateTime? @db.Timestamptz(3)
-  nextRunAt   DateTime  @db.Timestamptz(3)
-
-  @@index([isEnabled, nextRunAt])
-}
-
 /// Transactional outbox: domain writes and event rows commit together, so a
 /// booking confirmation is never lost because a provider was down at commit.
 model Outbox {
@@ -279,15 +219,15 @@ model Outbox {
 }
 
 model IdempotencyKey {
-  id           String    @id @default(cuid())
+  id           String   @id @default(cuid())
   salonId      String?
   scope        String
   key          String
   requestHash  String
-  status       String    @default("IN_PROGRESS")
+  status       String   @default("IN_PROGRESS")
   responseJson Json?
-  expiresAt    DateTime  @db.Timestamptz(3)
-  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt    DateTime @db.Timestamptz(3)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
 
   @@unique([scope, key])
   @@index([expiresAt])
@@ -325,37 +265,37 @@ model SalonRulesetPin {
 /// Salons may disable a rule or raise its severity floor. They may NOT author
 /// new logic — rules stay in versioned TypeScript so they remain testable.
 model SalonRuleOverride {
-  id            String        @id @default(cuid())
-  salonId       String
-  ruleId        String
-  isEnabled     Boolean       @default(true)
-  severityFloor FlagSeverity?
-  reason        String?       @db.Text
+  id              String        @id @default(cuid())
+  salonId         String
+  ruleId          String
+  isEnabled       Boolean       @default(true)
+  severityFloor   FlagSeverity?
+  reason          String?       @db.Text
   updatedByUserId String?
-  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
 
   @@unique([salonId, ruleId])
   @@index([salonId, isEnabled])
 }
 
 model IntegrationConnection {
-  id       String              @id @default(cuid())
-  salonId  String
-  salon    Salon               @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  provider IntegrationProvider
+  id                String              @id @default(cuid())
+  salonId           String
+  salon             Salon               @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  provider          IntegrationProvider
   /// Scoped to a stylist for personal calendar sync; null = salon-wide.
-  stylistProfileId String?
+  stylistProfileId  String?
   externalAccountId String?
-  accessToken   String?   @db.Text
-  refreshToken  String?   @db.Text
-  expiresAt     DateTime? @db.Timestamptz(3)
-  scopes        String[]
-  settingsJson  Json?
-  syncToken     String?
-  lastSyncedAt  DateTime? @db.Timestamptz(3)
-  lastError     String?   @db.Text
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now()) @db.Timestamptz(3)
+  accessToken       String?             @db.Text
+  refreshToken      String?             @db.Text
+  expiresAt         DateTime?           @db.Timestamptz(3)
+  scopes            String[]
+  settingsJson      Json?
+  syncToken         String?
+  lastSyncedAt      DateTime?           @db.Timestamptz(3)
+  lastError         String?             @db.Text
+  isActive          Boolean             @default(true)
+  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
 
   @@unique([salonId, provider, stylistProfileId])
   @@index([salonId, isActive])

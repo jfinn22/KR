@@ -74,15 +74,15 @@ model Service {
 
   /// Drives the rules engine: chemical services carry patch-test, allergy and
   /// history rules that a dry cut never does.
-  isChemical       Boolean @default(false)
-  isLightening     Boolean @default(false)
-  containsDye      Boolean @default(false)
+  isChemical         Boolean @default(false)
+  isLightening       Boolean @default(false)
+  containsDye        Boolean @default(false)
   isExtensionInstall Boolean @default(false)
 
-  requiresConsultation Boolean @default(false)
+  requiresConsultation    Boolean @default(false)
   consultationTemplateKey String?
-  requiresPatchTest    Boolean @default(false)
-  patchTestLeadHours   Int     @default(48)
+  requiresPatchTest       Boolean @default(false)
+  patchTestLeadHours      Int     @default(48)
 
   basePriceCents Int        @default(0)
   priceModel     PriceModel @default(FIXED)
@@ -101,9 +101,9 @@ model Service {
   depositPolicyId String?
   depositPolicy   DepositPolicy? @relation(fields: [depositPolicyId], references: [id], onDelete: SetNull)
 
-  isBookableOnline Boolean @default(true)
-  isActive         Boolean @default(true)
-  sortOrder        Int     @default(0)
+  isBookableOnline Boolean  @default(true)
+  isActive         Boolean  @default(true)
+  sortOrder        Int      @default(0)
   createdAt        DateTime @default(now()) @db.Timestamptz(3)
   updatedAt        DateTime @updatedAt @db.Timestamptz(3)
 
@@ -114,7 +114,6 @@ model Service {
   appointmentServices AppointmentService[]
   planSessionServices ServicePlanSessionService[]
   calibrations        StylistCalibration[]
-  packages            PackageDefinition[]
 
   @@unique([salonId, slug])
   @@index([salonId, categoryId, isActive])
@@ -125,34 +124,34 @@ model Service {
 /// PROCESSING phase is what frees the stylist for another client; the
 /// availability solver reads exactly this.
 model ServicePhase {
-  id        String    @id @default(cuid())
-  salonId   String
-  serviceId String
-  service   Service   @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  sequence  Int
-  kind      PhaseKind
-  label     String
-  durationMin Int
-  requiresStylist Boolean @default(true)
+  id                   String        @id @default(cuid())
+  salonId              String
+  serviceId            String
+  service              Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  sequence             Int
+  kind                 PhaseKind
+  label                String
+  durationMin          Int
+  requiresStylist      Boolean       @default(true)
   requiresResourceType ResourceType?
   /// Whether hair-length/density modifiers scale this phase. Processing time
   /// is chemistry, not hair volume, so it usually should not.
-  isScalable Boolean @default(true)
+  isScalable           Boolean       @default(true)
 
   @@unique([serviceId, sequence])
   @@index([salonId, serviceId])
 }
 
 model ServiceVariant {
-  id        String  @id @default(cuid())
-  salonId   String
-  serviceId String
-  service   Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  key       String
-  label     String
-  durationDeltaMin Int @default(0)
-  priceDeltaCents  Int @default(0)
-  sortOrder        Int @default(0)
+  id               String  @id @default(cuid())
+  salonId          String
+  serviceId        String
+  service          Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  key              String
+  label            String
+  durationDeltaMin Int     @default(0)
+  priceDeltaCents  Int     @default(0)
+  sortOrder        Int     @default(0)
   isActive         Boolean @default(true)
 
   appointmentServices AppointmentService[]
@@ -172,11 +171,11 @@ model StylistService {
   serviceId        String
   service          Service        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
 
-  isEnabled          Boolean @default(true)
-  durationMultiplier Decimal? @db.Decimal(4, 3)
+  isEnabled           Boolean  @default(true)
+  durationMultiplier  Decimal? @db.Decimal(4, 3)
   durationOverrideMin Int?
   priceOverrideCents  Int?
-  notes              String?
+  notes               String?
 
   @@unique([stylistProfileId, serviceId])
   @@index([salonId, serviceId, isEnabled])
@@ -186,19 +185,19 @@ model StylistService {
 /// table rather than code, so a salon can tune "long hair adds 25 minutes"
 /// without a deploy — while the *rules* stay in versioned TypeScript.
 model ServiceModifier {
-  id          String          @id @default(cuid())
-  salonId     String
-  salon       Salon           @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  serviceId   String?
-  service     Service?        @relation(fields: [serviceId], references: [id], onDelete: Cascade)
-  categoryId  String?
-  category    ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  id         String           @id @default(cuid())
+  salonId    String
+  salon      Salon            @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  serviceId  String?
+  service    Service?         @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  categoryId String?
+  category   ServiceCategory? @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
-  factorKey   ModifierFactor
-  factorValue String
-  deltaMin        Int     @default(0)
-  deltaPercentBps Int     @default(0)
-  deltaPriceCents Int     @default(0)
+  factorKey       ModifierFactor
+  factorValue     String
+  deltaMin        Int            @default(0)
+  deltaPercentBps Int            @default(0)
+  deltaPriceCents Int            @default(0)
   appliesTo       ModifierTarget @default(DURATION)
 
   @@index([salonId, factorKey, factorValue])
@@ -206,20 +205,20 @@ model ServiceModifier {
 }
 
 model DepositPolicy {
-  id      String      @id @default(cuid())
-  salonId String
-  salon   Salon       @relation(fields: [salonId], references: [id], onDelete: Cascade)
-  name    String
-  mode    DepositMode @default(PERCENT)
-  flatCents  Int?
-  percentBps Int?
-  minCents   Int      @default(0)
-  maxCents   Int?
+  id                   String      @id @default(cuid())
+  salonId              String
+  salon                Salon       @relation(fields: [salonId], references: [id], onDelete: Cascade)
+  name                 String
+  mode                 DepositMode @default(PERCENT)
+  flatCents            Int?
+  percentBps           Int?
+  minCents             Int         @default(0)
+  maxCents             Int?
   /// Band -> {percentBps, minCents, refundableUntilHours} for TIERED mode.
   /// The rules engine returns a band; this table turns it into money.
-  tiersJson  Json?
-  refundableUntilHours Int @default(48)
-  isDefault  Boolean  @default(false)
+  tiersJson            Json?
+  refundableUntilHours Int         @default(48)
+  isDefault            Boolean     @default(false)
 
   services     Service[]
   servicePlans ServicePlan[]

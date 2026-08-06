@@ -785,9 +785,6 @@ async function main() {
             scalpSensitivity: pick(`${seed}-ss`, ['NONE', 'NONE', 'MILD', 'MODERATE'] as const),
           },
         },
-        loyaltyAccount: {
-          create: { salonId: salon.id, pointsBalance: Math.floor(rand(`${seed}-lp`) * 400) },
-        },
       },
     })
     clientIds.push(client.id)
@@ -1538,17 +1535,13 @@ async function main() {
     })
   }
 
-  await db.policy.create({
-    data: {
-      salonId: salon.id,
-      type: 'CANCELLATION',
-      version: 1,
-      bodyMarkdown:
-        '**Placeholder policy — not legal advice.** Appointments cancelled within 48 hours may ' +
-        'incur a fee of 50% of the booked service.',
-      configJson: { windowHours: 48, feePercent: 50 },
-    },
-  })
+  /*
+   * The cancellation policy used to be seeded as a `Policy` row nothing read.
+   * It was worse than decorative: it showed a 48-hour window and a 50% fee
+   * while the numbers that actually bite live on `SalonSettings`, which
+   * `assessCancellation` is the only thing that consults. Two sources for one
+   * rule, one of them fiction. The model is gone; the settings remain.
+   */
 
   // --- Retail --------------------------------------------------------------
   for (const [sku, name, price, cost] of [

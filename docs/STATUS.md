@@ -421,13 +421,33 @@ Nothing here is a stub pretending to be a feature.
 | Area                      | State                                                                                                                                      |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | OAuth flows               | The calendar port and connection model are built and the feed works. Actually authorising a Google account needs the consent screen dance. |
-| Loyalty, packages, retail | Schema and relations exist and are enforced. No services or screens.                                                                       |
-| Messaging inbox           | Threads, templates and the send path work. There is no two-way conversation view.                                                          |
+| Loyalty, packages, retail sales | Nothing at all now. The tables existed and no code could reach them, so they were dropped rather than left looking half-built. Building any of these starts from a migration. |
+| Messaging inbox           | Templates and the outbound send path work. The conversation store — threads and messages — is gone: it had no reader and no writer, and a two-way view needs a provider webhook this platform does not have. |
 | Dunning the salon itself  | A failed platform payment moves the status and records an outbox event. Nobody has written the email that chases it.                      |
 | Membership proration      | The provider bills the difference on an upgrade. The figure read out at the counter is this platform's own straight-line arithmetic, and the two agree to rounding rather than by construction. |
 | Legal copy                | Every shipped form is marked `isLegalPlaceholder` and the UI says so. They need an actual lawyer.                                          |
 
 ## Known limits worth stating
+
+- **Sixteen models were dropped rather than left declared.** Loyalty, packages,
+  retail sales, the messaging conversation store, policies and their
+  acknowledgements, metric snapshots, no-show scores, recurring schedules,
+  invitations, hair condition assessments and appointment photos were all
+  declared, migrated into Postgres, and touched by no code path in `src/`,
+  `tests/` or the seed. `Policy` was the worst of them rather than merely
+  absent: the seed wrote a cancellation policy showing a 48-hour window and a
+  50% fee, while the numbers that actually decide a cancellation fee live on
+  `SalonSettings` and are read only by `assessCancellation` — two sources for
+  one rule, one of them fiction. `RulesetVersion` and `SalonRulesetPin` were
+  candidates and were kept, because `consultation.ts` reads the pin to replay a
+  past evaluation against the ruleset it was decided under.
+- **`AppointmentSegment.period` exists only in SQL, and dropping it is a P0.**
+  It is a generated column carrying the two exclusion constraints that are the
+  real double-booking guard, and Prisma's datamodel cannot express it — so every
+  `migrate diff` in the datamodel direction proposes removing it. Taking that
+  suggestion silently turns the diary into one where two clients can hold the
+  same chair. Any generated migration must have that line deleted before it is
+  applied; the four booking-race integration tests are what catch it.
 
 - **RLS is inert in development and CI.** Postgres superusers bypass row-level
   security, and the local and CI databases both connect as one. The policies
