@@ -3,6 +3,7 @@ import { pageContextFor } from '@/server/auth/page'
 import { importHistory, PLATFORM_CHOICES } from '@/server/services/migration/review'
 import { SectionHeading, Table, TableWrap, Td, Th, Tr } from '@/components/ui/data'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/feedback'
 import { UploadForm } from './upload-form'
 
@@ -41,6 +42,23 @@ export default async function ImportsPage({ params }: { params: Promise<{ salon:
           in one go afterwards.
         </p>
       </header>
+
+      {/*
+       * The team comes first, and it is stated first. An appointment imported
+       * against a stylist who is not here yet has nowhere to go, and the owner
+       * only finds that out four thousand rows later.
+       */}
+      <section>
+        <SectionHeading
+          title="Start with the team"
+          description="Names and skills, out of your old system. Do this before the appointments — every visit has to belong to somebody."
+        />
+        <div className="mt-6">
+          <Button variant="secondary" asChild>
+            <Link href={`/s/${salon}/admin/imports/staff`}>Bring the team across</Link>
+          </Button>
+        </div>
+      </section>
 
       <section>
         <SectionHeading

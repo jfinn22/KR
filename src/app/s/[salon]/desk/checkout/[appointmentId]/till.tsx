@@ -10,6 +10,7 @@ import {
   buildInvoiceAction,
   previewInvoiceAction,
   redeemGiftCardAction,
+  refundPaymentAction,
   takePaymentAction,
 } from '@/server/actions/commerce'
 import { formatMoney } from '@/lib/format'
@@ -78,7 +79,15 @@ export interface TillProps {
     taxCents: number
     discountCents: number
     tipCents: number
-    payments: { id: string; amountCents: number; method: string; status: string }[]
+    payments: {
+      id: string
+      amountCents: number
+      tipCents: number
+      method: string
+      status: string
+      refundedCents: number
+      refundableCents: number
+    }[]
   } | null
 }
 
@@ -533,6 +542,32 @@ export function Till({
           </div>
 
           {/*
+           * What has been taken, and a way to put it back.
+           *
+           * `refundPayment` was fully built — provider call, idempotency key,
+           * partial-refund arithmetic, membership benefit released — and no
+           * screen could reach it, so the only refund available to a salon was
+           * one done in the provider's own dashboard, which this database then
+           * never heard about.
+           */}
+          {invoice.payments.length > 0 && (
+            <div className="border-t border-line pt-5">
+              <p className="label-caps mb-3">Taken so far</p>
+              <ul className="flex flex-col divide-y divide-line">
+                {invoice.payments.map((payment) => (
+                  <PaymentRow
+                    key={payment.id}
+                    salonSlug={salonSlug}
+                    payment={payment}
+                    currency={currency}
+                    onDone={() => router.refresh()}
+                  />
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/*
            * A gift card is money the salon already took. Spending it is
            * settlement, not a discount — so it goes through as a payment, and
            * the bill's own subtotal stays the figure that was actually charged.
@@ -626,6 +661,143 @@ function LineRow({
         >
           Remove
         </button>
+      )}
+    </li>
+  )
+}
+
+/**
+ * One payment, and putting it back.
+ *
+ * The reason is required by the action and the button stays disabled until it
+ * is long enough, so the refusal happens before the click rather than after —
+ * a member of staff who has already pressed "Refund" and is holding a card
+ * machine is not in a good position to compose a justification.
+ *
+ * The amount defaults to everything still refundable but stays editable,
+ * because "she is unhappy with the toner, take the toner off" is the ordinary
+ * case and refunding the whole colour appointment is not.
+ */
+function PaymentRow({
+  salonSlug,
+  payment,
+  currency,
+  onDone,
+}: {
+  salonSlug: string
+  payment: {
+    id: string
+    amountCents: number
+    tipCents: number
+    method: string
+    status: string
+    refundedCents: number
+    refundableCents: number
+  }
+  currency: string
+  onDone: () => void
+}) {
+  const [open, setOpen] = React.useState(false)
+  const [amount, setAmount] = React.useState((payment.refundableCents / 100).toFixed(2))
+  const [reason, setReason] = React.useState('')
+  const [busy, setBusy] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
+
+  const cents = Math.round(Number(amount) * 100)
+  const valid =
+    Number.isFinite(cents) && cents > 0 && cents <= payment.refundableCents && reason.trim().length >= 8
+
+  async function refund() {
+    setBusy(true)
+    setError(null)
+    const result = await refundPaymentAction(salonSlug, {
+      paymentId: payment.id,
+      amountCents: cents,
+      reason: reason.trim(),
+    })
+    setBusy(false)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setOpen(false)
+    setReason('')
+    onDone()
+  }
+
+  return (
+    <li className="flex flex-col gap-3 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="tabular text-secondary text-ink">
+            {formatMoney(payment.amountCents + payment.tipCents, currency)}
+          </span>
+          <span className="text-secondary text-ink-muted">{payment.method.toLowerCase()}</span>
+          {payment.refundedCents > 0 && (
+            <Badge tone="warn">
+              {formatMoney(payment.refundedCents, currency)} back
+            </Badge>
+          )}
+          {payment.status !== 'SUCCEEDED' && (
+            <Badge tone="neutral">{payment.status.toLowerCase().replace(/_/g, ' ')}</Badge>
+          )}
+        </div>
+
+        {payment.status === 'SUCCEEDED' && payment.refundableCents > 0 && !open && (
+          <Button size="sm" variant="ghost" onClick={() => setOpen(true)}>
+            Refund
+          </Button>
+        )}
+      </div>
+
+      {open && (
+        <div className="flex flex-col gap-3 rounded-lg border border-line bg-surface-alt p-4">
+          <Field
+            label="How much"
+            htmlFor={`refund-amount-${payment.id}`}
+            help={`Up to ${formatMoney(payment.refundableCents, currency)}.`}
+          >
+            <Input
+              id={`refund-amount-${payment.id}`}
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              className="max-w-48"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </Field>
+
+          <Field
+            label="Why"
+            htmlFor={`refund-reason-${payment.id}`}
+            help="Goes on the record against whoever is signed in."
+          >
+            <Textarea
+              id={`refund-reason-${payment.id}`}
+              rows={2}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Toner was not what she asked for; taking that part off."
+            />
+          </Field>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Button size="sm" onClick={refund} disabled={busy || !valid}>
+              {busy ? 'Refunding…' : `Refund ${formatMoney(cents > 0 ? cents : 0, currency)}`}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+              Cancel
+            </Button>
+          </div>
+
+          {error && (
+            <p role="alert" className="text-secondary text-danger">
+              {error}
+            </p>
+          )}
+        </div>
       )}
     </li>
   )

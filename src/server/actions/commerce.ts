@@ -11,7 +11,6 @@ import {
   refundPayment,
   resolveDiscount,
   saveDiscountReason,
-  takeDeposit,
   takePayment,
   waiveCancellationFee,
 } from '@/server/services/commerce'
@@ -454,45 +453,3 @@ export const waiveFeeAction = withAuthz(
   },
 )
 
-/**
- * Take the deposit the plan already says is owed.
- *
- * The band used to come from the caller. Anyone holding `payment.take` could
- * post `NONE` and be charged nothing — the till chose the risk assessment,
- * which is not a decision a till gets to make. It now reads the figure frozen
- * onto the plan at approval, which is also the figure the client was shown.
- */
-export const takeDepositAction = withAuthz(
-  {
-    action: 'payment.take',
-    feature: 'DEPOSITS',
-    schema: z.object({ servicePlanId: cuid }),
-    resource: async (input, ctx) => {
-      const plan = await unsafeDb.servicePlan.findFirst({
-        where: { id: input.servicePlanId, salonId: ctx.salonId },
-        select: { clientProfileId: true, stylistProfileId: true },
-      })
-      if (!plan) throw new DomainError('NOT_FOUND', 'That plan no longer exists.')
-      return {
-        salonId: ctx.salonId,
-        clientProfileId: plan.clientProfileId,
-        ownerStylistId: plan.stylistProfileId,
-      }
-    },
-    auditAs: (input) => ({ entityType: 'ServicePlan', entityId: input.servicePlanId }),
-  },
-  async (input, ctx) => {
-    const plan = await unsafeDb.servicePlan.findFirstOrThrow({
-      where: { id: input.servicePlanId, salonId: ctx.salonId },
-      select: { clientProfileId: true, depositCents: true },
-    })
-
-    return takeDeposit({
-      salonId: ctx.salonId,
-      clientProfileId: plan.clientProfileId,
-      servicePlanId: input.servicePlanId,
-      amountCents: plan.depositCents,
-      currency: ctx.currency,
-    })
-  },
-)

@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { SectionHeading } from '@/components/ui/data'
 import { requirementsFor } from '@/server/services/requirements'
 import { RequirementsPanel } from './requirements-panel'
+import { VisitNote } from './visit-note'
 import { formatDayHeading, formatMinutes, formatTime, localDateIn } from '@/lib/format'
 
 export const dynamic = 'force-dynamic'
@@ -329,33 +330,37 @@ export default async function HandoffPage({
         </section>
       )}
 
-      {(client.internalNotes || appointment.internalNote || appointment.clientNote) && (
-        <section>
-          <SectionHeading title="Notes" />
-          <div className="mt-4 flex flex-col gap-3">
-            {appointment.clientNote && (
-              <div className="rounded-lg border border-line p-5">
-                <p className="label-caps mb-1">From the client, about this visit</p>
-                <p className="whitespace-pre-line text-body text-ink">{appointment.clientNote}</p>
-              </div>
-            )}
-            {appointment.internalNote && (
-              <div className="rounded-lg border border-line p-5">
-                <p className="label-caps mb-1">About this visit</p>
-                <p className="whitespace-pre-line text-body text-ink">
-                  {appointment.internalNote}
-                </p>
-              </div>
-            )}
-            {client.internalNotes && (
-              <div className="rounded-lg border border-line p-5">
-                <p className="label-caps mb-1">About this client</p>
-                <p className="whitespace-pre-line text-body text-ink">{client.internalNotes}</p>
-              </div>
-            )}
+      <section>
+        <SectionHeading title="Notes" />
+        <div className="mt-4 flex flex-col gap-3">
+          {appointment.clientNote && (
+            <div className="rounded-lg border border-line p-5">
+              <p className="label-caps mb-1">From the client, about this visit</p>
+              <p className="whitespace-pre-line text-body text-ink">{appointment.clientNote}</p>
+            </div>
+          )}
+          {/*
+           * Writable, at last. The read-only version of this box had no write
+           * path anywhere in the product, so every "ran forty minutes over"
+           * ended up on the client's permanent record instead of on the visit
+           * it belonged to.
+           */}
+          <div className="rounded-lg border border-line p-5">
+            <p className="label-caps mb-3">About this visit</p>
+            <VisitNote
+              salonSlug={salon}
+              appointmentId={appointment.id}
+              initialNote={appointment.internalNote}
+            />
           </div>
-        </section>
-      )}
+          {client.internalNotes && (
+            <div className="rounded-lg border border-line p-5">
+              <p className="label-caps mb-1">About this client</p>
+              <p className="whitespace-pre-line text-body text-ink">{client.internalNotes}</p>
+            </div>
+          )}
+        </div>
+      </section>
 
       <section>
         <h2 className="font-display text-display-sm text-ink">What you mixed</h2>

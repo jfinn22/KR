@@ -2,6 +2,7 @@
 
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
+import { commitStaffImport, previewStaffImport } from '@/server/services/migration/staff'
 import { withAuthz, DomainError } from './guard'
 import { unsafeDb } from '@/server/db/client'
 import { commitBatch, createBatch, undoBatch } from '@/server/services/migration/batch'
@@ -221,3 +222,51 @@ async function assertOurs(
     throw new DomainError('INVALID_INPUT', 'One of those choices is not one of yours.')
   }
 }
+
+/**
+ * Bringing the team across, names and skills only.
+ *
+ * `previewStaffImport` and `commitStaffImport` were written with the migration
+ * track and never got a screen, so the one thing a salon has to do before
+ * importing four thousand appointments — have the stylists those appointments
+ * belong to — could only be done by hand, one at a time.
+ *
+ * Preview and commit are two calls on purpose. A stylist wrongly credited with
+ * COLOR_CORRECTION is one the solver will happily book a corrective on, so the
+ * owner reads what was matched before any of it is written.
+ */
+export const previewStaffImportAction = withAuthz(
+  {
+    action: 'migration.import',
+    schema: z.object({ text: z.string().min(1).max(1_000_000) }),
+  },
+  async (input, ctx) => previewStaffImport(ctx.salonId, input.text),
+)
+
+export const commitStaffImportAction = withAuthz(
+  {
+    action: 'migration.import',
+    schema: z.object({
+      locationId: z.string().min(1).max(64),
+      rows: z
+        .array(
+          z.object({
+            line: z.number().int(),
+            displayName: z.string().max(160),
+            email: z.string().max(200).nullable(),
+            title: z.string().max(160).nullable(),
+            skills: z.array(z.string().max(40)).max(20),
+            unknownSkills: z.array(z.string().max(80)).max(20),
+            problems: z.array(z.string().max(200)).max(10),
+          }),
+        )
+        .max(500),
+    }),
+    auditAs: () => ({ entityType: 'StylistProfile' }),
+  },
+  async (input, ctx) => {
+    const result = await commitStaffImport(ctx.salonId, input.rows, input.locationId)
+    revalidatePath(`/s/${ctx.salonSlug}/admin/imports/staff`)
+    return result
+  },
+)

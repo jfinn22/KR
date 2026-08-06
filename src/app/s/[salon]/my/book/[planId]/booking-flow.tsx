@@ -78,6 +78,12 @@ export function BookingFlow({
   const [selected, setSelected] = React.useState<OfferedSlot | null>(null)
   const [hold, setHold] = React.useState<{ holdId: string; expiresAt: string } | null>(null)
   const [anyStylist, setAnyStylist] = React.useState(false)
+
+  /*
+   * `CardOnFile` refreshes the route once a card is attached, so `cards`
+   * arrives new from the server rather than needing local state here.
+   */
+  const needsCard = depositCents > 0 && cards.length === 0
   const [busy, setBusy] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 
@@ -243,6 +249,11 @@ export function BookingFlow({
                   }
                 />
               </div>
+              {needsCard && (
+                <p className="mt-3 text-secondary text-ink-muted">
+                  Add a card above and the time you are holding stays yours while you do it.
+                </p>
+              )}
             </div>
           )}
 
@@ -252,8 +263,16 @@ export function BookingFlow({
             </p>
           )}
 
+          {/*
+           * A deposit needs a card, and the button used to say so and then not
+           * mean it: with nothing on file, `authorizeDeposit` refuses, the
+           * appointment is booked anyway, and the deposit sits PENDING forever
+           * while the client — who pressed a button labelled "pay the deposit"
+           * — believes they have paid it. Refused here, where it can be fixed,
+           * rather than swallowed there.
+           */}
           <div className="flex flex-wrap gap-3">
-            <Button onClick={confirm} disabled={busy}>
+            <Button onClick={confirm} disabled={busy || needsCard}>
               {busy ? 'Booking…' : depositCents > 0 ? 'Confirm and pay the deposit' : 'Confirm this time'}
             </Button>
             <Button

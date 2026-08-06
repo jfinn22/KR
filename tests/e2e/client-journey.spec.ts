@@ -203,11 +203,29 @@ test.describe('the client journey', () => {
     await expect(page.getByText(/held for you for/i)).toBeVisible()
 
     /*
+     * A deposit needs a card before it can be confirmed.
+     *
+     * This test used to click straight through and pass, which is precisely
+     * the bug: the appointment was booked, the button said "pay the deposit",
+     * and the deposit row stayed PENDING forever because there was nothing to
+     * charge. The journey now walks the card step, because that is the journey
+     * a real client has.
+     */
+    const confirm = page.getByRole('button', { name: /confirm (this time|and pay)/i })
+    if (await confirm.isDisabled()) {
+      await page.getByRole('button', { name: /^add a card$/i }).click()
+      // No provider key in test, so the mock adapter's path is the one offered.
+      await page.getByRole('button', { name: /use a test card/i }).click()
+      await expect(page.getByRole('button', { name: /remove/i })).toBeVisible({ timeout: 15_000 })
+    }
+
+    /*
      * The button says what it is about to do. A visit that owes a deposit
      * reads "Confirm and pay the deposit", because a client who taps "Confirm
      * this time" and then sees a charge on their card was not told.
      */
-    await page.getByRole('button', { name: /confirm (this time|and pay)/i }).click()
+    await expect(confirm).toBeEnabled({ timeout: 15_000 })
+    await confirm.click()
 
     await expect(page).toHaveURL(/\/my\/appointments/, { timeout: 20_000 })
     await expect(page.getByText(/you are booked in/i)).toBeVisible()

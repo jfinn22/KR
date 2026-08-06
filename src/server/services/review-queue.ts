@@ -185,7 +185,8 @@ export async function reviewDetail(salonId: string, consultationId: string) {
   })
   if (!consultation) throw new DomainError('NOT_FOUND', 'That consultation no longer exists.')
 
-  const [services, photos, inspiration, flags, evaluationRow, priorVisits] = await Promise.all([
+  const [services, photos, inspiration, flags, evaluationRow, priorVisits, heldBy] =
+    await Promise.all([
     unsafeDb.service.findMany({
       where: { salonId, id: { in: consultation.requestedServiceIds } },
       include: { phases: { orderBy: { sequence: 'asc' } } },
@@ -216,6 +217,17 @@ export async function reviewDetail(salonId: string, consultationId: string) {
         services: { include: { service: { select: { name: true } } } },
       },
     }),
+    /*
+     * Who has it. `requestedStylistId` is a bare column with no relation, so
+     * this is a lookup rather than an include — a name on the screen is not
+     * worth a migration.
+     */
+    consultation.requestedStylistId
+      ? unsafeDb.stylistProfile.findFirst({
+          where: { id: consultation.requestedStylistId, salonId },
+          select: { id: true, displayName: true },
+        })
+      : null,
   ])
 
   const answers = new Map(consultation.answers.map((a) => [a.questionKey, a.valueJson]))
@@ -230,6 +242,7 @@ export async function reviewDetail(salonId: string, consultationId: string) {
     flags,
     priorVisits,
     evaluation,
+    heldBy,
     /*
      * The same ladder the client is shown. A stylist approving a plan should be
      * able to see what was promised in their name — and if visit two is going

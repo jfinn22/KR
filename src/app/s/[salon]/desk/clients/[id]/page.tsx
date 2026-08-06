@@ -10,6 +10,8 @@ import { strandTestsFor } from '@/server/services/requirements'
 import { HairTimeline } from '@/components/salon/hair-timeline'
 import { ConsentPanel } from './consent-panel'
 import { NotesPanel } from './notes-panel'
+import { FeesPanel } from './fees-panel'
+import { DepositsPanel } from './deposits-panel'
 import { HairForm } from './hair-form'
 import { MembershipPanel } from './membership-panel'
 import { Badge } from '@/components/ui/badge'
@@ -38,7 +40,7 @@ export default async function ClientRecordPage({
   const record = await clientRecord(ctx.salonId, id)
   if (!record) notFound()
 
-  const { client, accuracy, overrunCount, averageOverrunMin } = record
+  const { client, accuracy, fees, deposits, overrunCount, averageOverrunMin } = record
 
   const [{ upcoming, past }, timeline, consent, prediction, hair, membership, plans, strandTests] =
     await Promise.all([
@@ -156,6 +158,73 @@ export default async function ClientRecordPage({
           />
         </div>
       </section>
+
+      {deposits.length > 0 && (
+        <section>
+          <SectionHeading
+            title="Deposits"
+            description="Money of theirs the salon is holding, and what has been done with it."
+          />
+          <div className="mt-6">
+            <DepositsPanel
+              salonSlug={salon}
+              currency={ctx.currency}
+              deposits={deposits.map((deposit) => ({
+                id: deposit.id,
+                amountCents: deposit.amountCents,
+                status: deposit.status,
+                serviceNames:
+                  deposit.appointment?.services.map((row) => row.service.name) ?? [],
+                whenLabel: deposit.appointment
+                  ? formatDayHeading(
+                      localDateIn(ctx.timezone, deposit.appointment.startsAt),
+                      ctx.timezone,
+                    )
+                  : null,
+                expiresLabel: deposit.authorizationExpiresAt
+                  ? formatDayHeading(
+                      localDateIn(ctx.timezone, deposit.authorizationExpiresAt),
+                      ctx.timezone,
+                    )
+                  : null,
+              }))}
+            />
+          </div>
+        </section>
+      )}
+
+      {/*
+       * Near the top, with the notes, because the conversation that starts
+       * "I've been charged for something" is the one the desk is least ready
+       * for and this is the only screen that can answer it.
+       */}
+      {fees.length > 0 && (
+        <section>
+          <SectionHeading
+            title="Cancellation fees"
+            description="What this client has been charged for cancelling late, and whether it was taken."
+          />
+          <div className="mt-6">
+            <FeesPanel
+              salonSlug={salon}
+              currency={ctx.currency}
+              fees={fees.map((fee) => ({
+                id: fee.id,
+                appointmentId: fee.appointmentId,
+                computedCents: fee.computedCents,
+                chargedCents: fee.chargedCents,
+                status: fee.status,
+                waiveReason: fee.waiveReason,
+                serviceNames: fee.appointment.services.map((row) => row.service.name),
+                whenLabel: formatDayHeading(
+                  localDateIn(ctx.timezone, fee.appointment.startsAt),
+                  ctx.timezone,
+                ),
+              }))}
+            />
+          </div>
+        </section>
+      )}
 
       {upcoming.length > 0 && (
         <section>

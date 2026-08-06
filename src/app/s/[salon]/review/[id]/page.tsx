@@ -9,6 +9,7 @@ import { formatDayHeading, formatMinutes, formatMoney, localDateIn } from '@/lib
 import { describeShade, readShadeAnswer } from '@/domain/hair/tone'
 import { JourneyLadder } from '@/components/salon/journey-ladder'
 import { ReviewFlags } from './review-flags'
+import { ReviewClaim } from './review-claim'
 import { DecisionPanel } from './decision-panel'
 import { AiSummaryCard } from './ai-summary'
 
@@ -97,6 +98,20 @@ export default async function ReviewDetailPage({
           </dl>
         )}
       </header>
+
+      {/* Who has it, and a way to re-run the rules after correcting a fact. */}
+      {!decided && (
+        <ReviewClaim
+          salonSlug={salon}
+          consultationId={id}
+          status={consultation.status}
+          heldBy={detail.heldBy?.displayName ?? null}
+          heldByMe={
+            ctx.principal.kind === 'staff' &&
+            consultation.requestedStylistId === ctx.principal.stylistProfileId
+          }
+        />
+      )}
 
       {/* Advisory, generated on request, never on load. */}
       <AiSummaryCard salonSlug={salon} consultationId={id} />

@@ -229,7 +229,19 @@ export async function checkoutView(salonId: string, appointmentId: string) {
       invoice: {
         include: {
           lines: { orderBy: { sequence: 'asc' } },
-          payments: { select: { id: true, amountCents: true, method: true, status: true } },
+          payments: {
+            select: {
+              id: true,
+              amountCents: true,
+              tipCents: true,
+              method: true,
+              status: true,
+              // Refunds so far, so the till can offer what is actually left
+              // rather than the original figure — the second refund against a
+              // part-refunded payment is otherwise a guess that gets refused.
+              refunds: { select: { amountCents: true, status: true } },
+            },
+          },
         },
       },
     },
@@ -301,7 +313,23 @@ export async function checkoutView(salonId: string, appointmentId: string) {
           taxCents: appointment.invoice.taxCents,
           discountCents: appointment.invoice.discountCents,
           tipCents: appointment.invoice.tipCents,
-          payments: appointment.invoice.payments,
+          payments: appointment.invoice.payments.map((payment) => {
+            const refunded = payment.refunds
+              .filter((refund) => refund.status === 'SUCCEEDED')
+              .reduce((sum, refund) => sum + refund.amountCents, 0)
+            return {
+              id: payment.id,
+              amountCents: payment.amountCents,
+              tipCents: payment.tipCents,
+              method: payment.method,
+              status: payment.status,
+              refundedCents: refunded,
+              // Mirrors `refundPayment`'s own arithmetic, tip included. Showing
+              // a larger figure here produces a refusal at the moment somebody
+              // is trying to put money back, which is the worst time for it.
+              refundableCents: payment.amountCents + payment.tipCents - refunded,
+            }
+          }),
         }
       : null,
   }
@@ -331,9 +359,74 @@ export async function clientRecord(salonId: string, clientProfileId: string) {
 
   const overruns = accuracy.filter((row) => row.overranByMin > 0)
 
+  /*
+   * Fees this person has been charged for cancelling late.
+   *
+   * `assessCancellation` has been writing these rows since the commerce work
+   * landed and no screen ever read one, so the salon charged a fee it could
+   * not see and could not waive — while the client, who could see it on their
+   * card statement, rang up about it. The waive path existed at the same time
+   * and was reachable from nowhere for the same reason.
+   */
+  const fees = await unsafeDb.cancellationFee.findMany({
+    where: { salonId, appointment: { clientProfileId } },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    select: {
+      id: true,
+      appointmentId: true,
+      computedCents: true,
+      chargedCents: true,
+      status: true,
+      waiveReason: true,
+      createdAt: true,
+      appointment: {
+        select: {
+          startsAt: true,
+          services: { select: { service: { select: { name: true } } } },
+        },
+      },
+    },
+  })
+
+  /*
+   * Money of theirs the salon is currently holding.
+   *
+   * The lifecycle runs itself — `assessCancellation` forfeits or releases on a
+   * late cancellation, and a job releases an authorisation before it expires —
+   * but the manual half had no screen. A client who did not turn up this
+   * morning is a decision somebody has to make today, and "release it" and
+   * "keep it" both existed as reasoned, audited operations that nothing could
+   * call.
+   */
+  const deposits = await unsafeDb.deposit.findMany({
+    where: {
+      salonId,
+      clientProfileId,
+      status: { in: ['PENDING', 'AUTHORIZED', 'CAPTURED', 'FORFEITED', 'FAILED'] },
+    },
+    orderBy: { createdAt: 'desc' },
+    take: 10,
+    select: {
+      id: true,
+      amountCents: true,
+      status: true,
+      authorizationExpiresAt: true,
+      createdAt: true,
+      appointment: {
+        select: {
+          startsAt: true,
+          services: { select: { service: { select: { name: true } } } },
+        },
+      },
+    },
+  })
+
   return {
     client,
     accuracy,
+    fees,
+    deposits,
     overrunCount: overruns.length,
     averageOverrunMin:
       overruns.length > 0

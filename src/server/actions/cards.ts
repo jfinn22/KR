@@ -5,7 +5,6 @@ import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
 import {
   beginCardSetup,
-  cardsFor,
   completeCardSetupWithoutBrowser,
   removeCard,
   syncCards,
@@ -109,18 +108,6 @@ export const completeCardSetupWithoutBrowserAction = withAuthz(
     revalidatePath(`/s/${ctx.salonSlug}/me`)
     return result
   },
-)
-
-/** What this client can be charged against. */
-export const listCardsAction = withAuthz(
-  {
-    action: 'card.manage',
-    schema: z.object({ clientProfileId: cuid }),
-    resource: (input, ctx) => clientResource(input.clientProfileId, ctx),
-  },
-  async (input, ctx) => ({
-    cards: await cardsFor(ctx.salonId, input.clientProfileId),
-  }),
 )
 
 /**

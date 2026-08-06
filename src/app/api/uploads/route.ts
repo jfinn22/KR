@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { requireContext } from '@/server/auth/context'
+import { hasFeature } from '@/domain/authz/plan-features'
+import { readInspiration } from '@/server/services/ai'
 import { authorize } from '@/server/auth/context'
 import { toActionError } from '@/server/actions/guard'
 import { DomainError } from '@/server/errors'
@@ -120,6 +122,34 @@ export async function POST(request: Request) {
         clientNote: str(form.get('note')),
         uploadedByUserId,
       })
+
+      /*
+       * Read the reference, where the plan includes it.
+       *
+       * `readInspiration` has existed since the AI layer was built with no
+       * caller at all, while the pricing page sells AI_PHOTO_ANALYSIS — so the
+       * product was charging for a reading nothing could produce. The upload
+       * itself is NOT gated: a Starter salon still gets the picture, they just
+       * do not get the machine's opinion of it.
+       *
+       * Deliberately not awaited into the response's success. A model that is
+       * slow, down, or over its budget must not stop a client attaching the
+       * photograph they came here to attach — the attributes it writes are an
+       * addition to the client's own tags, never a replacement for them.
+       */
+      if (hasFeature(ctx.plan, 'AI_PHOTO_ANALYSIS')) {
+        try {
+          await readInspiration({
+            salonId: ctx.salonId,
+            inspirationPhotoId: result.inspirationId,
+            imageBase64: bytes.toString('base64'),
+            mediaType: contentType as 'image/jpeg' | 'image/png' | 'image/webp',
+          })
+        } catch {
+          // Logged by the AI layer's own usage record; not the client's problem.
+        }
+      }
+
       return NextResponse.json(result)
     }
 
