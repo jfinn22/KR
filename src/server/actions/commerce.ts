@@ -1,11 +1,13 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
 import {
   buildInvoice,
   checkDiscount,
+  confirmPendingTillPayment,
   priceInvoice,
   redeemGiftCard,
   refundPayment,
@@ -16,7 +18,6 @@ import {
 } from '@/server/services/commerce'
 import { capPercentFor } from '@/domain/commerce/discounts'
 import { can } from '@/domain/authz/policy'
-import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
 /**
@@ -33,7 +34,7 @@ const cuid = z.string().min(1).max(64)
 const money = z.number().int().min(0).max(10_000_00)
 
 async function appointmentResource(appointmentId: string, ctx: TenantContext) {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const appointment = await dbFor(ctx.salonId).appointment.findFirst({
     where: { id: appointmentId, salonId: ctx.salonId },
     select: { clientProfileId: true, primaryStylistId: true, locationId: true },
   })
@@ -47,7 +48,7 @@ async function appointmentResource(appointmentId: string, ctx: TenantContext) {
 }
 
 async function invoiceResource(invoiceId: string, ctx: TenantContext) {
-  const invoice = await unsafeDb.invoice.findFirst({
+  const invoice = await dbFor(ctx.salonId).invoice.findFirst({
     where: { id: invoiceId, salonId: ctx.salonId },
     select: { clientProfileId: true },
   })
@@ -79,7 +80,6 @@ const BILL = z.object({
   /** The written explanation the policy layer demands over the cap. */
   reason: z.string().max(500).optional(),
   tipCents: money.optional(),
-  taxRateBps: z.number().int().min(0).max(5000).optional(),
 })
 
 /**
@@ -113,12 +113,14 @@ export const buildInvoiceAction = withAuthz(
     const role = ctx.principal.kind === 'staff' ? ctx.principal.role : null
 
     // Price it first. The permission question needs the answer.
+    // Tax is never taken from the till payload — a caller posting taxRateBps: 0
+    // would otherwise wipe the salon's rate. Until a salon tax setting exists,
+    // pricing uses its built-in default (zero).
     const preview = await priceInvoice({
       salonId: ctx.salonId,
       appointmentId: input.appointmentId,
       lines: input.lines,
       tipCents: input.tipCents,
-      taxRateBps: input.taxRateBps,
     })
 
     const { reason, amountCents: orderDiscountCents } = await resolveDiscount({
@@ -183,7 +185,6 @@ export const buildInvoiceAction = withAuthz(
       discountApprovedByUserId:
         ctx.principal.kind === 'system' ? null : (ctx.principal.userId ?? null),
       tipCents: input.tipCents,
-      taxRateBps: input.taxRateBps,
     })
 
     revalidatePath(`/s/${ctx.salonSlug}/desk`)
@@ -204,7 +205,6 @@ export const previewInvoiceAction = withAuthz(
       appointmentId: input.appointmentId,
       lines: input.lines,
       tipCents: input.tipCents,
-      taxRateBps: input.taxRateBps,
     })
 
     const { reason, amountCents } = await resolveDiscount({
@@ -230,7 +230,6 @@ export const previewInvoiceAction = withAuthz(
             lines: input.lines,
             orderDiscountCents: amountCents,
             tipCents: input.tipCents,
-            taxRateBps: input.taxRateBps,
           })
         : preview
 
@@ -384,6 +383,31 @@ export const takePaymentAction = withAuthz(
   },
 )
 
+/** Finish a PENDING mock till payment when Stripe.js is not configured. */
+export const confirmPendingTillPaymentAction = withAuthz(
+  {
+    action: 'payment.take',
+    schema: z.object({ paymentId: cuid }),
+    resource: async (input, ctx) => {
+      const payment = await dbFor(ctx.salonId).payment.findFirst({
+        where: { id: input.paymentId, salonId: ctx.salonId },
+        select: { clientProfileId: true },
+      })
+      if (!payment) throw new DomainError('NOT_FOUND', 'That payment no longer exists.')
+      return { salonId: ctx.salonId, clientProfileId: payment.clientProfileId }
+    },
+    auditAs: (input) => ({ entityType: 'Payment', entityId: input.paymentId }),
+  },
+  async (input, ctx) => {
+    const result = await confirmPendingTillPayment({
+      salonId: ctx.salonId,
+      paymentId: input.paymentId,
+    })
+    revalidatePath(`/s/${ctx.salonSlug}/desk`)
+    return result
+  },
+)
+
 /**
  * Refund.
  *
@@ -400,7 +424,7 @@ export const refundPaymentAction = withAuthz(
       reason: z.string().min(8, 'Say why — it goes on the record.').max(500),
     }),
     resource: async (input, ctx) => {
-      const payment = await unsafeDb.payment.findFirst({
+      const payment = await dbFor(ctx.salonId).payment.findFirst({
         where: { id: input.paymentId, salonId: ctx.salonId },
         select: { clientProfileId: true },
       })

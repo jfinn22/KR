@@ -403,12 +403,30 @@ describe('payments', () => {
       salonId: S,
       invoiceId: invoice.invoiceId,
       amountCents: 22000,
-      method: 'CARD',
+      method: 'CASH',
       currency: 'USD',
     })
 
     expect(result.remainingCents).toBe(0)
+    expect(result.status).toBe('SUCCEEDED')
     expect((await loadInvoice(S, invoice.invoiceId)).status).toBe('PAID')
+  })
+
+  it('leaves a card payment pending until the provider confirms it', async () => {
+    const invoice = await billedAppointment()
+    const result = await takePayment({
+      salonId: S,
+      invoiceId: invoice.invoiceId,
+      amountCents: 22000,
+      method: 'CARD',
+      currency: 'USD',
+      idempotencyKey: 'card-pending-1',
+    })
+
+    expect(result.status).toBe('PENDING')
+    expect(result.clientSecret).toBeTruthy()
+    expect((await loadInvoice(S, invoice.invoiceId)).status).not.toBe('PAID')
+    expect((await loadInvoice(S, invoice.invoiceId)).paidCents).toBe(0)
   })
 
   it('records a part payment without closing the bill', async () => {
@@ -432,7 +450,7 @@ describe('payments', () => {
       salonId: S,
       invoiceId: invoice.invoiceId,
       amountCents: 10000,
-      method: 'CARD' as const,
+      method: 'CASH' as const,
       currency: 'USD',
       idempotencyKey: 'attempt-1',
     }
@@ -493,7 +511,7 @@ describe('payments', () => {
       salonId: S,
       invoiceId: invoice.invoiceId,
       amountCents: 22000,
-      method: 'CARD',
+      method: 'CASH',
       currency: 'USD',
     })
 
@@ -504,6 +522,9 @@ describe('payments', () => {
       reason: 'Toner was not what she asked for.',
     })
 
+    expect((await loadInvoice(S, invoice.invoiceId)).paidCents).toBe(17000)
+    expect((await loadInvoice(S, invoice.invoiceId)).status).toBe('PARTIALLY_PAID')
+
     await expect(
       refundPayment({
         salonId: S,
@@ -512,6 +533,28 @@ describe('payments', () => {
         reason: 'Too much.',
       }),
     ).rejects.toThrow(/still refundable/)
+  })
+
+  it('a full refund reopens the bill', async () => {
+    const invoice = await billedAppointment()
+    const payment = await takePayment({
+      salonId: S,
+      invoiceId: invoice.invoiceId,
+      amountCents: 22000,
+      method: 'CASH',
+      currency: 'USD',
+    })
+
+    await refundPayment({
+      salonId: S,
+      paymentId: payment.paymentId,
+      amountCents: 22000,
+      reason: 'Whole visit put right — full refund.',
+    })
+
+    const after = await loadInvoice(S, invoice.invoiceId)
+    expect(after.paidCents).toBe(0)
+    expect(after.status).toBe('ISSUED')
   })
 })
 

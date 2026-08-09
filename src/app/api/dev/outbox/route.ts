@@ -8,10 +8,14 @@ export const dynamic = 'force-dynamic'
  *
  * This is what makes the whole notification flow — confirmation, reminder,
  * follow-up — verifiable end to end with no Twilio or Resend account. Refuses
- * to serve outside mock mode so it can never leak real client messages.
+ * to serve in production or outside mock mode so it can never leak real client
+ * messages.
  */
 export async function GET(request: Request) {
-  if (process.env.ADAPTER_MODE !== 'mock') {
+  const allowE2e =
+    process.env.NODE_ENV === 'production' &&
+    (process.env.E2E_ALLOW_MOCK === '1' || process.env.E2E_ALLOW_MOCK === 'true')
+  if ((process.env.NODE_ENV === 'production' && !allowE2e) || process.env.ADAPTER_MODE !== 'mock') {
     return NextResponse.json({ error: 'Not available' }, { status: 404 })
   }
 

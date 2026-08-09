@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { EVERY_DAY, type BookingWindow } from '@/domain/scheduling/window'
 import {
@@ -43,7 +43,8 @@ export interface GapToFill {
 }
 
 export async function loadGap(salonId: string, segmentId: string): Promise<GapToFill> {
-  const segment = await unsafeDb.appointmentSegment.findFirst({
+  const db = dbFor(salonId)
+  const segment = await db.appointmentSegment.findFirst({
     where: { id: segmentId, salonId },
     select: {
       id: true,

@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { EVERY_DAY, describeWindow, windowFrom } from '@/domain/scheduling/window'
 import { chainDuration } from '@/domain/scheduling/chain'
@@ -56,6 +57,7 @@ export interface JoinWaitlistInput {
 }
 
 export async function joinWaitlist(input: JoinWaitlistInput): Promise<{ id: string }> {
+  const db = dbFor(input.salonId)
   if (input.latestDate < input.earliestDate) {
     throw new DomainError('INVALID_INPUT', 'That date range runs backwards.')
   }
@@ -71,7 +73,7 @@ export async function joinWaitlist(input: JoinWaitlistInput): Promise<{ id: stri
    */
   const chain = await chainForServices(input.salonId, input.serviceIds)
 
-  const entry = await unsafeDb.waitlistEntry.create({
+  const entry = await db.waitlistEntry.create({
     data: {
       salonId: input.salonId,
       clientProfileId: input.clientProfileId,
@@ -97,7 +99,8 @@ export async function leaveWaitlist(input: {
   salonId: string
   entryId: string
 }): Promise<{ left: boolean }> {
-  const entry = await unsafeDb.waitlistEntry.findFirst({
+  const db = dbFor(input.salonId)
+  const entry = await db.waitlistEntry.findFirst({
     where: { id: input.entryId, salonId: input.salonId },
     select: { id: true, status: true, offeredHoldId: true },
   })
@@ -107,7 +110,7 @@ export async function leaveWaitlist(input: {
   // expires for somebody who is no longer waiting for it.
   if (entry.offeredHoldId) await releaseOfferedHold(input.salonId, entry.offeredHoldId)
 
-  await unsafeDb.waitlistEntry.update({
+  await db.waitlistEntry.update({
     where: { id: entry.id },
     data: { status: 'CANCELLED', offeredHoldId: null, offeredSlotJson: Prisma.DbNull },
   })
@@ -128,10 +131,11 @@ export async function matchWaitlist(input: {
   freedEndMin: number
   now?: Date
 }): Promise<{ offeredTo: string | null }> {
+  const db = dbFor(input.salonId)
   const now = input.now ?? new Date()
   const date = new Date(`${input.localDate}T00:00:00Z`)
 
-  const entries = await unsafeDb.waitlistEntry.findMany({
+  const entries = await db.waitlistEntry.findMany({
     where: {
       salonId: input.salonId,
       status: 'OPEN',
@@ -245,7 +249,7 @@ export async function matchWaitlist(input: {
       continue
     }
 
-    await unsafeDb.waitlistEntry.update({
+    await db.waitlistEntry.update({
       where: { id: entry.id },
       data: {
         status: 'OFFERED',
@@ -263,7 +267,7 @@ export async function matchWaitlist(input: {
       },
     })
 
-    await unsafeDb.outbox.create({
+    await db.outbox.create({
       data: {
         salonId: input.salonId,
         topic: 'waitlist.offered',
@@ -280,7 +284,7 @@ export async function matchWaitlist(input: {
   }
 
   if (entries.length === 25) {
-    await unsafeDb.outbox.create({
+    await db.outbox.create({
       data: {
         salonId: input.salonId,
         topic: 'waitlist.match_exhausted',
@@ -303,7 +307,8 @@ export async function acceptOffer(input: {
   timeZone: string
   actorUserId?: string | null
 }): Promise<{ appointmentId: string }> {
-  const entry = await unsafeDb.waitlistEntry.findFirst({
+  const db = dbFor(input.salonId)
+  const entry = await db.waitlistEntry.findFirst({
     where: { id: input.entryId, salonId: input.salonId },
   })
   if (!entry) throw new DomainError('NOT_FOUND', 'That waitlist entry no longer exists.')
@@ -352,7 +357,7 @@ export async function acceptOffer(input: {
     timeZone: input.timeZone,
   })
 
-  await unsafeDb.waitlistEntry.update({
+  await db.waitlistEntry.update({
     where: { id: entry.id },
     data: { status: 'BOOKED', offeredHoldId: null },
   })
@@ -365,7 +370,8 @@ export async function declineOffer(input: {
   salonId: string
   entryId: string
 }): Promise<{ declined: boolean }> {
-  const entry = await unsafeDb.waitlistEntry.findFirst({
+  const db = dbFor(input.salonId)
+  const entry = await db.waitlistEntry.findFirst({
     where: { id: input.entryId, salonId: input.salonId },
     select: { id: true, status: true, offeredHoldId: true },
   })
@@ -374,7 +380,7 @@ export async function declineOffer(input: {
 
   if (entry.offeredHoldId) await releaseOfferedHold(input.salonId, entry.offeredHoldId)
 
-  await unsafeDb.waitlistEntry.update({
+  await db.waitlistEntry.update({
     where: { id: entry.id },
     data: {
       // Cleared, not left behind. `undefined` means "do not touch" to Prisma,
@@ -405,11 +411,8 @@ export async function sweepExpiredOffers(now = new Date()): Promise<{ reopened: 
 
   for (const entry of stale) {
     if (entry.offeredHoldId) await releaseOfferedHold(entry.salonId, entry.offeredHoldId)
-  }
-
-  if (stale.length > 0) {
-    await unsafeDb.waitlistEntry.updateMany({
-      where: { id: { in: stale.map((e) => e.id) } },
+    await dbFor(entry.salonId).waitlistEntry.updateMany({
+      where: { id: entry.id },
       data: {
         status: 'OPEN',
         offeredSlotJson: Prisma.DbNull,
@@ -424,13 +427,14 @@ export async function sweepExpiredOffers(now = new Date()): Promise<{ reopened: 
 
 /** What this client is waiting for, and whether anything is on the table. */
 export async function waitlistFor(salonId: string, clientProfileId: string) {
-  const entries = await unsafeDb.waitlistEntry.findMany({
+  const db = dbFor(salonId)
+  const entries = await db.waitlistEntry.findMany({
     where: { salonId, clientProfileId, status: { in: ['OPEN', 'OFFERED'] } },
     orderBy: { createdAt: 'desc' },
   })
 
   const serviceIds = [...new Set(entries.flatMap((e) => e.serviceIds))]
-  const services = await unsafeDb.service.findMany({
+  const services = await db.service.findMany({
     where: { salonId, id: { in: serviceIds } },
     select: { id: true, name: true },
   })
@@ -456,7 +460,8 @@ export async function waitlistFor(salonId: string, clientProfileId: string) {
 
 /** The salon's own view: who is waiting, longest first. */
 export async function salonWaitlist(salonId: string) {
-  const entries = await unsafeDb.waitlistEntry.findMany({
+  const db = dbFor(salonId)
+  const entries = await db.waitlistEntry.findMany({
     where: { salonId, status: { in: ['OPEN', 'OFFERED'] } },
     orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }],
     take: 100,
@@ -464,7 +469,7 @@ export async function salonWaitlist(salonId: string) {
   })
 
   const serviceIds = [...new Set(entries.flatMap((e) => e.serviceIds))]
-  const services = await unsafeDb.service.findMany({
+  const services = await db.service.findMany({
     where: { salonId, id: { in: serviceIds } },
     select: { id: true, name: true },
   })

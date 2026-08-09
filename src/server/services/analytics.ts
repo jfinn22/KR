@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import {
   analyseFlags,
   buildFunnel,
@@ -49,7 +49,8 @@ export function lastDays(days: number, timeZone: string, now = new Date()): Rang
  * accuracy metric built on it converges on 100% and tells a salon nothing.
  */
 export async function accuracyReport(salonId: string, range: Range) {
-  const rows = await unsafeDb.quoteAccuracy.findMany({
+  const db = dbFor(salonId)
+  const rows = await db.quoteAccuracy.findMany({
     where: { salonId, computedAt: { gte: range.from, lt: range.to } },
     select: {
       estimatedDurationMin: true,
@@ -77,7 +78,7 @@ export async function accuracyReport(salonId: string, range: Range) {
     byStylist.set(row.stylistProfileId, list)
   }
 
-  const stylists = await unsafeDb.stylistProfile.findMany({
+  const stylists = await db.stylistProfile.findMany({
     where: { salonId, id: { in: [...byStylist.keys()] } },
     select: { id: true, displayName: true },
   })
@@ -126,14 +127,15 @@ export async function funnelReport(
   worst: FunnelStep | null
   photos: { needed: number; provided: number }
 }> {
+  const db = dbFor(salonId)
   const where = { salonId, createdAt: { gte: range.from, lt: range.to } }
 
   const [started, withAnswers, submitted, approved, booked, photos] = await Promise.all([
-    unsafeDb.consultation.count({ where }),
-    unsafeDb.consultation.count({ where: { ...where, answers: { some: {} } } }),
-    unsafeDb.consultation.count({ where: { ...where, submittedAt: { not: null } } }),
-    unsafeDb.consultation.count({ where: { ...where, status: 'APPROVED' } }),
-    unsafeDb.consultation.count({
+    db.consultation.count({ where }),
+    db.consultation.count({ where: { ...where, answers: { some: {} } } }),
+    db.consultation.count({ where: { ...where, submittedAt: { not: null } } }),
+    db.consultation.count({ where: { ...where, status: 'APPROVED' } }),
+    db.consultation.count({
       where: { ...where, servicePlan: { sessions: { some: { appointment: { isNot: null } } } } },
     }),
     chemicalPhotoCompletion(salonId, range),
@@ -170,7 +172,8 @@ async function chemicalPhotoCompletion(
   salonId: string,
   range: Range,
 ): Promise<{ needed: number; provided: number }> {
-  const chemicalServices = await unsafeDb.service.findMany({
+  const db = dbFor(salonId)
+  const chemicalServices = await db.service.findMany({
     where: { salonId, isChemical: true },
     select: { id: true },
   })
@@ -178,7 +181,7 @@ async function chemicalPhotoCompletion(
 
   const chemicalIds = new Set(chemicalServices.map((service) => service.id))
 
-  const consultations = await unsafeDb.consultation.findMany({
+  const consultations = await db.consultation.findMany({
     where: { salonId, createdAt: { gte: range.from, lt: range.to } },
     select: {
       requestedServiceIds: true,
@@ -206,12 +209,13 @@ async function chemicalPhotoCompletion(
  * interleaving in the salon's own numbers rather than in a marketing claim.
  */
 export async function utilisationReport(salonId: string, range: Range, timeZone: string) {
+  const db = dbFor(salonId)
   const [stylists, segments] = await Promise.all([
-    unsafeDb.stylistProfile.findMany({
+    db.stylistProfile.findMany({
       where: { salonId, isActive: true },
       select: { id: true, displayName: true },
     }),
-    unsafeDb.appointmentSegment.findMany({
+    db.appointmentSegment.findMany({
       where: {
         salonId,
         state: 'ACTIVE',
@@ -279,7 +283,8 @@ export async function utilisationReport(salonId: string, range: Range, timeZone:
 
 /** Which rules earn their place, and which are training people to click through. */
 export async function ruleReport(salonId: string, range: Range) {
-  const flags = await unsafeDb.riskFlag.groupBy({
+  const db = dbFor(salonId)
+  const flags = await db.riskFlag.groupBy({
     by: ['code', 'status'],
     where: { salonId, createdAt: { gte: range.from, lt: range.to } },
     _count: true,
@@ -298,7 +303,8 @@ export async function ruleReport(salonId: string, range: Range) {
 
 /** Takings, paired with the period before so a single figure cannot mislead. */
 export async function revenueReport(salonId: string, range: Range) {
-  const payments = await unsafeDb.payment.findMany({
+  const db = dbFor(salonId)
+  const payments = await db.payment.findMany({
     where: {
       salonId,
       status: 'SUCCEEDED',
@@ -318,13 +324,13 @@ export async function revenueReport(salonId: string, range: Range) {
   )
 
   const [completed, noShows, cancelled] = await Promise.all([
-    unsafeDb.appointment.count({
+    db.appointment.count({
       where: { salonId, status: 'COMPLETED', startsAt: { gte: range.from, lt: range.to } },
     }),
-    unsafeDb.appointment.count({
+    db.appointment.count({
       where: { salonId, status: 'NO_SHOW', startsAt: { gte: range.from, lt: range.to } },
     }),
-    unsafeDb.appointment.count({
+    db.appointment.count({
       where: { salonId, status: 'CANCELLED', startsAt: { gte: range.from, lt: range.to } },
     }),
   ])

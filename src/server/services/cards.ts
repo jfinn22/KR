@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { paymentsPort } from '@/ports/registry'
 
@@ -21,7 +21,8 @@ export async function customerFor(
   salonId: string,
   clientProfileId: string,
 ): Promise<string> {
-  const client = await unsafeDb.clientProfile.findFirst({
+  const db = dbFor(salonId)
+  const client = await db.clientProfile.findFirst({
     where: { id: clientProfileId, salonId },
     select: { id: true, email: true, firstName: true, lastName: true, paymentsCustomerRef: true },
   })
@@ -36,7 +37,7 @@ export async function customerFor(
     metadata: { salonId, clientProfileId: client.id },
   })
 
-  await unsafeDb.clientProfile.update({
+  await db.clientProfile.update({
     where: { id: client.id },
     data: { paymentsCustomerRef: customer.id },
   })
@@ -55,6 +56,7 @@ export async function beginCardSetup(input: {
   salonId: string
   clientProfileId: string
 }): Promise<{ clientSecret: string; setupIntentId: string }> {
+  const db = dbFor(input.salonId)
   const customerRef = await customerFor(input.salonId, input.clientProfileId)
 
   /*
@@ -69,7 +71,7 @@ export async function beginCardSetup(input: {
    * the same button sees the same count and is genuinely idempotent; adding a
    * second card, or replacing one that was removed, gets a fresh intent.
    */
-  const everHad = await unsafeDb.savedCard.count({
+  const everHad = await db.savedCard.count({
     where: { salonId: input.salonId, clientProfileId: input.clientProfileId },
   })
 
@@ -94,7 +96,8 @@ export async function syncCards(input: {
   salonId: string
   clientProfileId: string
 }): Promise<{ cards: { id: string; brand: string; last4: string }[] }> {
-  const client = await unsafeDb.clientProfile.findFirst({
+  const db = dbFor(input.salonId)
+  const client = await db.clientProfile.findFirst({
     where: { id: input.clientProfileId, salonId: input.salonId },
     select: { paymentsCustomerRef: true },
   })
@@ -103,14 +106,14 @@ export async function syncCards(input: {
   const live = await paymentsPort().listPaymentMethods(client.paymentsCustomerRef)
   const liveRefs = new Set(live.map((card) => card.id))
 
-  const existing = await unsafeDb.savedCard.findMany({
+  const existing = await db.savedCard.findMany({
     where: { salonId: input.salonId, clientProfileId: input.clientProfileId },
     select: { id: true, providerRef: true, detachedAt: true },
   })
   const hadAny = existing.some((row) => row.detachedAt === null)
 
   for (const [index, card] of live.entries()) {
-    await unsafeDb.savedCard.upsert({
+    await db.savedCard.upsert({
       where: { salonId_providerRef: { salonId: input.salonId, providerRef: card.id } },
       update: {
         brand: card.brand,
@@ -139,7 +142,7 @@ export async function syncCards(input: {
   // expired out — stops being chargeable here too.
   const gone = existing.filter((row) => !liveRefs.has(row.providerRef) && !row.detachedAt)
   if (gone.length > 0) {
-    await unsafeDb.savedCard.updateMany({
+    await db.savedCard.updateMany({
       where: { id: { in: gone.map((row) => row.id) } },
       data: { detachedAt: new Date(), isDefault: false },
     })
@@ -177,7 +180,8 @@ export async function completeCardSetupWithoutBrowser(input: {
 
 /** The cards this client can be charged against, newest default first. */
 export async function cardsFor(salonId: string, clientProfileId: string) {
-  return unsafeDb.savedCard.findMany({
+  const db = dbFor(salonId)
+  return db.savedCard.findMany({
     where: { salonId, clientProfileId, detachedAt: null },
     orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
     select: {
@@ -203,7 +207,8 @@ export async function removeCard(input: {
   clientProfileId: string
   savedCardId: string
 }): Promise<{ removed: boolean }> {
-  const card = await unsafeDb.savedCard.findFirst({
+  const db = dbFor(input.salonId)
+  const card = await db.savedCard.findFirst({
     where: {
       id: input.savedCardId,
       salonId: input.salonId,
@@ -217,7 +222,7 @@ export async function removeCard(input: {
    * already reserved against it; letting it go would strand a hold the client
    * can see on their statement and nobody can release.
    */
-  const holding = await unsafeDb.deposit.count({
+  const holding = await db.deposit.count({
     where: { savedCardId: card.id, status: { in: ['AUTHORIZED', 'PENDING'] } },
   })
   if (holding > 0) {
@@ -228,20 +233,20 @@ export async function removeCard(input: {
   }
 
   await paymentsPort().detachPaymentMethod(card.providerRef)
-  await unsafeDb.savedCard.update({
+  await db.savedCard.update({
     where: { id: card.id },
     data: { detachedAt: new Date(), isDefault: false },
   })
 
   // Somebody has to be the default, or the next deposit has nothing to charge.
   if (card.isDefault) {
-    const next = await unsafeDb.savedCard.findFirst({
+    const next = await db.savedCard.findFirst({
       where: { salonId: input.salonId, clientProfileId: input.clientProfileId, detachedAt: null },
       orderBy: { createdAt: 'desc' },
       select: { id: true },
     })
     if (next) {
-      await unsafeDb.savedCard.update({ where: { id: next.id }, data: { isDefault: true } })
+      await db.savedCard.update({ where: { id: next.id }, data: { isDefault: true } })
     }
   }
 

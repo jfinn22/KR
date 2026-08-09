@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
 import { unsafeDb } from '@/server/db/client'
-import { signUpClient } from '@/server/services/signup'
+import { joinCodeMatches, signUpClient } from '@/server/services/signup'
 import { createClientAtDesk } from '@/server/services/front-desk'
 
 /**
@@ -43,6 +43,24 @@ const consentsFor = (clientProfileId: string) =>
     where: { clientProfileId },
     orderBy: [{ channel: 'asc' }, { purpose: 'asc' }],
   })
+
+describe('join codes', () => {
+  it('allows an empty code when the salon has none set', async () => {
+    expect(await joinCodeMatches(S, null)).toBe(true)
+    expect(await joinCodeMatches(S, '')).toBe(true)
+  })
+
+  it('refuses an empty code when the salon requires one', async () => {
+    await unsafeDb.salonSettings.update({
+      where: { salonId: S },
+      data: { joinCode: 'AURORA' },
+    })
+    expect(await joinCodeMatches(S, null)).toBe(false)
+    expect(await joinCodeMatches(S, '')).toBe(false)
+    expect(await joinCodeMatches(S, 'wrong')).toBe(false)
+    expect(await joinCodeMatches(S, 'aurora')).toBe(true)
+  })
+})
 
 describe('signing up', () => {
   it('creates a user and a client of that salon only', async () => {

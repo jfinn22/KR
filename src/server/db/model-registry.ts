@@ -39,8 +39,14 @@ export const SHARED_LIBRARY_MODELS: ReadonlySet<string> = new Set([
   'ConsultationQuestion',
   'FormTemplate',
   'MessageTemplate',
-  'AuditLog',
 ])
+
+/**
+ * Models where `salonId` is nullable for platform-owned rows that tenants must
+ * never see. Reads inject `{ salonId }` only (no OR-null widen). Platform rows
+ * are written with `unsafeDb`; `dbFor` stamps the caller's salon on create.
+ */
+export const PLATFORM_NULLABLE_MODELS: ReadonlySet<string> = new Set(['AuditLog'])
 
 export function isGlobalModel(model: string): boolean {
   return GLOBAL_MODELS.has(model)
@@ -48,5 +54,9 @@ export function isGlobalModel(model: string): boolean {
 
 export function isSharedLibraryModel(model: string): boolean {
   return SHARED_LIBRARY_MODELS.has(model)
+}
+
+export function isPlatformNullableModel(model: string): boolean {
+  return PLATFORM_NULLABLE_MODELS.has(model)
 }
 

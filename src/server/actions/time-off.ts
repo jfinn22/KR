@@ -3,7 +3,7 @@
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { cancelTimeOff, decideTimeOff, requestTimeOff } from '@/server/services/time-off'
 
 /**
@@ -24,7 +24,8 @@ const cuid = z.string().min(1).max(64)
  * be refused their own request — the failure mode this codebase has hit before.
  */
 async function timeOffResource(timeOffId: string, salonId: string) {
-  const row = await unsafeDb.timeOff.findFirst({
+  const db = dbFor(salonId)
+  const row = await db.timeOff.findFirst({
     where: { id: timeOffId, salonId },
     select: { stylistProfileId: true },
   })

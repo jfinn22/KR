@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { commitStaffImport, previewStaffImport } from '@/server/services/migration/staff'
 import { withAuthz, DomainError } from './guard'
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { commitBatch, createBatch, undoBatch } from '@/server/services/migration/batch'
 import { rememberOptions, sourceTextOf, storeSource } from '@/server/services/migration/review'
 import { parseImport } from '@/domain/migration/parse'
@@ -63,7 +63,7 @@ export const startImportAction = withAuthz(
     }),
   },
   async (input, ctx) => {
-    const location = await unsafeDb.location.findFirst({
+    const location = await dbFor(ctx.salonId).location.findFirst({
       where: { id: input.locationId, salonId: ctx.salonId },
       select: { id: true },
     })
@@ -80,7 +80,7 @@ export const startImportAction = withAuthz(
     })
 
     const key = await storeSource(ctx.salonId, batch.id, input.text)
-    await unsafeDb.importBatch.update({
+    await dbFor(ctx.salonId).importBatch.update({
       where: { id: batch.id },
       data: { sourceAssetKey: key, status: 'REVIEWING' },
     })
@@ -130,7 +130,7 @@ export const commitImportAction = withAuthz(
     auditAs: (input) => ({ entityType: 'ImportBatch', entityId: input.batchId }),
   },
   async (input, ctx) => {
-    const batch = await unsafeDb.importBatch.findFirst({
+    const batch = await dbFor(ctx.salonId).importBatch.findFirst({
       where: { id: input.batchId, salonId: ctx.salonId },
       select: { id: true, sourceAssetKey: true, sourcePlatform: true },
     })
@@ -206,15 +206,16 @@ async function assertOurs(
   serviceMap: Record<string, string | null>,
   stylistMap: Record<string, string | null>,
 ): Promise<void> {
+  const db = dbFor(salonId)
   const serviceIds = [...new Set(Object.values(serviceMap).filter((id): id is string => !!id))]
   const stylistIds = [...new Set(Object.values(stylistMap).filter((id): id is string => !!id))]
 
   const [services, stylists] = await Promise.all([
     serviceIds.length
-      ? unsafeDb.service.count({ where: { salonId, id: { in: serviceIds } } })
+      ? db.service.count({ where: { salonId, id: { in: serviceIds } } })
       : Promise.resolve(0),
     stylistIds.length
-      ? unsafeDb.stylistProfile.count({ where: { salonId, id: { in: stylistIds } } })
+      ? db.stylistProfile.count({ where: { salonId, id: { in: stylistIds } } })
       : Promise.resolve(0),
   ])
 

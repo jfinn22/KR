@@ -1,5 +1,6 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
@@ -12,7 +13,6 @@ import {
   revokeConsent,
   submitForm,
 } from '@/server/services/compliance'
-import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
 /**
@@ -27,7 +27,7 @@ import type { TenantContext } from '@/server/auth/context'
 const cuid = z.string().min(1).max(64)
 
 async function clientResource(clientProfileId: string, ctx: TenantContext) {
-  const client = await unsafeDb.clientProfile.findFirst({
+  const client = await dbFor(ctx.salonId).clientProfile.findFirst({
     where: { id: clientProfileId, salonId: ctx.salonId },
     select: { id: true, preferredStylistId: true },
   })
@@ -232,7 +232,7 @@ export const eraseClientAction = withAuthz(
     auditAs: (input) => ({ entityType: 'ClientProfile', entityId: input.clientProfileId }),
   },
   async (input, ctx) => {
-    const client = await unsafeDb.clientProfile.findFirstOrThrow({
+    const client = await dbFor(ctx.salonId).clientProfile.findFirstOrThrow({
       where: { id: input.clientProfileId, salonId: ctx.salonId },
       select: { firstName: true, lastName: true, status: true },
     })

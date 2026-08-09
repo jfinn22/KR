@@ -1,5 +1,6 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
@@ -14,7 +15,6 @@ import {
   removeInspirationPhoto,
   tagInspiration,
 } from '@/server/services/photos'
-import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
 /**
@@ -36,7 +36,7 @@ const cuid = z.string().min(1).max(64)
  * this against the principal.
  */
 async function consultationResource(consultationId: string, ctx: TenantContext) {
-  const row = await unsafeDb.consultation.findFirst({
+  const row = await dbFor(ctx.salonId).consultation.findFirst({
     where: { id: consultationId, salonId: ctx.salonId },
     select: { clientProfileId: true, requestedStylistId: true },
   })
@@ -96,7 +96,7 @@ export const startConsultationAction = withAuthz(
 
     // Refuse a service this salon does not offer, rather than creating a
     // consultation that can never be evaluated.
-    const count = await unsafeDb.service.count({
+    const count = await dbFor(ctx.salonId).service.count({
       where: { salonId: ctx.salonId, id: { in: input.serviceIds }, isActive: true },
     })
     if (count !== input.serviceIds.length) {
@@ -306,7 +306,7 @@ export const explainFlagAction = withAuthz(
     resource: (input, ctx) => consultationResource(input.consultationId, ctx),
   },
   async (input, ctx) => {
-    const flag = await unsafeDb.riskFlag.findFirst({
+    const flag = await dbFor(ctx.salonId).riskFlag.findFirst({
       where: { salonId: ctx.salonId, consultationId: input.consultationId, code: input.code },
       orderBy: { createdAt: 'desc' },
       select: { detail: true, recommendedPath: true },

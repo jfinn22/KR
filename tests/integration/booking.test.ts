@@ -249,12 +249,39 @@ describe('booking', () => {
       timeZone: TZ,
     })
 
-    const after = await unsafeDb.appointmentSegment.findFirst({ where: { bookingHoldId: holdId } })
+    // Cleared off the hold so a racing releaseHold cannot delete them.
+    const after = await unsafeDb.appointmentSegment.findFirst({
+      where: { appointmentId: result.appointmentId },
+    })
     // Same row, promoted — no window where the slot was free.
     expect(after!.id).toBe(before!.id)
     expect(after!.state).toBe('ACTIVE')
     expect(after!.appointmentId).toBe(result.appointmentId)
+    expect(after!.bookingHoldId).toBeNull()
     expect(after!.holdExpiresAt).toBeNull()
+  })
+
+  it('releasing a consumed hold does not delete the booked segments', async () => {
+    const { holdId } = await createHold(holdInput(slotAt(10), 'bk_cli_1'))
+    const result = await bookFromHold({
+      salonId: S,
+      holdId,
+      clientProfileId: 'bk_cli_1',
+      services,
+      timeZone: TZ,
+    })
+
+    const { releaseHold } = await import('@/server/services/scheduling/booking')
+    await releaseHold(S, holdId)
+
+    const segments = await unsafeDb.appointmentSegment.findMany({
+      where: { appointmentId: result.appointmentId },
+    })
+    expect(segments.length).toBeGreaterThan(0)
+    expect(segments.every((s) => s.state === 'ACTIVE')).toBe(true)
+    expect((await unsafeDb.bookingHold.findUniqueOrThrow({ where: { id: holdId } })).status).toBe(
+      'CONSUMED',
+    )
   })
 
   it('writes an outbox event in the same transaction', async () => {

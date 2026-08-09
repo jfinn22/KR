@@ -72,14 +72,15 @@ export async function mintCheckIn(
   appointmentId: string,
   now = new Date(),
 ): Promise<{ token: string } | null> {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const db = dbFor(salonId)
+  const appointment = await db.appointment.findFirst({
     where: { id: appointmentId, salonId },
     select: { id: true, clientProfileId: true },
   })
   if (!appointment) return null
 
   const token = tokenFor(appointmentId)
-  await unsafeDb.postVisitCheckIn.upsert({
+  await db.postVisitCheckIn.upsert({
     where: { appointmentId },
     create: {
       salonId,
@@ -163,9 +164,10 @@ export async function respondToCheckIn(input: {
   note: string | null
   now?: Date
 }): Promise<{ recorded: boolean }> {
+  const db = dbFor(input.salonId)
   const now = input.now ?? new Date()
 
-  const row = await unsafeDb.postVisitCheckIn.findUnique({
+  const row = await db.postVisitCheckIn.findUnique({
     where: { tokenHash: hash(input.token) },
     select: { id: true, salonId: true, expiresAt: true, respondedAt: true },
   })
@@ -184,7 +186,7 @@ export async function respondToCheckIn(input: {
    */
   if (row.respondedAt) return { recorded: false }
 
-  await unsafeDb.postVisitCheckIn.update({
+  await db.postVisitCheckIn.update({
     where: { id: row.id },
     data: {
       respondedAt: now,

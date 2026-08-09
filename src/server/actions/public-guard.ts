@@ -82,10 +82,29 @@ async function fingerprintFor(salonId: string, subject?: string | null): Promise
   if (subject) {
     return createHash('sha256').update(`${salonId}:s:${subject}`).digest('hex').slice(0, 32)
   }
-  const headerList = await headers()
-  const forwarded = headerList.get('x-forwarded-for')?.split(',')[0]?.trim()
-  const address = forwarded || headerList.get('x-real-ip') || 'unknown'
+  const address = await clientAddress()
   return createHash('sha256').update(`${salonId}:${address}`).digest('hex').slice(0, 32)
+}
+
+/**
+ * The caller's address for rate buckets.
+ *
+ * Prefer the platform-injected `x-real-ip`. Only trust the first
+ * `x-forwarded-for` hop when AUTH_TRUST_HOST is set — otherwise a client can
+ * forge XFF and either empty someone else's bucket or evade their own.
+ */
+export async function clientAddress(): Promise<string> {
+  const headerList = await headers()
+  const realIp = headerList.get('x-real-ip')?.trim()
+  if (realIp) return realIp
+
+  const trustForwarded = process.env.AUTH_TRUST_HOST === 'true' || process.env.AUTH_TRUST_HOST === '1'
+  if (trustForwarded) {
+    const forwarded = headerList.get('x-forwarded-for')?.split(',')[0]?.trim()
+    if (forwarded) return forwarded
+  }
+
+  return 'unknown'
 }
 
 export function withPublicAction<I, O>(

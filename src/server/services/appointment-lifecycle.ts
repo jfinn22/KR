@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { enqueue } from '@/server/jobs/queue'
 import { assessCancellation } from '@/server/services/commerce'
@@ -48,9 +48,10 @@ export interface AdvanceInput {
 export async function advanceAppointment(
   input: AdvanceInput,
 ): Promise<{ status: string; at: Date }> {
+  const db = dbFor(input.salonId)
   const at = input.at ?? new Date()
 
-  const result = await unsafeDb.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     const appointment = await tx.appointment.findFirst({
       where: { id: input.appointmentId, salonId: input.salonId },
       select: {
@@ -222,7 +223,7 @@ export async function advanceAppointment(
         isNoShow: true,
       })
     } catch (error) {
-      await unsafeDb.outbox.create({
+      await db.outbox.create({
         data: {
           salonId: input.salonId,
           topic: 'cancellation.assessment_failed',
@@ -268,7 +269,8 @@ export async function markProcessing(input: {
   appointmentId: string
   untilMinutes: number
 }): Promise<void> {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const db = dbFor(input.salonId)
+  const appointment = await db.appointment.findFirst({
     where: { id: input.appointmentId, salonId: input.salonId },
     select: { id: true, status: true },
   })
@@ -277,7 +279,7 @@ export async function markProcessing(input: {
     throw new DomainError('CONFLICT', 'The client needs to be in the chair first.')
   }
 
-  await unsafeDb.appointment.update({
+  await db.appointment.update({
     where: { id: appointment.id },
     data: { status: 'PROCESSING', version: { increment: 1 } },
   })

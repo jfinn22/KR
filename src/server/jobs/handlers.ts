@@ -101,6 +101,19 @@ const outboxDispatch = define({
     })
 
     for (const event of pending) {
+      /*
+       * Claim before side effects. A timeout mid-handler used to leave
+       * publishedAt null, so the next dispatch re-ran every notify/webhook —
+       * duplicate SMS. Marking published first makes retries at-most-once for
+       * this event; side effects that still need durability carry their own
+       * dedupe keys (notifications, webhook deliveries).
+       */
+      const claimed = await unsafeDb.outbox.updateMany({
+        where: { id: event.id, publishedAt: null },
+        data: { publishedAt: new Date(), attempts: { increment: 1 } },
+      })
+      if (claimed.count === 0) continue
+
       const topic = event.topic
       const payload = (event.payloadJson ?? {}) as Record<string, unknown>
 
@@ -171,6 +184,7 @@ const outboxDispatch = define({
           salonId: event.salonId,
           topic: topic as WebhookTopic,
           payload,
+          dedupeKey: event.id,
         })
       }
 
@@ -188,11 +202,6 @@ const outboxDispatch = define({
           })
         }
       }
-
-      await unsafeDb.outbox.update({
-        where: { id: event.id },
-        data: { publishedAt: new Date(), attempts: { increment: 1 } },
-      })
     }
   },
 })

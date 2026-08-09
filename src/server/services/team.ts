@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 
 /**
  * The team.
@@ -9,7 +9,8 @@ import { unsafeDb } from '@/server/db/client'
  */
 
 export async function listStylists(salonId: string, opts: { activeOnly?: boolean } = {}) {
-  return unsafeDb.stylistProfile.findMany({
+  const db = dbFor(salonId)
+  return db.stylistProfile.findMany({
     where: { salonId, ...(opts.activeOnly === false ? {} : { isActive: true }) },
     orderBy: { displayName: 'asc' },
     select: {

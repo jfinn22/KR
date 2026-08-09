@@ -1,4 +1,3 @@
-import { unsafeDb } from '@/server/db/client'
 import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { costMix, costPerGramMillicents, margin, type MixLine } from '@/domain/commerce/backbar'
@@ -92,7 +91,7 @@ export async function recordUsage(input: UsageInput): Promise<{ totalCents: numb
 
   const costed = costMix(lines, input.anchorGrams, input.wasteGrams)
 
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     // One record per appointment. A stylist correcting 60g to 90g is fixing a
     // mistake, not logging a second bowl.
     await tx.productUsage.deleteMany({

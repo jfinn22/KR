@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { openIntervalsForDates } from '@/domain/scheduling/availability'
 import { chainSignature } from '@/domain/scheduling/chain'
 import {
@@ -94,6 +94,7 @@ export function invalidateAvailabilityCache(salonId?: string): void {
 }
 
 export async function loadAvailabilityRequest(opts: LoadOptions): Promise<AvailabilityRequest> {
+  const db = dbFor(opts.salonId)
   const now = opts.now ?? new Date()
   const nowMin = toEpochMinutes(now)
 
@@ -116,15 +117,15 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value
 
   const [salon, location, settingsRow] = await Promise.all([
-    unsafeDb.salon.findUniqueOrThrow({
+    db.salon.findUniqueOrThrow({
       where: { id: opts.salonId },
       select: { defaultTimezone: true },
     }),
-    unsafeDb.location.findUniqueOrThrow({
+    db.location.findUniqueOrThrow({
       where: { id: opts.locationId },
       select: { timezone: true },
     }),
-    unsafeDb.salonSettings.findUnique({ where: { salonId: opts.salonId } }),
+    db.salonSettings.findUnique({ where: { salonId: opts.salonId } }),
   ])
 
   const timeZone = location.timezone || salon.defaultTimezone
@@ -145,7 +146,7 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
     resourceRows,
     externalRows,
   ] = await Promise.all([
-      unsafeDb.stylistProfile.findMany({
+      db.stylistProfile.findMany({
         where: {
           salonId: opts.salonId,
           isActive: true,
@@ -161,7 +162,7 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
           skills: { select: { skillCode: true, level: true } },
         },
       }),
-      unsafeDb.workingHours.findMany({
+      db.workingHours.findMany({
         where: { salonId: opts.salonId },
         select: {
           stylistProfileId: true,
@@ -171,7 +172,7 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
           endMinute: true,
         },
       }),
-      unsafeDb.scheduleException.findMany({
+      db.scheduleException.findMany({
         where: { salonId: opts.salonId, date: { gte: rangeStart, lte: rangeEnd } },
         select: {
           stylistProfileId: true,
@@ -181,7 +182,7 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
           endMinute: true,
         },
       }),
-      unsafeDb.timeOff.findMany({
+      db.timeOff.findMany({
         where: {
           salonId: opts.salonId,
           status: 'APPROVED',
@@ -190,7 +191,7 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
         },
         select: { stylistProfileId: true, startsAt: true, endsAt: true },
       }),
-      unsafeDb.appointmentSegment.findMany({
+      db.appointmentSegment.findMany({
         where: {
           salonId: opts.salonId,
           locationId: opts.locationId,
@@ -211,7 +212,7 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
           endsAt: true,
         },
       }),
-      unsafeDb.resource.findMany({
+      db.resource.findMany({
         where: { salonId: opts.salonId, locationId: opts.locationId, isBookable: true },
         select: { id: true, type: true },
       }),
@@ -222,7 +223,7 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
        * a network call to somebody else's server inside every slot search, and
        * a slow one reads to a client as "this salon has nothing free".
        */
-      unsafeDb.externalBusy.findMany({
+      db.externalBusy.findMany({
         where: {
           salonId: opts.salonId,
           startsAt: { lt: rangeEnd },

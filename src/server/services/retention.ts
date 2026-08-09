@@ -1,4 +1,3 @@
-import { unsafeDb } from '@/server/db/client'
 import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { materialiseNotification } from './notifications'
@@ -219,7 +218,7 @@ export async function recordAftercare(input: AftercareInput): Promise<{ eventId:
     throw new DomainError('INVALID_INPUT', 'There is nothing to save yet.')
   }
 
-  return unsafeDb.$transaction(async (tx) => {
+  return db.$transaction(async (tx) => {
     const event = await tx.hairHistoryEvent.create({
       data: {
         salonId: input.salonId,
@@ -296,9 +295,10 @@ export async function settleRecommendation(input: {
   recommendationId: string
   taken: boolean
 }): Promise<{ status: string }> {
+  const db = dbFor(input.salonId)
   const status = input.taken ? 'PURCHASED' : 'DECLINED'
 
-  const changed = await unsafeDb.productRecommendation.updateMany({
+  const changed = await db.productRecommendation.updateMany({
     where: { id: input.recommendationId, salonId: input.salonId },
     data: { status },
   })

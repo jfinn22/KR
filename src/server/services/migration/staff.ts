@@ -1,4 +1,3 @@
-import { unsafeDb } from '@/server/db/client'
 import { dbFor } from '@/server/db/tenant-client'
 import { parseCsv, toRecords } from '@/domain/migration/csv'
 import { normaliseHeader } from '@/domain/migration/columns'
@@ -155,6 +154,7 @@ export async function commitStaffImport(
   rows: readonly StaffRow[],
   locationId: string,
 ): Promise<StaffImportResult> {
+  const db = dbFor(salonId)
   const result: StaffImportResult = { created: 0, updated: 0, skipped: 0 }
 
   for (const row of rows) {
@@ -163,13 +163,13 @@ export async function commitStaffImport(
       continue
     }
 
-    const existing = await unsafeDb.stylistProfile.findFirst({
+    const existing = await db.stylistProfile.findFirst({
       where: { salonId, displayName: row.displayName },
       select: { id: true },
     })
 
     if (existing) {
-      await unsafeDb.stylistProfile.update({
+      await db.stylistProfile.update({
         where: { id: existing.id },
         data: { title: row.title ?? undefined },
       })
@@ -184,21 +184,21 @@ export async function commitStaffImport(
       continue
     }
 
-    const user = await unsafeDb.user.upsert({
+    const user = await db.user.upsert({
       where: { email: row.email },
       update: {},
       create: { email: row.email, name: row.displayName },
       select: { id: true },
     })
 
-    const membership = await unsafeDb.membership.upsert({
+    const membership = await db.membership.upsert({
       where: { salonId_userId: { salonId, userId: user.id } },
       update: {},
       create: { salonId, userId: user.id, role: 'STYLIST', status: 'ACTIVE' },
       select: { id: true },
     })
 
-    const profile = await unsafeDb.stylistProfile.upsert({
+    const profile = await db.stylistProfile.upsert({
       where: { membershipId: membership.id },
       update: { displayName: row.displayName, title: row.title ?? undefined },
       create: {
@@ -232,8 +232,9 @@ async function writeSkills(
   stylistProfileId: string,
   skills: readonly string[],
 ): Promise<void> {
+  const db = dbFor(salonId)
   for (const skillCode of skills) {
-    await unsafeDb.stylistSkill.upsert({
+    await db.stylistSkill.upsert({
       where: { stylistProfileId_skillCode: { stylistProfileId, skillCode } },
       // Never lowers a level somebody at the salon has already set by hand.
       update: {},

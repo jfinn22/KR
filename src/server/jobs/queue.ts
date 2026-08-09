@@ -1,4 +1,5 @@
 import { unsafeDb } from '@/server/db/client'
+import type { TenantTx } from '@/server/db/tenant-client'
 import type { Prisma } from '@prisma/client'
 
 /**
@@ -35,7 +36,7 @@ export interface ClaimedJob {
 
 export async function enqueue(
   input: EnqueueInput,
-  tx: Prisma.TransactionClient | typeof unsafeDb = unsafeDb,
+  tx: Prisma.TransactionClient | TenantTx | typeof unsafeDb = unsafeDb,
 ): Promise<string | null> {
   if (input.dedupeKey) {
     const existing = await tx.job.findFirst({
@@ -43,6 +44,13 @@ export async function enqueue(
       select: { id: true },
     })
     if (existing) return null
+  }
+
+  // Dynamic import avoids a cycle with handlers.ts, which imports enqueue.
+  let definedAttempts: number | undefined
+  if (input.maxAttempts == null) {
+    const { JOB_REGISTRY } = await import('./handlers')
+    definedAttempts = JOB_REGISTRY[input.type]?.maxAttempts
   }
 
   const job = await tx.job.create({
@@ -53,7 +61,7 @@ export async function enqueue(
       queue: input.queue ?? 'default',
       runAt: input.runAt ?? new Date(),
       priority: input.priority ?? 100,
-      maxAttempts: input.maxAttempts ?? 5,
+      maxAttempts: input.maxAttempts ?? definedAttempts ?? 5,
       dedupeKey: input.dedupeKey ?? null,
     },
     select: { id: true },

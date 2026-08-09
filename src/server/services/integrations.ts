@@ -1,5 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { calendarPort } from '@/ports/registry'
 import { buildIcsFeed } from '@/ports/calendar'
@@ -36,9 +39,10 @@ export async function issueFeedToken(
   salonId: string,
   stylistProfileId: string,
 ): Promise<{ token: string; url: string }> {
+  const db = dbFor(salonId)
   const token = randomBytes(24).toString('base64url')
 
-  await unsafeDb.integrationConnection.upsert({
+  await db.integrationConnection.upsert({
     where: {
       salonId_provider_stylistProfileId: {
         salonId,
@@ -64,7 +68,8 @@ export async function issueFeedToken(
 }
 
 export async function revokeFeedToken(salonId: string, stylistProfileId: string): Promise<void> {
-  await unsafeDb.integrationConnection.updateMany({
+  const db = dbFor(salonId)
+  await db.integrationConnection.updateMany({
     where: { salonId, provider: 'APPLE_ICAL', stylistProfileId },
     data: { isActive: false, settingsJson: {} },
   })
@@ -94,7 +99,8 @@ export async function feedFor(
   const expected = (connection.settingsJson as { tokenHash?: string } | null)?.tokenHash
   if (!expected || !constantTimeEquals(expected, hashToken(token))) return null
 
-  const stylist = await unsafeDb.stylistProfile.findFirst({
+  const db = dbFor(connection.salonId)
+  const stylist = await db.stylistProfile.findFirst({
     where: { id: stylistProfileId, salonId: connection.salonId },
     select: { displayName: true, salon: { select: { name: true } } },
   })
@@ -108,7 +114,7 @@ export async function feedFor(
   const from = new Date(Date.now() - 7 * 86_400_000)
   const to = new Date(Date.now() + 90 * 86_400_000)
 
-  const appointments = await unsafeDb.appointment.findMany({
+  const appointments = await db.appointment.findMany({
     where: {
       salonId: connection.salonId,
       primaryStylistId: stylistProfileId,
@@ -157,7 +163,8 @@ export async function pushAppointment(input: {
   salonId: string
   appointmentId: string
 }): Promise<{ pushed: boolean }> {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const db = dbFor(input.salonId)
+  const appointment = await db.appointment.findFirst({
     where: { id: input.appointmentId, salonId: input.salonId },
     include: {
       clientProfile: { select: { firstName: true, lastName: true } },
@@ -167,7 +174,7 @@ export async function pushAppointment(input: {
   })
   if (!appointment) return { pushed: false }
 
-  const connection = await unsafeDb.integrationConnection.findFirst({
+  const connection = await db.integrationConnection.findFirst({
     where: {
       salonId: input.salonId,
       provider: 'GOOGLE_CALENDAR',
@@ -190,7 +197,7 @@ export async function pushAppointment(input: {
       endsAt: appointment.endsAt,
     })
 
-    await unsafeDb.integrationConnection.update({
+    await db.integrationConnection.update({
       where: { id: connection.id },
       data: { lastSyncedAt: new Date(), lastError: null },
     })
@@ -198,7 +205,7 @@ export async function pushAppointment(input: {
   } catch (err) {
     // Recorded, not thrown. The connection screen shows the failure; the
     // booking it came from is already safe in the database.
-    await unsafeDb.integrationConnection.update({
+    await db.integrationConnection.update({
       where: { id: connection.id },
       data: { lastError: (err as Error).message.slice(0, 500) },
     })
@@ -220,7 +227,8 @@ export async function externalBusy(input: {
   localDate: string
   timeZone: string
 }): Promise<{ startsAt: Date; endsAt: Date }[]> {
-  const connection = await unsafeDb.integrationConnection.findFirst({
+  const db = dbFor(input.salonId)
+  const connection = await db.integrationConnection.findFirst({
     where: {
       salonId: input.salonId,
       provider: 'GOOGLE_CALENDAR',
@@ -296,8 +304,11 @@ export async function emitWebhook(input: {
   salonId: string
   topic: WebhookTopic
   payload: Record<string, unknown>
+  /** Stable id for this emission (usually the outbox row id). */
+  dedupeKey?: string | null
 }): Promise<{ queued: number }> {
-  const endpoints = await unsafeDb.webhookEndpoint.findMany({
+  const db = dbFor(input.salonId)
+  const endpoints = await db.webhookEndpoint.findMany({
     where: {
       salonId: input.salonId,
       isActive: true,
@@ -312,13 +323,16 @@ export async function emitWebhook(input: {
   )
   if (wanted.length === 0) return { queued: 0 }
 
-  await unsafeDb.webhookDelivery.createMany({
+  await db.webhookDelivery.createMany({
     data: wanted.map((endpoint) => ({
       salonId: input.salonId,
       endpointId: endpoint.id,
       topic: input.topic,
       payloadJson: input.payload as never,
+      dedupeKey: input.dedupeKey ?? null,
     })),
+    // A retried outbox.dispatch must not enqueue a second delivery per endpoint.
+    skipDuplicates: true,
   })
 
   return { queued: wanted.length }
@@ -344,8 +358,9 @@ export async function deliverWebhooks(limit = 50): Promise<{ sent: number; faile
 
   for (const delivery of pending) {
     const endpoint = delivery.endpoint
+    const db = dbFor(delivery.salonId)
     if (!endpoint.isActive || endpoint.failureCount >= DEAD_AFTER_FAILURES) {
-      await unsafeDb.webhookDelivery.update({
+      await db.webhookDelivery.update({
         where: { id: delivery.id },
         data: {
           status: 'FAILED',
@@ -366,6 +381,10 @@ export async function deliverWebhooks(limit = 50): Promise<{ sent: number; faile
     })
 
     try {
+      // Re-check at delivery time — an endpoint URL must not become an open
+      // proxy into the private network after DNS changes.
+      await assertPublicHttpsTarget(new URL(endpoint.url))
+
       const response = await fetch(endpoint.url, {
         method: 'POST',
         headers: {
@@ -384,8 +403,8 @@ export async function deliverWebhooks(limit = 50): Promise<{ sent: number; faile
       })
 
       if (response.ok) {
-        await unsafeDb.$transaction([
-          unsafeDb.webhookDelivery.update({
+        await db.$transaction([
+          db.webhookDelivery.update({
             where: { id: delivery.id },
             data: {
               status: 'DELIVERED',
@@ -395,7 +414,7 @@ export async function deliverWebhooks(limit = 50): Promise<{ sent: number; faile
               error: null,
             },
           }),
-          unsafeDb.webhookEndpoint.update({
+          db.webhookEndpoint.update({
             where: { id: endpoint.id },
             data: { lastDeliveredAt: new Date(), lastError: null, failureCount: 0 },
           }),
@@ -404,10 +423,10 @@ export async function deliverWebhooks(limit = 50): Promise<{ sent: number; faile
         continue
       }
 
-      await recordFailure(delivery.id, endpoint.id, `HTTP ${response.status}`, response.status)
+      await recordFailure(delivery.salonId, delivery.id, endpoint.id, `HTTP ${response.status}`, response.status)
       failed += 1
     } catch (err) {
-      await recordFailure(delivery.id, endpoint.id, (err as Error).message.slice(0, 500), null)
+      await recordFailure(delivery.salonId, delivery.id, endpoint.id, (err as Error).message.slice(0, 500), null)
       failed += 1
     }
   }
@@ -423,24 +442,26 @@ export async function deliverWebhooks(limit = 50): Promise<{ sent: number; faile
  * to do anything.
  */
 async function recordFailure(
+  salonId: string,
   deliveryId: string,
   endpointId: string,
   message: string,
   code: number | null,
 ): Promise<void> {
-  const delivery = await unsafeDb.webhookDelivery.update({
+  const db = dbFor(salonId)
+  const delivery = await db.webhookDelivery.update({
     where: { id: deliveryId },
     data: { attempts: { increment: 1 }, error: message, responseCode: code },
     select: { attempts: true },
   })
 
-  await unsafeDb.webhookEndpoint.update({
+  await db.webhookEndpoint.update({
     where: { id: endpointId },
     data: { lastError: message, failureCount: { increment: 1 } },
   })
 
   if (delivery.attempts >= 8) {
-    await unsafeDb.webhookDelivery.update({
+    await db.webhookDelivery.update({
       where: { id: deliveryId },
       data: { status: 'FAILED' },
     })
@@ -471,6 +492,7 @@ export async function addEndpoint(input: {
   url: string
   topics: WebhookTopic[]
 }): Promise<{ id: string; secret: string }> {
+  const db = dbFor(input.salonId)
   let parsed: URL
   try {
     parsed = new URL(input.url)
@@ -486,9 +508,11 @@ export async function addEndpoint(input: {
     throw new DomainError('INVALID_INPUT', 'The address has to start with https.')
   }
 
+  await assertPublicHttpsTarget(parsed)
+
   const secret = `whsec_${randomBytes(24).toString('base64url')}`
 
-  const endpoint = await unsafeDb.webhookEndpoint.create({
+  const endpoint = await db.webhookEndpoint.create({
     data: {
       salonId: input.salonId,
       url: parsed.toString(),
@@ -501,19 +525,71 @@ export async function addEndpoint(input: {
   return { id: endpoint.id, secret }
 }
 
+/** Block private / link-local / metadata targets (SSRF). Fail closed on DNS errors. */
+export async function assertPublicHttpsTarget(parsed: URL): Promise<void> {
+  if (parsed.protocol !== 'https:') {
+    throw new DomainError('INVALID_INPUT', 'The address has to start with https.')
+  }
+  const host = parsed.hostname.toLowerCase()
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
+    throw new DomainError('INVALID_INPUT', 'That address is not reachable from here.')
+  }
+
+  const literal = isIP(host)
+  if (literal && isPrivateIp(host)) {
+    throw new DomainError('INVALID_INPUT', 'That address is not reachable from here.')
+  }
+
+  if (!literal) {
+    // Test sandboxes often have no working DNS. Hostname/literal checks above
+    // still catch localhost and private IP strings; resolve in real runtimes.
+    if (process.env.NODE_ENV === 'test') return
+
+    let records: { address: string; family: number }[]
+    try {
+      records = await lookup(host, { all: true, verbatim: true })
+    } catch {
+      throw new DomainError('INVALID_INPUT', 'That address could not be resolved.')
+    }
+    if (records.length === 0 || records.some((r) => isPrivateIp(r.address))) {
+      throw new DomainError('INVALID_INPUT', 'That address is not reachable from here.')
+    }
+  }
+}
+
+function isPrivateIp(address: string): boolean {
+  const v4 = address.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])]
+    if (a === 10 || a === 127 || a === 0) return true
+    if (a === 169 && b === 254) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
+    return false
+  }
+  const normalised = address.toLowerCase()
+  if (normalised === '::1' || normalised === '0:0:0:0:0:0:0:1') return true
+  if (normalised.startsWith('fc') || normalised.startsWith('fd')) return true // ULA
+  if (normalised.startsWith('fe80')) return true // link-local
+  return false
+}
+
 export async function removeEndpoint(salonId: string, endpointId: string): Promise<void> {
-  const endpoint = await unsafeDb.webhookEndpoint.findFirst({
+  const db = dbFor(salonId)
+  const endpoint = await db.webhookEndpoint.findFirst({
     where: { id: endpointId, salonId },
     select: { id: true },
   })
   if (!endpoint) throw new DomainError('NOT_FOUND', 'That endpoint no longer exists.')
 
-  await unsafeDb.webhookEndpoint.delete({ where: { id: endpoint.id } })
+  await db.webhookEndpoint.delete({ where: { id: endpoint.id } })
 }
 
 /** What is registered, and how it has been behaving. Never the secret. */
 export async function listEndpoints(salonId: string) {
-  const endpoints = await unsafeDb.webhookEndpoint.findMany({
+  const db = dbFor(salonId)
+  const endpoints = await db.webhookEndpoint.findMany({
     where: { salonId },
     orderBy: { createdAt: 'asc' },
     select: {
@@ -561,6 +637,7 @@ export async function syncExternalBusy(input: {
   days?: number
   today?: string
 }): Promise<{ mirrored: number }> {
+  const db = dbFor(input.salonId)
   const days = input.days ?? SYNC_DAYS
   const start = input.today ?? new Date().toISOString().slice(0, 10)
   const source = `google:${input.stylistProfileId}`
@@ -581,9 +658,9 @@ export async function syncExternalBusy(input: {
     )
   }
 
-  await unsafeDb.$transaction([
-    unsafeDb.externalBusy.deleteMany({ where: { salonId: input.salonId, source } }),
-    unsafeDb.externalBusy.createMany({
+  await db.$transaction([
+    db.externalBusy.deleteMany({ where: { salonId: input.salonId, source } }),
+    db.externalBusy.createMany({
       data: intervals.map((interval) => ({
         salonId: input.salonId,
         stylistProfileId: input.stylistProfileId,
@@ -600,12 +677,13 @@ export async function syncExternalBusy(input: {
 // --- Connection management -----------------------------------------------------
 
 export async function listConnections(salonId: string) {
-  const connections = await unsafeDb.integrationConnection.findMany({
+  const db = dbFor(salonId)
+  const connections = await db.integrationConnection.findMany({
     where: { salonId },
     orderBy: [{ provider: 'asc' }, { createdAt: 'asc' }],
   })
 
-  const stylists = await unsafeDb.stylistProfile.findMany({
+  const stylists = await db.stylistProfile.findMany({
     where: { salonId },
     select: { id: true, displayName: true },
   })
@@ -626,7 +704,8 @@ export async function listConnections(salonId: string) {
 }
 
 export async function disconnect(salonId: string, connectionId: string): Promise<void> {
-  const connection = await unsafeDb.integrationConnection.findFirst({
+  const db = dbFor(salonId)
+  const connection = await db.integrationConnection.findFirst({
     where: { id: connectionId, salonId },
     select: { id: true },
   })
@@ -637,7 +716,7 @@ export async function disconnect(salonId: string, connectionId: string): Promise
    * database is how a "disconnected" integration turns out to still have
    * working credentials months later.
    */
-  await unsafeDb.integrationConnection.update({
+  await db.integrationConnection.update({
     where: { id: connection.id },
     data: {
       isActive: false,

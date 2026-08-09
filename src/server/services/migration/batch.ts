@@ -1,6 +1,5 @@
 import type { Prisma } from '@prisma/client'
-import { unsafeDb } from '@/server/db/client'
-import { dbFor } from '@/server/db/tenant-client'
+import { dbFor, type TenantTx } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { localTimeToEpochMinutes, fromEpochMinutes } from '@/domain/scheduling/zoned'
 import { invalidateAvailabilityCache } from '@/server/services/scheduling/loader'
@@ -145,8 +144,8 @@ export async function commitBatch(
   }
 
   try {
-    await unsafeDb.$transaction(
-      async (tx: Prisma.TransactionClient) => {
+    await db.$transaction(
+      async (tx) => {
         /*
          * Clients first, in one pass, because the same person appears on every
          * one of their appointments. A file of four thousand appointment rows
@@ -490,7 +489,7 @@ export async function undoBatch(
     })
   ).map((row) => row.clientProfileId)
 
-  const result = await unsafeDb.$transaction(async (tx: Prisma.TransactionClient) => {
+  const result = await db.$transaction(async (tx) => {
     /*
      * Who is spared is decided inside the transaction, not before it. Deciding
      * on a snapshot and acting a moment later is how a client who books in
@@ -635,7 +634,7 @@ export async function markSourceDeleted(salonId: string, batchId: string): Promi
  * have been consulted, or they have been billed.
  */
 async function stillInUse(
-  db: Prisma.TransactionClient,
+  db: TenantTx,
   salonId: string,
   batchId: string,
   clientIds: readonly string[],
@@ -729,7 +728,7 @@ async function stillInUse(
  * which it was.
  */
 async function writeImportedConsent(
-  tx: Prisma.TransactionClient,
+  tx: TenantTx,
   salonId: string,
   clientProfileId: string,
 ): Promise<void> {
@@ -761,7 +760,7 @@ async function writeImportedConsent(
  * carries a wrong lifetime figure forever, with nothing to compare it against.
  */
 async function recount(
-  tx: Prisma.TransactionClient,
+  tx: TenantTx,
   salonId: string,
   clientIds: readonly string[],
 ): Promise<void> {
@@ -794,7 +793,7 @@ async function recount(
  * duplicate the owner merges later is recoverable; a wrong merge is not.
  */
 async function findExistingClient(
-  tx: Prisma.TransactionClient,
+  tx: TenantTx,
   salonId: string,
   row: RawImportRow,
 ): Promise<string | null> {

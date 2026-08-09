@@ -3,60 +3,123 @@ import { z } from 'zod'
 /**
  * Validated environment. Import this instead of touching `process.env`.
  *
- * The defaults here are deliberately complete: with no `.env` at all, every
- * adapter resolves to its mock and the platform runs end to end. Credentials
- * are only required when a port is explicitly switched to `real`.
+ * The defaults here are deliberately complete for development and test: with
+ * no `.env` at all, every adapter resolves to its mock and the platform runs
+ * end to end. Production refuses those defaults — mock adapters and known
+ * secrets must never ship.
  */
 
 const adapterMode = z.enum(['mock', 'real'])
 
-const serverSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-  TEST_DATABASE_URL: z.string().optional(),
+const DEV_AUTH_SECRET = 'dev-only-secret-change-me-in-production'
+const DEV_CRON_SECRET = 'dev-only-cron-secret'
 
-  AUTH_SECRET: z.string().min(8).default('dev-only-secret-change-me-in-production'),
-  AUTH_TRUST_HOST: z.coerce.boolean().default(true),
+const serverSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+    TEST_DATABASE_URL: z.string().optional(),
 
-  ADAPTER_MODE: adapterMode.default('mock'),
-  PAYMENTS_ADAPTER: adapterMode.optional(),
-  SMS_ADAPTER: adapterMode.optional(),
-  EMAIL_ADAPTER: adapterMode.optional(),
-  STORAGE_ADAPTER: adapterMode.optional(),
-  AI_ADAPTER: adapterMode.optional(),
-  CALENDAR_ADAPTER: adapterMode.optional(),
-  ESIGN_ADAPTER: adapterMode.optional(),
+    AUTH_SECRET: z.string().min(8).default(DEV_AUTH_SECRET),
+    AUTH_TRUST_HOST: z.coerce.boolean().default(true),
 
-  AI_ENABLED: z.coerce.boolean().default(true),
-  MOCK_STORAGE_DIR: z.string().default('./.uploads'),
+    ADAPTER_MODE: adapterMode.default('mock'),
+    PAYMENTS_ADAPTER: adapterMode.optional(),
+    SMS_ADAPTER: adapterMode.optional(),
+    EMAIL_ADAPTER: adapterMode.optional(),
+    STORAGE_ADAPTER: adapterMode.optional(),
+    AI_ADAPTER: adapterMode.optional(),
+    CALENDAR_ADAPTER: adapterMode.optional(),
+    ESIGN_ADAPTER: adapterMode.optional(),
 
-  CRON_SECRET: z.string().default('dev-only-cron-secret'),
-  WORKER_POLL_MS: z.coerce.number().int().positive().default(2000),
-  WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(10),
+    AI_ENABLED: z.coerce.boolean().default(true),
+    MOCK_STORAGE_DIR: z.string().default('./.uploads'),
 
-  // Mock fault injection — exercises failure paths in dev and CI.
-  AI_MOCK_LATENCY_MS: z.coerce.number().int().min(0).default(0),
-  AI_MOCK_FAILURE_RATE: z.coerce.number().min(0).max(1).default(0),
+    CRON_SECRET: z.string().default(DEV_CRON_SECRET),
+    WORKER_POLL_MS: z.coerce.number().int().positive().default(2000),
+    WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(10),
 
-  STRIPE_SECRET_KEY: z.string().optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().optional(),
-  TWILIO_ACCOUNT_SID: z.string().optional(),
-  TWILIO_AUTH_TOKEN: z.string().optional(),
-  TWILIO_FROM_NUMBER: z.string().optional(),
-  RESEND_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().default('Salon <noreply@example.com>'),
-  S3_BUCKET: z.string().optional(),
-  S3_REGION: z.string().default('us-east-1'),
-  S3_ACCESS_KEY_ID: z.string().optional(),
-  S3_SECRET_ACCESS_KEY: z.string().optional(),
-  S3_ENDPOINT: z.string().optional(),
-  ANTHROPIC_API_KEY: z.string().optional(),
-  ANTHROPIC_MODEL: z.string().default('claude-sonnet-5'),
-  ANTHROPIC_MODEL_HEAVY: z.string().default('claude-opus-5'),
-  GOOGLE_CLIENT_ID: z.string().optional(),
-  GOOGLE_CLIENT_SECRET: z.string().optional(),
-  GOOGLE_REDIRECT_URI: z.string().optional(),
-})
+    /**
+     * Playwright CI runs a production build against mock adapters. That is
+     * intentional and must be opted into — never set this in a real deploy.
+     */
+    E2E_ALLOW_MOCK: z.coerce.boolean().default(false),
+
+    // Mock fault injection — exercises failure paths in dev and CI.
+    AI_MOCK_LATENCY_MS: z.coerce.number().int().min(0).default(0),
+    AI_MOCK_FAILURE_RATE: z.coerce.number().min(0).max(1).default(0),
+
+    STRIPE_SECRET_KEY: z.string().optional(),
+    STRIPE_WEBHOOK_SECRET: z.string().optional(),
+    TWILIO_ACCOUNT_SID: z.string().optional(),
+    TWILIO_AUTH_TOKEN: z.string().optional(),
+    TWILIO_FROM_NUMBER: z.string().optional(),
+    RESEND_API_KEY: z.string().optional(),
+    EMAIL_FROM: z.string().default('Salon <noreply@example.com>'),
+    S3_BUCKET: z.string().optional(),
+    S3_REGION: z.string().default('us-east-1'),
+    S3_ACCESS_KEY_ID: z.string().optional(),
+    S3_SECRET_ACCESS_KEY: z.string().optional(),
+    S3_ENDPOINT: z.string().optional(),
+    ANTHROPIC_API_KEY: z.string().optional(),
+    ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-20250514'),
+    ANTHROPIC_MODEL_HEAVY: z.string().default('claude-opus-4-20250514'),
+    GOOGLE_CLIENT_ID: z.string().optional(),
+    GOOGLE_CLIENT_SECRET: z.string().optional(),
+    GOOGLE_REDIRECT_URI: z.string().optional(),
+  })
+  .superRefine((env, ctx) => {
+    if (env.NODE_ENV !== 'production') return
+
+    if (!env.AUTH_SECRET || env.AUTH_SECRET === DEV_AUTH_SECRET || env.AUTH_SECRET.length < 32) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['AUTH_SECRET'],
+        message: 'Production requires a strong AUTH_SECRET (32+ chars, not the dev default).',
+      })
+    }
+    if (!env.CRON_SECRET || env.CRON_SECRET === DEV_CRON_SECRET || env.CRON_SECRET.length < 32) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['CRON_SECRET'],
+        message: 'Production requires a strong CRON_SECRET (32+ chars, not the dev default).',
+      })
+    }
+    if (!env.E2E_ALLOW_MOCK) {
+      if (env.ADAPTER_MODE === 'mock') {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['ADAPTER_MODE'],
+          message: 'Production refuses ADAPTER_MODE=mock.',
+        })
+      }
+      const ports = [
+        'PAYMENTS_ADAPTER',
+        'SMS_ADAPTER',
+        'EMAIL_ADAPTER',
+        'STORAGE_ADAPTER',
+        'AI_ADAPTER',
+        'CALENDAR_ADAPTER',
+        'ESIGN_ADAPTER',
+      ] as const
+      for (const port of ports) {
+        if (env[port] === 'mock') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [port],
+            message: `Production refuses ${port}=mock.`,
+          })
+        }
+      }
+    }
+    if ((env.AI_ADAPTER ?? env.ADAPTER_MODE) === 'real' && !env.ANTHROPIC_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['ANTHROPIC_API_KEY'],
+        message: 'AI_ADAPTER=real requires ANTHROPIC_API_KEY.',
+      })
+    }
+  })
 
 const clientSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().default('http://localhost:3000'),
@@ -90,6 +153,11 @@ export function serverEnv(): ServerEnv {
   return cached
 }
 
+/** Test helper — drop the cache between cases that mutate process.env. */
+export function resetServerEnvCache(): void {
+  cached = null
+}
+
 export const clientEnv = clientSchema.parse({
   NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
   // Written out in full rather than read dynamically: Next inlines
@@ -113,4 +181,3 @@ export function adapterModeFor(port: PortName): 'mock' | 'real' {
   const override = env[PORT_OVERRIDE[port]] as 'mock' | 'real' | undefined
   return override ?? env.ADAPTER_MODE
 }
-

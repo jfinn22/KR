@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { serverEnv } from '@/env'
 import { JOB_REGISTRY } from '@/server/jobs/handlers'
@@ -12,6 +13,10 @@ export const dynamic = 'force-dynamic'
  * exists for hosts that cannot run one — a platform cron can hit these paths on
  * a timer instead. It only ENQUEUES; the work still happens in a worker, so a
  * request timeout can never truncate a job halfway.
+ *
+ * Prefer `Authorization: Bearer <CRON_SECRET>`. Query-string `?secret=` is
+ * still accepted for hosts that cannot set headers, but it leaks into access
+ * logs and referrers — do not use it when you have a choice.
  */
 export async function POST(request: Request, { params }: { params: Promise<{ job: string }> }) {
   const env = serverEnv()
@@ -19,7 +24,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
     request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ??
     new URL(request.url).searchParams.get('secret')
 
-  if (!provided || provided !== env.CRON_SECRET) {
+  if (!provided || !secretsEqual(provided, env.CRON_SECRET)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -46,4 +51,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ job
     reason: jobId === null ? 'already pending' : undefined,
     stats: await queueStats(),
   })
+}
+
+function secretsEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a)
+  const right = Buffer.from(b)
+  if (left.length !== right.length) return false
+  return timingSafeEqual(left, right)
 }

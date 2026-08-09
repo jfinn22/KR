@@ -1,4 +1,5 @@
 import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { paymentsPort } from '@/ports/registry'
 
@@ -51,8 +52,9 @@ export interface PlatformBillingView {
  * stylists and it allows one BEFORE they pick it, not after the save fails.
  */
 export async function platformBillingFor(salonId: string): Promise<PlatformBillingView | null> {
+  const db = dbFor(salonId)
   const [subscription, plans, locations, stylists] = await Promise.all([
-    unsafeDb.subscription.findUnique({
+    db.subscription.findUnique({
       where: { salonId },
       select: {
         planCode: true,
@@ -63,7 +65,7 @@ export async function platformBillingFor(salonId: string): Promise<PlatformBilli
         stripeSubscriptionId: true,
       },
     }),
-    unsafeDb.plan.findMany({
+    db.plan.findMany({
       orderBy: { sortOrder: 'asc' },
       select: {
         code: true,
@@ -77,8 +79,8 @@ export async function platformBillingFor(salonId: string): Promise<PlatformBilli
         stripePriceIdYearly: true,
       },
     }),
-    unsafeDb.location.count({ where: { salonId, isActive: true } }),
-    unsafeDb.stylistProfile.count({ where: { salonId, isActive: true } }),
+    db.location.count({ where: { salonId, isActive: true } }),
+    db.stylistProfile.count({ where: { salonId, isActive: true } }),
   ])
 
   if (!subscription) return null
@@ -130,12 +132,13 @@ export async function startPlatformSubscription(input: {
   yearly?: boolean
   contactEmail?: string | null
 }): Promise<{ subscriptionRef: string | null }> {
+  const db = dbFor(input.salonId)
   const [subscription, plan] = await Promise.all([
-    unsafeDb.subscription.findUnique({
+    db.subscription.findUnique({
       where: { salonId: input.salonId },
       select: { id: true, stripeCustomerId: true, stripeSubscriptionId: true },
     }),
-    unsafeDb.plan.findUnique({
+    db.plan.findUnique({
       where: { code: input.planCode as never },
       select: { code: true, stripePriceIdMonthly: true, stripePriceIdYearly: true },
     }),
@@ -164,7 +167,7 @@ export async function startPlatformSubscription(input: {
   const contactEmail =
     input.contactEmail ??
     (
-      await unsafeDb.salon.findUnique({
+      await db.salon.findUnique({
         where: { id: input.salonId },
         select: { contactEmail: true },
       })
@@ -187,7 +190,7 @@ export async function startPlatformSubscription(input: {
     idempotencyKey: `platform-sub:${input.salonId}:${plan.code}`,
   })
 
-  await unsafeDb.subscription.update({
+  await db.subscription.update({
     where: { salonId: input.salonId },
     data: {
       planCode: plan.code,
@@ -215,12 +218,13 @@ export async function choosePlatformPlan(input: {
   yearly?: boolean
   contactEmail?: string | null
 }): Promise<{ subscriptionRef: string | null; started: boolean }> {
+  const db = dbFor(input.salonId)
   const [subscription, plan] = await Promise.all([
-    unsafeDb.subscription.findUnique({
+    db.subscription.findUnique({
       where: { salonId: input.salonId },
       select: { id: true, planCode: true, stripeSubscriptionId: true },
     }),
-    unsafeDb.plan.findUnique({
+    db.plan.findUnique({
       where: { code: input.planCode as never },
       select: {
         code: true,
@@ -248,8 +252,8 @@ export async function choosePlatformPlan(input: {
    * only way the owner knows what to actually do about it.
    */
   const [locations, stylists] = await Promise.all([
-    unsafeDb.location.count({ where: { salonId: input.salonId, isActive: true } }),
-    unsafeDb.stylistProfile.count({ where: { salonId: input.salonId, isActive: true } }),
+    db.location.count({ where: { salonId: input.salonId, isActive: true } }),
+    db.stylistProfile.count({ where: { salonId: input.salonId, isActive: true } }),
   ])
   if (locations > plan.maxLocations || stylists > plan.maxStylists) {
     throw new DomainError(
@@ -272,7 +276,7 @@ export async function choosePlatformPlan(input: {
     idempotencyKey: `platform-plan:${input.salonId}:${plan.code}:${input.yearly ? 'y' : 'm'}`,
   })
 
-  await unsafeDb.subscription.update({
+  await db.subscription.update({
     where: { salonId: input.salonId },
     data: {
       planCode: plan.code,
@@ -307,13 +311,14 @@ export async function applyPlatformSubscriptionEvent(event: {
   })
   if (!subscription) return { handled: false }
 
+  const db = dbFor(subscription.salonId)
   const status = event.type.endsWith('.deleted')
     ? 'CANCELLED'
     : event.type.includes('payment_failed')
       ? 'PAST_DUE'
       : 'ACTIVE'
 
-  await unsafeDb.subscription.update({
+  await db.subscription.update({
     where: { id: subscription.id },
     data: {
       status: status as never,

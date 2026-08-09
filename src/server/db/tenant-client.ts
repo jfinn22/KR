@@ -68,6 +68,18 @@ function scopeWhere(
     existingAnd === undefined ? [] : Array.isArray(existingAnd) ? existingAnd : [existingAnd]
 
   const { salonId: _drop, ...rest } = base
+
+  /*
+   * findUnique/update/delete require a unique selector. Models like
+   * SalonSettings and Subscription are unique on salonId alone — stripping it
+   * leaves an empty where and Prisma rejects the call. Keep salonId when it is
+   * the only concrete selector (or when shared-library OR needs the stamp).
+   */
+  const concreteKeys = Object.keys(rest).filter((key) => key !== 'AND' && key !== 'OR' && key !== 'NOT')
+  if (concreteKeys.length === 0) {
+    return { salonId, AND: [...and, tenantFilter] }
+  }
+
   return { ...rest, AND: [...and, tenantFilter] }
 }
 
@@ -79,6 +91,28 @@ function stampData(model: string, operation: string, data: unknown, salonId: str
   const obj = data as AnyArgs
   assertMatches(model, operation, salonId, obj.salonId)
   return { ...obj, salonId }
+}
+
+/**
+ * Updates must not move a row between tenants, but must not inject `salonId`
+ * into relation-style `UpdateInput` either — Prisma rejects the scalar when
+ * the payload uses `savedCard: { connect }` / `salon: { connect }`.
+ */
+function guardUpdateData(model: string, operation: string, data: unknown, salonId: string): unknown {
+  if (Array.isArray(data)) {
+    return data.map((d) => guardUpdateData(model, operation, d, salonId))
+  }
+  if (data === null || typeof data !== 'object') return data
+  const obj = data as AnyArgs
+  assertMatches(model, operation, salonId, obj.salonId)
+  const salon = obj.salon
+  if (salon && typeof salon === 'object' && salon !== null) {
+    const connect = (salon as AnyArgs).connect as AnyArgs | undefined
+    if (connect && typeof connect.id === 'string') {
+      assertMatches(model, operation, salonId, connect.id)
+    }
+  }
+  return obj
 }
 
 /**
@@ -107,9 +141,9 @@ export function dbFor(salonId: string) {
             if (operation === 'upsert') {
               next.create = stampData(model, operation, next.create, salonId)
               // `update` on an upsert must not move a row between tenants.
-              if (next.update) next.update = stampData(model, operation, next.update, salonId)
+              if (next.update) next.update = guardUpdateData(model, operation, next.update, salonId)
             } else if (next.data) {
-              next.data = stampData(model, operation, next.data, salonId)
+              next.data = guardUpdateData(model, operation, next.data, salonId)
             }
           } else if (CREATE_OPS.has(operation)) {
             next.data = stampData(model, operation, next.data, salonId)
@@ -123,6 +157,21 @@ export function dbFor(salonId: string) {
 }
 
 export type TenantDb = ReturnType<typeof dbFor>
+
+/**
+ * Interactive transaction client from `dbFor(salonId).$transaction(async (tx) => …)`.
+ *
+ * The extended client's `tx` is not assignable to `Prisma.TransactionClient`, so
+ * helpers that accept a transaction must take this (or a structural subset).
+ */
+export type TenantTx = TenantDb['$transaction'] extends {
+  <R>(
+    fn: (client: infer C) => Promise<R>,
+    options?: { maxWait?: number; timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel },
+  ): Promise<R>
+}
+  ? C
+  : never
 
 /** Re-exported so repositories can build typed filters without importing Prisma. */
 export { Prisma }

@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import type { EvaluationResult } from '@/domain/consultation/types'
 import { consultationPhotos, inspirationPhotos, journeyFor } from './photos'
@@ -45,10 +45,11 @@ export async function reviewQueue(
   salonId: string,
   opts: { filter?: QueueFilter; stylistProfileId?: string | null } = {},
 ): Promise<QueueItem[]> {
+  const db = dbFor(salonId)
   const filter = opts.filter ?? 'WAITING'
   const now = new Date()
 
-  const consultations = await unsafeDb.consultation.findMany({
+  const consultations = await db.consultation.findMany({
     where: {
       salonId,
       status: { in: [...OPEN_STATUSES] },
@@ -74,7 +75,7 @@ export async function reviewQueue(
   })
 
   const [evaluations, services, stylists] = await Promise.all([
-    unsafeDb.ruleEvaluation.findMany({
+    db.ruleEvaluation.findMany({
       where: {
         id: {
           in: consultations.map((c) => c.latestEvaluationId).filter((id): id is string => !!id),
@@ -82,13 +83,13 @@ export async function reviewQueue(
       },
       select: { id: true, outputSnapshotJson: true },
     }),
-    unsafeDb.service.findMany({
+    db.service.findMany({
       where: { salonId, id: { in: consultations.flatMap((c) => c.requestedServiceIds) } },
       select: { id: true, name: true },
     }),
     // requestedStylistId is a plain column, not a relation — the consultation
     // deliberately does not depend on the stylist row still existing.
-    unsafeDb.stylistProfile.findMany({
+    db.stylistProfile.findMany({
       where: { salonId },
       select: { id: true, displayName: true },
     }),
@@ -168,7 +169,8 @@ function byUrgency(a: QueueItem, b: QueueItem): number {
  * screen ends up feeling slow enough to avoid.
  */
 export async function reviewDetail(salonId: string, consultationId: string) {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const db = dbFor(salonId)
+  const consultation = await db.consultation.findFirst({
     where: { id: consultationId, salonId },
     include: {
       answers: true,
@@ -187,24 +189,24 @@ export async function reviewDetail(salonId: string, consultationId: string) {
 
   const [services, photos, inspiration, flags, evaluationRow, priorVisits, heldBy] =
     await Promise.all([
-    unsafeDb.service.findMany({
+    db.service.findMany({
       where: { salonId, id: { in: consultation.requestedServiceIds } },
       include: { phases: { orderBy: { sequence: 'asc' } } },
     }),
     consultationPhotos(salonId, consultationId),
     inspirationPhotos(salonId, consultationId),
-    unsafeDb.riskFlag.findMany({
+    db.riskFlag.findMany({
       where: { salonId, consultationId },
       orderBy: { severity: 'asc' },
     }),
     consultation.latestEvaluationId
-      ? unsafeDb.ruleEvaluation.findUnique({
+      ? db.ruleEvaluation.findUnique({
           where: { id: consultation.latestEvaluationId },
           select: { id: true, outputSnapshotJson: true, rulesetVersion: true, createdAt: true },
         })
       : null,
     // What actually happened last time beats any estimate.
-    unsafeDb.appointment.findMany({
+    db.appointment.findMany({
       where: {
         salonId,
         clientProfileId: consultation.clientProfileId,
@@ -223,7 +225,7 @@ export async function reviewDetail(salonId: string, consultationId: string) {
      * worth a migration.
      */
     consultation.requestedStylistId
-      ? unsafeDb.stylistProfile.findFirst({
+      ? db.stylistProfile.findFirst({
           where: { id: consultation.requestedStylistId, salonId },
           select: { id: true, displayName: true },
         })
@@ -281,7 +283,8 @@ export async function claimForReview(
   consultationId: string,
   stylistProfileId: string | null,
 ): Promise<void> {
-  await unsafeDb.consultation.updateMany({
+  const db = dbFor(salonId)
+  await db.consultation.updateMany({
     where: { id: consultationId, salonId, status: 'SUBMITTED' },
     data: {
       status: 'IN_REVIEW',
@@ -304,7 +307,8 @@ export async function resolveFlag(input: {
   userId: string
   reason?: string | null
 }): Promise<void> {
-  const flag = await unsafeDb.riskFlag.findFirst({
+  const db = dbFor(input.salonId)
+  const flag = await db.riskFlag.findFirst({
     where: { id: input.flagId, salonId: input.salonId },
     select: { id: true, blocksOnlineBooking: true, severity: true },
   })
@@ -317,7 +321,7 @@ export async function resolveFlag(input: {
     )
   }
 
-  await unsafeDb.riskFlag.update({
+  await db.riskFlag.update({
     where: { id: flag.id },
     data: {
       status: input.status,
@@ -334,14 +338,15 @@ export async function resolveFlag(input: {
 
 /** How the queue is doing, for the header and the owner's dashboard. */
 export async function queueStats(salonId: string) {
+  const db = dbFor(salonId)
   const now = new Date()
 
   const [waiting, overdue, blocked] = await Promise.all([
-    unsafeDb.consultation.count({ where: { salonId, status: { in: [...OPEN_STATUSES] } } }),
-    unsafeDb.consultation.count({
+    db.consultation.count({ where: { salonId, status: { in: [...OPEN_STATUSES] } } }),
+    db.consultation.count({
       where: { salonId, status: { in: [...OPEN_STATUSES] }, slaDueAt: { lt: now } },
     }),
-    unsafeDb.riskFlag.count({
+    db.riskFlag.count({
       where: { salonId, status: 'OPEN', blocksOnlineBooking: true },
     }),
   ])

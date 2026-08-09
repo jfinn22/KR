@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { describeShade } from '@/domain/hair/tone'
 import type { EvaluationResult } from '@/domain/consultation/types'
@@ -128,7 +128,8 @@ export async function handoffCard(
   salonId: string,
   appointmentId: string,
 ): Promise<HandoffCard> {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const db = dbFor(salonId)
+  const appointment = await db.appointment.findFirst({
     where: { id: appointmentId, salonId },
     include: {
       clientProfile: {
@@ -172,7 +173,7 @@ export async function handoffCard(
   const [flags, requirements, evaluationRow, patchTest, lastFormula, references, photos] =
     await Promise.all([
       consultationId
-        ? unsafeDb.riskFlag.findMany({
+        ? db.riskFlag.findMany({
             /*
              * RESOLVED is excluded, and it is the one exclusion that matters.
              * A flag somebody dealt with is not a thing to warn about, and a
@@ -197,21 +198,21 @@ export async function handoffCard(
         : Promise.resolve([]),
 
       consultationId
-        ? unsafeDb.preRequirement.findMany({
+        ? db.preRequirement.findMany({
             where: { salonId, consultationId, status: 'PENDING' },
             select: { kind: true, rationale: true, dueBefore: true },
           })
         : Promise.resolve([]),
 
       consultationId
-        ? unsafeDb.consultation
+        ? db.consultation
             .findUnique({
               where: { id: consultationId },
               select: { latestEvaluationId: true },
             })
             .then((c) =>
               c?.latestEvaluationId
-                ? unsafeDb.ruleEvaluation.findUnique({
+                ? db.ruleEvaluation.findUnique({
                     where: { id: c.latestEvaluationId },
                     select: { outputSnapshotJson: true },
                   })
@@ -227,7 +228,7 @@ export async function handoffCard(
        * information — and on a rebook it would be empty and look like a client
        * who had never been coloured.
        */
-      unsafeDb.formula.findFirst({
+      db.formula.findFirst({
         where: {
           salonId,
           clientProfileId: appointment.clientProfileId,
@@ -278,7 +279,7 @@ export async function handoffCard(
    * on a blow-dry would be the boy who cried wolf, and a stylist who learns to
    * dismiss this panel will dismiss it on the day it matters.
    */
-  const chemical = await unsafeDb.service.count({
+  const chemical = await db.service.count({
     where: {
       salonId,
       id: { in: appointment.services.map((row) => row.serviceId) },

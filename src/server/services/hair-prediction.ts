@@ -1,5 +1,4 @@
 import { dbFor } from '@/server/db/tenant-client'
-import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
 import { colourKindOf, predictFade, type FadeInputs, type FadePrediction } from '@/domain/hair/fade'
 
@@ -163,7 +162,8 @@ export async function updateHairProfile(
   clientProfileId: string,
   update: HairProfileUpdate,
 ): Promise<void> {
-  const client = await unsafeDb.clientProfile.findFirst({
+  const db = dbFor(salonId)
+  const client = await db.clientProfile.findFirst({
     where: { id: clientProfileId, salonId },
     select: { id: true },
   })
@@ -174,7 +174,7 @@ export async function updateHairProfile(
    * no profile row — and the desk should be able to write down what somebody
    * says about their hair without starting a consultation to do it.
    */
-  await unsafeDb.hairProfile.upsert({
+  await db.hairProfile.upsert({
     where: { clientProfileId },
     create: { salonId, clientProfileId, ...cleaned(update) },
     update: cleaned(update),
@@ -193,6 +193,7 @@ export async function noteColourApplied(
   clientProfileId: string,
   input: { at: Date; purpose: string; developerVolume: number | null },
 ): Promise<void> {
+  const db = dbFor(salonId)
   const kind = colourKindOf(input.purpose, input.developerVolume)
   if (kind === null) return
 
@@ -203,7 +204,7 @@ export async function noteColourApplied(
         ? { bleachLastAt: input.at, hasBleach: true, salonColorLastAt: input.at, hasSalonColor: true }
         : { salonColorLastAt: input.at, hasSalonColor: true }
 
-  await unsafeDb.hairProfile.upsert({
+  await db.hairProfile.upsert({
     where: { clientProfileId },
     create: { salonId, clientProfileId, ...data, lastChemicalServiceAt: input.at },
     update: { ...data, lastChemicalServiceAt: input.at },

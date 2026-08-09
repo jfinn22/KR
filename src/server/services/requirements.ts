@@ -1,4 +1,3 @@
-import { unsafeDb } from '@/server/db/client'
 import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 
@@ -74,6 +73,7 @@ export async function recordStrandTest(input: {
   decision: 'PROCEED' | 'MODIFY' | 'ABORT'
   now?: Date
 }): Promise<{ strandTestId: string; requirementStatus: string | null }> {
+  const db = dbFor(input.salonId)
   const now = input.now ?? new Date()
 
   const client = await dbFor(input.salonId).clientProfile.findFirst({
@@ -82,7 +82,7 @@ export async function recordStrandTest(input: {
   })
   if (!client) throw new DomainError('NOT_FOUND', 'That client is not here.')
 
-  return unsafeDb.$transaction(async (tx) => {
+  return db.$transaction(async (tx) => {
     const test = await tx.strandTest.create({
       data: {
         salonId: input.salonId,
@@ -149,7 +149,8 @@ export async function waiveRequirement(input: {
   waivedByUserId: string
   reason: string
 }): Promise<{ status: string }> {
-  const waived = await unsafeDb.preRequirement.updateMany({
+  const db = dbFor(input.salonId)
+  const waived = await db.preRequirement.updateMany({
     where: { id: input.requirementId, salonId: input.salonId, status: 'PENDING' },
     data: {
       status: 'WAIVED',

@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import type { PhaseChain } from '@/domain/scheduling/types'
 import { bookFromHold, createHold } from './booking'
@@ -49,7 +49,8 @@ function consultChain(minutes = CONSULT_MINUTES): PhaseChain {
 }
 
 async function loadInvite(salonId: string, consultationId: string) {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const db = dbFor(salonId)
+  const consultation = await db.consultation.findFirst({
     where: { id: consultationId, salonId },
     select: {
       id: true,
@@ -67,7 +68,8 @@ async function loadInvite(salonId: string, consultationId: string) {
 
 /** Whether there is an invitation to show, and what it says. */
 export async function consultInvite(salonId: string, consultationId: string) {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const db = dbFor(salonId)
+  const consultation = await db.consultation.findFirst({
     where: { id: consultationId, salonId, status: 'NEEDS_IN_PERSON' },
     select: { id: true, requestedStylistId: true },
   })
@@ -75,17 +77,17 @@ export async function consultInvite(salonId: string, consultationId: string) {
 
   const [stylist, review, booked] = await Promise.all([
     consultation.requestedStylistId
-      ? unsafeDb.stylistProfile.findUnique({
+      ? db.stylistProfile.findUnique({
           where: { id: consultation.requestedStylistId },
           select: { displayName: true },
         })
       : Promise.resolve(null),
-    unsafeDb.consultationReview.findFirst({
+    db.consultationReview.findFirst({
       where: { consultationId: consultation.id, salonId },
       orderBy: { decidedAt: 'desc' },
       select: { notesToClient: true },
     }),
-    unsafeDb.appointment.findFirst({
+    db.appointment.findFirst({
       where: {
         salonId,
         consultationId: consultation.id,
@@ -140,9 +142,10 @@ export async function bookConsultAppointment(input: {
   timeZone: string
   now?: Date
 }): Promise<{ appointmentId: string; startsAt: Date; endsAt: Date }> {
+  const db = dbFor(input.salonId)
   const consultation = await loadInvite(input.salonId, input.consultationId)
 
-  const existing = await unsafeDb.appointment.findFirst({
+  const existing = await db.appointment.findFirst({
     where: {
       salonId: input.salonId,
       consultationId: consultation.id,
@@ -218,7 +221,8 @@ export async function bookConsultAppointment(input: {
 }
 
 async function defaultLocationId(salonId: string): Promise<string> {
-  const location = await unsafeDb.location.findFirst({
+  const db = dbFor(salonId)
+  const location = await db.location.findFirst({
     where: { salonId, isActive: true },
     orderBy: { createdAt: 'asc' },
     select: { id: true },

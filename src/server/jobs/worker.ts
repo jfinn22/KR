@@ -58,7 +58,15 @@ async function run(job: ClaimedJob): Promise<void> {
     await withTimeout(definition.timeoutMs, () => definition.handler(payload))
     await complete(job.id)
   } catch (err) {
-    log(`job ${job.type} failed`, err instanceof Error ? err.message : err)
+    const message = err instanceof Error ? err.message : String(err)
+    log(`job ${job.type} failed`, message)
+    /*
+     * A timeout does not cancel the handler — Promise.race leaves it running.
+     * Re-queueing a side-effecting job (SMS, webhook) after a timeout is how
+     * clients get two texts. Mark timed-out jobs failed without further
+     * attempts when the definition is at its last try; otherwise rely on each
+     * handler's own idempotency (dedupe keys, claimed outbox rows).
+     */
     await fail(job, err)
   } finally {
     clearInterval(heartbeat)

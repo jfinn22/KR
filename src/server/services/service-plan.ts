@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { buildChain, chainDuration } from '@/domain/scheduling/chain'
 import { isNarrowed, type BookingWindow } from '@/domain/scheduling/window'
@@ -81,7 +81,8 @@ const DECISION_TO_STATUS: Record<ReviewDecision, string> = {
 export async function reviewConsultation(
   input: ApproveInput,
 ): Promise<{ status: string; servicePlanId: string | null }> {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const db = dbFor(input.salonId)
+  const consultation = await db.consultation.findFirst({
     where: { id: input.consultationId, salonId: input.salonId },
     select: {
       id: true,
@@ -101,7 +102,7 @@ export async function reviewConsultation(
     throw new DomainError('CONFLICT', 'This consultation has not been evaluated yet.')
   }
 
-  const evaluationRow = await unsafeDb.ruleEvaluation.findUnique({
+  const evaluationRow = await db.ruleEvaluation.findUnique({
     where: { id: consultation.latestEvaluationId },
     select: { id: true, outputSnapshotJson: true },
   })
@@ -136,8 +137,8 @@ export async function reviewConsultation(
           (await assignCapableStylist(input.salonId, consultation.requestedServiceIds)))
         : null
 
-    await unsafeDb.$transaction([
-      unsafeDb.consultationReview.create({
+    await db.$transaction([
+      db.consultationReview.create({
         data: {
           salonId: input.salonId,
           consultationId: consultation.id,
@@ -147,7 +148,7 @@ export async function reviewConsultation(
           notesToClient: input.notesToClient ?? null,
         },
       }),
-      unsafeDb.consultation.update({
+      db.consultation.update({
         where: { id: consultation.id },
         data: {
           status: status as never,
@@ -181,7 +182,7 @@ export async function reviewConsultation(
 
   const [services, settings] = await Promise.all([
     getServices(input.salonId, consultation.requestedServiceIds),
-    unsafeDb.salonSettings.findUnique({ where: { salonId: input.salonId } }),
+    db.salonSettings.findUnique({ where: { salonId: input.salonId } }),
   ])
 
   const schedulingSettings = schedulingSettingsFrom(settings)
@@ -228,7 +229,7 @@ export async function reviewConsultation(
 
   const planValidityDays = settings?.planValidityDays ?? 90
 
-  const servicePlanId = await unsafeDb.$transaction(async (tx) => {
+  const servicePlanId = await db.$transaction(async (tx) => {
     const plan = await tx.servicePlan.create({
       data: {
         salonId: input.salonId,
@@ -349,9 +350,10 @@ export async function maybeAutoApprove(input: {
   consultationId: string
   evaluation: EvaluationResult
 }): Promise<string | null> {
+  const db = dbFor(input.salonId)
   if (input.evaluation.recommendedDecision !== 'AUTO_APPROVE_ELIGIBLE') return null
 
-  const settings = await unsafeDb.salonSettings.findUnique({
+  const settings = await db.salonSettings.findUnique({
     where: { salonId: input.salonId },
     select: { autoApproveSimple: true },
   })
@@ -370,7 +372,8 @@ export async function maybeAutoApprove(input: {
 
 /** A plan with its sessions and frozen chains, for the booking screen. */
 export async function loadPlan(salonId: string, servicePlanId: string) {
-  const plan = await unsafeDb.servicePlan.findFirst({
+  const db = dbFor(salonId)
+  const plan = await db.servicePlan.findFirst({
     where: { id: servicePlanId, salonId },
     include: {
       sessions: {
@@ -448,8 +451,9 @@ async function reviewerStylistId(
   salonId: string,
   reviewerUserId: string | null,
 ): Promise<string | null> {
+  const db = dbFor(salonId)
   if (!reviewerUserId) return null
-  const stylist = await unsafeDb.stylistProfile.findFirst({
+  const stylist = await db.stylistProfile.findFirst({
     where: { salonId, isActive: true, membership: { userId: reviewerUserId } },
     select: { id: true },
   })

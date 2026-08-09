@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { aiPort } from '@/ports/registry'
 import type { AiRequest, AiTask } from '@/ports/ai'
@@ -56,7 +56,8 @@ async function run<T>(input: {
   images?: AiRequest<T>['images']
   effort?: 'low' | 'medium' | 'high'
 }): Promise<{ value: T | null; suggestionId: string | null }> {
-  const settings = await unsafeDb.salonSettings.findUnique({
+  const db = dbFor(input.salonId)
+  const settings = await db.salonSettings.findUnique({
     where: { salonId: input.salonId },
     select: { aiEnabled: true, aiPhotoAnalysisEnabled: true },
   })
@@ -77,7 +78,7 @@ async function run<T>(input: {
     effort: input.effort,
   })
 
-  const suggestion = await unsafeDb.aiSuggestion.create({
+  const suggestion = await db.aiSuggestion.create({
     data: {
       salonId: input.salonId,
       kind: TASK_TO_KIND[input.task] as never,
@@ -114,9 +115,10 @@ async function recordUsage(
   salonId: string,
   result: { tokensIn: number; tokensOut: number; costMicros: number },
 ): Promise<void> {
+  const db = dbFor(salonId)
   const period = monthStart()
 
-  await unsafeDb.aiUsageCounter.upsert({
+  await db.aiUsageCounter.upsert({
     where: { salonId_period: { salonId, period } },
     create: {
       salonId,
@@ -220,6 +222,7 @@ export async function readInspiration(input: {
   imageBase64: string
   mediaType: 'image/jpeg' | 'image/png' | 'image/webp'
 }): Promise<{ suggestionId: string | null; applied: number }> {
+  const db = dbFor(input.salonId)
   const result = await run({
     salonId: input.salonId,
     task: 'inspiration.attributes',
@@ -232,13 +235,13 @@ export async function readInspiration(input: {
 
   if (!result.value) return { suggestionId: result.suggestionId, applied: 0 }
 
-  const photo = await unsafeDb.inspirationPhoto.findFirst({
+  const photo = await db.inspirationPhoto.findFirst({
     where: { id: input.inspirationPhotoId, salonId: input.salonId },
     select: { id: true },
   })
   if (!photo) return { suggestionId: result.suggestionId, applied: 0 }
 
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     // Replace only this source's rows. The client's own tags are the brief;
     // the model's reading sits alongside them and never on top.
     await tx.inspirationAttribute.deleteMany({
@@ -295,7 +298,6 @@ export async function explainFlag(input: {
 
   return result.value?.plainEnglish ?? null
 }
-
 
 const FormulaSchema = z.object({
   rationale: z.string().max(400),
@@ -354,14 +356,15 @@ export async function acceptSuggestion(input: {
   userId: string
   edited?: unknown
 }): Promise<void> {
-  const suggestion = await unsafeDb.aiSuggestion.findFirst({
+  const db = dbFor(input.salonId)
+  const suggestion = await db.aiSuggestion.findFirst({
     where: { id: input.suggestionId, salonId: input.salonId },
     select: { id: true, status: true },
   })
   if (!suggestion) throw new DomainError('NOT_FOUND', 'That suggestion no longer exists.')
   if (suggestion.status === 'ACCEPTED') return
 
-  await unsafeDb.aiSuggestion.update({
+  await db.aiSuggestion.update({
     where: { id: suggestion.id },
     data: {
       status: 'ACCEPTED',
@@ -377,7 +380,8 @@ export async function rejectSuggestion(input: {
   suggestionId: string
   userId: string
 }): Promise<void> {
-  await unsafeDb.aiSuggestion.updateMany({
+  const db = dbFor(input.salonId)
+  await db.aiSuggestion.updateMany({
     where: { id: input.suggestionId, salonId: input.salonId, status: 'DRAFT' },
     data: { status: 'REJECTED', reviewedByUserId: input.userId, reviewedAt: new Date() },
   })
@@ -385,11 +389,12 @@ export async function rejectSuggestion(input: {
 
 /** What the model cost this month, and how often its output was kept. */
 export async function aiUsage(salonId: string, at = new Date()) {
+  const db = dbFor(salonId)
   const period = monthStart(at)
 
   const [counter, byStatus] = await Promise.all([
-    unsafeDb.aiUsageCounter.findUnique({ where: { salonId_period: { salonId, period } } }),
-    unsafeDb.aiSuggestion.groupBy({
+    db.aiUsageCounter.findUnique({ where: { salonId_period: { salonId, period } } }),
+    db.aiSuggestion.groupBy({
       by: ['status'],
       where: { salonId, createdAt: { gte: period } },
       _count: true,

@@ -1,5 +1,5 @@
 import type { MessageChannel, NotificationTrigger } from '@prisma/client'
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { enqueue } from '@/server/jobs/queue'
 
 /**
@@ -85,9 +85,10 @@ export interface MaterialiseResult {
 }
 
 export async function materialiseNotification(input: MaterialiseInput): Promise<MaterialiseResult> {
+  const db = dbFor(input.salonId)
   const anchor = input.anchorAt ?? new Date()
 
-  const schedules = await unsafeDb.notificationSchedule.findMany({
+  const schedules = await db.notificationSchedule.findMany({
     where: { salonId: input.salonId, isEnabled: true, trigger: input.trigger },
   })
 
@@ -148,7 +149,8 @@ async function scheduleOne(row: {
   sendAt: Date
   dedupeKey: string
 }): Promise<void> {
-  await unsafeDb.scheduledNotification.upsert({
+  const db = dbFor(row.salonId)
+  await db.scheduledNotification.upsert({
     where: { dedupeKey: row.dedupeKey },
     create: {
       salonId: row.salonId,

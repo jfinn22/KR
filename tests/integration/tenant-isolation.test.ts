@@ -2,7 +2,11 @@ import { Prisma } from '@prisma/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { unsafeDb } from '@/server/db/client'
 import { CrossTenantError, dbFor } from '@/server/db/tenant-client'
-import { GLOBAL_MODELS, SHARED_LIBRARY_MODELS } from '@/server/db/model-registry'
+import {
+  GLOBAL_MODELS,
+  PLATFORM_NULLABLE_MODELS,
+  SHARED_LIBRARY_MODELS,
+} from '@/server/db/model-registry'
 
 /**
  * Tenant isolation is the claim with the worst blast radius if it is wrong, so
@@ -121,10 +125,33 @@ describe('model registry covers the whole schema', () => {
     }
   })
 
+  it('every platform-nullable model has a NULLABLE salonId', () => {
+    for (const name of PLATFORM_NULLABLE_MODELS) {
+      const model = models.find((m) => m.name === name)
+      expect(
+        model,
+        `${name} is registered as platform-nullable but is not in the schema`,
+      ).toBeDefined()
+      const field = model!.fields.find((f) => f.name === 'salonId')
+      expect(field, `${name}.salonId missing`).toBeDefined()
+      expect(field!.isRequired, `${name}.salonId must be nullable for platform rows`).toBe(false)
+      expect(
+        SHARED_LIBRARY_MODELS.has(name),
+        `${name} cannot be both shared-library and platform-nullable`,
+      ).toBe(false)
+    }
+  })
+
   it('every non-shared tenant model has a REQUIRED salonId', () => {
     const optional: string[] = []
     for (const model of models) {
-      if (GLOBAL_MODELS.has(model.name) || SHARED_LIBRARY_MODELS.has(model.name)) continue
+      if (
+        GLOBAL_MODELS.has(model.name) ||
+        SHARED_LIBRARY_MODELS.has(model.name) ||
+        PLATFORM_NULLABLE_MODELS.has(model.name)
+      ) {
+        continue
+      }
       const field = model.fields.find((f) => f.name === 'salonId')
       if (field && !field.isRequired) optional.push(model.name)
     }
@@ -234,6 +261,36 @@ describe('global and shared-library models', () => {
 
     await unsafeDb.consultationTemplate.deleteMany({
       where: { id: { in: ['iso_tpl_shared', 'iso_tpl_a', 'iso_tpl_b'] } },
+    })
+  })
+
+  it('platform-nullable rows with null salonId stay invisible to the tenant', async () => {
+    await unsafeDb.auditLog.create({
+      data: {
+        id: 'iso_audit_platform',
+        salonId: null,
+        actorType: 'SYSTEM',
+        action: 'iso.platform',
+        entityType: 'Subscription',
+      },
+    })
+    await unsafeDb.auditLog.create({
+      data: {
+        id: 'iso_audit_a',
+        salonId: A.salon,
+        actorType: 'SYSTEM',
+        action: 'iso.salon',
+        entityType: 'Appointment',
+      },
+    })
+
+    const visible = await dbFor(A.salon).auditLog.findMany({
+      where: { action: { startsWith: 'iso.' } },
+    })
+    expect(visible.map((row) => row.id)).toEqual(['iso_audit_a'])
+
+    await unsafeDb.auditLog.deleteMany({
+      where: { id: { in: ['iso_audit_platform', 'iso_audit_a'] } },
     })
   })
 })

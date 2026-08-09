@@ -1,6 +1,7 @@
 import NextAuth, { type NextAuthConfig } from 'next-auth'
 import Credentials from 'next-auth/providers/credentials'
 import { hashPassword, verifyPassword } from './password'
+import { loginRateLimited } from './login-rate-limit'
 import { z } from 'zod'
 import { unsafeDb } from '@/server/db/client'
 
@@ -22,7 +23,9 @@ const credentialsSchema = z.object({
 })
 
 export const authConfig: NextAuthConfig = {
-  session: { strategy: 'jwt', maxAge: 60 * 60 * 24 * 30 },
+  // Seven days: long enough for a stylist who opens the desk every morning,
+  // short enough that a stolen cookie is not a month-long lease.
+  session: { strategy: 'jwt', maxAge: 60 * 60 * 24 * 7 },
   pages: { signIn: '/login', error: '/login' },
   trustHost: true,
   providers: [
@@ -36,8 +39,13 @@ export const authConfig: NextAuthConfig = {
         const parsed = credentialsSchema.safeParse(raw)
         if (!parsed.success) return null
 
+        const email = parsed.data.email.toLowerCase().trim()
+        // Coarse IP is optional here — Credentials authorize has no Request.
+        // Email alone still caps password spray against one account.
+        if (loginRateLimited(email, 'credentials')) return null
+
         const user = await unsafeDb.user.findUnique({
-          where: { email: parsed.data.email.toLowerCase().trim() },
+          where: { email },
           select: { id: true, email: true, name: true, image: true, passwordHash: true },
         })
 

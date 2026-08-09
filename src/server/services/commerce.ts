@@ -1,5 +1,6 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor, type TenantTx } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
+import { MockPaymentsAdapter } from '@/ports/payments'
 import { paymentsPort } from '@/ports/registry'
 import { benefitsForBill, recordBenefitUse } from './memberships'
 import {
@@ -82,13 +83,14 @@ export async function quoteDeposit(input: {
   band: RiskBand
   serviceTotalCents: number
 }) {
+  const db = dbFor(input.salonId)
   const [services, salonDefault, settings] = await Promise.all([
-    unsafeDb.service.findMany({
+    db.service.findMany({
       where: { salonId: input.salonId, id: { in: [...input.serviceIds] } },
       select: { isChemical: true, containsDye: true, depositPolicy: true, baseComplexity: true },
     }),
-    unsafeDb.depositPolicy.findFirst({ where: { salonId: input.salonId, isDefault: true } }),
-    unsafeDb.salonSettings.findUnique({
+    db.depositPolicy.findFirst({ where: { salonId: input.salonId, isDefault: true } }),
+    db.salonSettings.findUnique({
       where: { salonId: input.salonId },
       select: { depositCapCents: true },
     }),
@@ -154,6 +156,7 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
   clientSecret: string | null
   status: string
 }> {
+  const db = dbFor(input.salonId)
   /*
    * The policy is loaded to be SNAPSHOTTED, not to decide the amount. What is
    * charged was decided by `quoteDeposit` at approval and frozen onto the plan;
@@ -171,11 +174,13 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
     return { depositId: null, amountCents: 0, clientSecret: null, status: 'NONE' }
   }
 
-  const existing = await unsafeDb.deposit.findFirst({
+  const existing = await db.deposit.findFirst({
     where: {
       salonId: input.salonId,
       clientProfileId: input.clientProfileId,
       servicePlanId: input.servicePlanId ?? null,
+      // Without appointmentId, a live deposit for visit A blocks visit B.
+      appointmentId: input.appointmentId ?? null,
       status: { in: ['PENDING', 'AUTHORIZED', 'CAPTURED'] },
     },
     orderBy: { createdAt: 'desc' },
@@ -193,7 +198,7 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
 
   const deposit =
     existing ??
-    (await unsafeDb.deposit.create({
+    (await db.deposit.create({
       data: {
         salonId: input.salonId,
         clientProfileId: input.clientProfileId,
@@ -208,7 +213,7 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
       },
     }))
 
-  const card = await unsafeDb.savedCard.findFirst({
+  const card = await db.savedCard.findFirst({
     where: { salonId: input.salonId, clientProfileId: input.clientProfileId, detachedAt: null },
     orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
     select: { id: true },
@@ -246,7 +251,7 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
     },
   })
 
-  await unsafeDb.deposit.update({
+  await db.deposit.update({
     where: { id: deposit.id },
     data: { providerIntentId: intent.id },
   })
@@ -274,15 +279,16 @@ async function resolveDepositPolicy(
   salonId: string,
   servicePlanId?: string | null,
 ): Promise<DepositPolicySnapshot> {
+  const db = dbFor(salonId)
   if (servicePlanId) {
-    const plan = await unsafeDb.servicePlan.findFirst({
+    const plan = await db.servicePlan.findFirst({
       where: { id: servicePlanId, salonId },
       select: { depositPolicy: true, depositPolicySnapshotJson: true },
     })
     if (plan?.depositPolicy) return toSnapshot(plan.depositPolicy)
   }
 
-  const fallback = await unsafeDb.depositPolicy.findFirst({
+  const fallback = await db.depositPolicy.findFirst({
     where: { salonId, isDefault: true },
   })
   return fallback ? toSnapshot(fallback) : { mode: 'NONE', refundableUntilHours: 48 }
@@ -360,7 +366,8 @@ export interface BuildInvoiceInput {
  * against a number that is not on the bill.
  */
 export async function priceInvoice(input: BuildInvoiceInput) {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const db = dbFor(input.salonId)
+  const appointment = await db.appointment.findFirst({
     where: { id: input.appointmentId, salonId: input.salonId },
     include: {
       services: { include: { service: { select: { name: true } } } },
@@ -482,7 +489,7 @@ export async function priceInvoice(input: BuildInvoiceInput) {
    * rather than the appointment, so it does not appear in `deposits` above.
    */
   const consultationDeposits = appointment.consultationId
-    ? await unsafeDb.deposit.findMany({
+    ? await db.deposit.findMany({
         where: {
           salonId: input.salonId,
           consultationId: appointment.consultationId,
@@ -524,6 +531,7 @@ export async function priceInvoice(input: BuildInvoiceInput) {
 export async function buildInvoice(
   input: BuildInvoiceInput,
 ): Promise<{ invoiceId: string; totalCents: number; dueCents: number }> {
+  const db = dbFor(input.salonId)
   const priced = await priceInvoice(input)
   const { appointment, rows, totals, depositHeld, heldDeposits, membership } = priced
 
@@ -547,7 +555,7 @@ export async function buildInvoice(
     await captureDeposit({ salonId: input.salonId, depositId: deposit.id })
   }
 
-  const invoice = await unsafeDb.$transaction(async (tx) => {
+  const invoice = await db.$transaction(async (tx) => {
     const number = await nextInvoiceNumber(tx, input.salonId)
 
     const created = await tx.invoice.create({
@@ -662,7 +670,7 @@ export async function buildInvoice(
  * if they somehow do.
  */
 async function nextInvoiceNumber(
-  tx: Parameters<Parameters<typeof unsafeDb.$transaction>[0]>[0],
+  tx: TenantTx,
   salonId: string,
 ): Promise<string> {
   const last = await tx.invoice.findFirst({
@@ -697,80 +705,320 @@ export interface TakePaymentInput {
   idempotencyKey?: string
 }
 
-export async function takePayment(
-  input: TakePaymentInput,
-): Promise<{ paymentId: string; paidCents: number; remainingCents: number }> {
-  const invoice = await unsafeDb.invoice.findFirst({
-    where: { id: input.invoiceId, salonId: input.salonId },
-    select: { id: true, clientProfileId: true, totalCents: true, paidCents: true, status: true },
+export interface TakePaymentResult {
+  paymentId: string
+  paidCents: number
+  remainingCents: number
+  status: 'SUCCEEDED' | 'PENDING'
+  /** Present when the browser (or a terminal) still has to finish the charge. */
+  clientSecret: string | null
+}
+
+function invoiceStatusFor(paidCents: number, totalCents: number): 'PAID' | 'PARTIALLY_PAID' | 'ISSUED' {
+  if (paidCents <= 0) return 'ISSUED'
+  if (paidCents >= totalCents) return 'PAID'
+  return 'PARTIALLY_PAID'
+}
+
+/**
+ * Finish a PENDING till payment in mock/dev when there is no Stripe.js form.
+ *
+ * Real providers confirm in the browser; the mock has nobody to talk to, so
+ * the till calls this after takePayment returns a clientSecret with no
+ * publishable key configured.
+ */
+export async function confirmPendingTillPayment(input: {
+  salonId: string
+  paymentId: string
+}): Promise<TakePaymentResult> {
+  const db = dbFor(input.salonId)
+  const payment = await db.payment.findFirst({
+    where: { id: input.paymentId, salonId: input.salonId },
   })
-  if (!invoice) throw new DomainError('NOT_FOUND', 'That invoice no longer exists.')
-  if (invoice.status === 'PAID') throw new DomainError('CONFLICT', 'This bill is already settled.')
+  if (!payment) throw new DomainError('NOT_FOUND', 'That payment no longer exists.')
+  if (payment.status === 'SUCCEEDED') {
+    return applySucceededTillPayment(input)
+  }
+  if (payment.status !== 'PENDING' || !payment.providerRef) {
+    throw new DomainError('CONFLICT', 'That payment is not waiting to be confirmed.')
+  }
+
+  const port = paymentsPort()
+  if (!(port instanceof MockPaymentsAdapter)) {
+    throw new DomainError(
+      'CONFLICT',
+      'Finish this card payment in the card form — it cannot be confirmed from here.',
+    )
+  }
+  port.confirmTestIntent(payment.providerRef)
+  return applySucceededTillPayment(input)
+}
+
+/** Apply a succeeded till payment to its invoice under a row lock. */
+export async function applySucceededTillPayment(input: {
+  salonId: string
+  paymentId: string
+}): Promise<TakePaymentResult> {
+  const db = dbFor(input.salonId)
+  return db.$transaction(async (tx) => {
+    const payment = await tx.payment.findFirst({
+      where: { id: input.paymentId, salonId: input.salonId },
+    })
+    if (!payment) throw new DomainError('NOT_FOUND', 'That payment no longer exists.')
+    if (!payment.invoiceId) {
+      throw new DomainError('CONFLICT', 'That payment is not attached to a bill.')
+    }
+
+    await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${payment.invoiceId} FOR UPDATE`
+    const invoice = await tx.invoice.findFirstOrThrow({
+      where: { id: payment.invoiceId, salonId: input.salonId },
+    })
+
+    if (payment.status === 'SUCCEEDED') {
+      return {
+        paymentId: payment.id,
+        paidCents: invoice.paidCents,
+        remainingCents: Math.max(0, invoice.totalCents - invoice.paidCents),
+        status: 'SUCCEEDED',
+        clientSecret: null,
+      }
+    }
+    if (payment.status !== 'PENDING') {
+      throw new DomainError('CONFLICT', 'That payment can no longer be completed.')
+    }
+
+    if (invoice.paidCents + payment.amountCents > invoice.totalCents) {
+      throw new DomainError('CONFLICT', 'That would overpay the bill.')
+    }
+
+    const paidCents = invoice.paidCents + payment.amountCents
+    const status = invoiceStatusFor(paidCents, invoice.totalCents)
+
+    await tx.payment.update({
+      where: { id: payment.id },
+      data: { status: 'SUCCEEDED', capturedAt: new Date(), failureCode: null },
+    })
+    await tx.invoice.update({
+      where: { id: invoice.id },
+      data: {
+        paidCents,
+        status,
+        ...(status === 'PAID' ? { paidAt: new Date() } : { paidAt: null }),
+      },
+    })
+
+    return {
+      paymentId: payment.id,
+      paidCents,
+      remainingCents: Math.max(0, invoice.totalCents - paidCents),
+      status: 'SUCCEEDED',
+      clientSecret: null,
+    }
+  })
+}
+
+export async function takePayment(input: TakePaymentInput): Promise<TakePaymentResult> {
+  const db = dbFor(input.salonId)
   if (input.amountCents < CENTS) {
     throw new DomainError('INVALID_INPUT', 'Enter an amount to take.')
   }
 
-  const idempotencyKey =
-    input.idempotencyKey ?? `pay_${invoice.id}_${invoice.paidCents}_${input.amountCents}`
+  const tipCents = input.tipCents ?? 0
+  const chargeCents = input.amountCents + tipCents
 
-  const already = await unsafeDb.payment.findUnique({ where: { idempotencyKey } })
-  if (already) {
-    return {
-      paymentId: already.id,
-      paidCents: invoice.paidCents,
-      remainingCents: Math.max(0, invoice.totalCents - invoice.paidCents),
-    }
-  }
+  /*
+   * Lock the invoice before deciding anything. Two tills reading paidCents and
+   * then writing an absolute total both "succeed" and leave the bill short by
+   * one of the payments — the classic lost update on a till.
+   */
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${input.invoiceId} FOR UPDATE`
 
-  let providerRef: string | null = null
-  if (input.method === 'CARD' || input.method === 'TERMINAL') {
-    const intent = await paymentsPort().createIntent({
-      amountCents: input.amountCents + (input.tipCents ?? 0),
-      currency: input.currency.toLowerCase(),
-      captureMethod: 'automatic',
-      idempotencyKey,
-      metadata: { invoiceId: invoice.id },
+    const invoice = await tx.invoice.findFirst({
+      where: { id: input.invoiceId, salonId: input.salonId },
+      select: {
+        id: true,
+        clientProfileId: true,
+        totalCents: true,
+        paidCents: true,
+        status: true,
+      },
     })
-    providerRef = intent.id
-  }
+    if (!invoice) throw new DomainError('NOT_FOUND', 'That invoice no longer exists.')
+    if (invoice.status === 'PAID') throw new DomainError('CONFLICT', 'This bill is already settled.')
 
-  const paidCents = invoice.paidCents + input.amountCents
-  const settled = paidCents >= invoice.totalCents
+    const idempotencyKey =
+      input.idempotencyKey ?? `pay_${invoice.id}_${invoice.paidCents}_${input.amountCents}`
 
-  const payment = await unsafeDb.$transaction(async (tx) => {
-    const created = await tx.payment.create({
+    const already = await tx.payment.findUnique({ where: { idempotencyKey } })
+    if (already) {
+      return {
+        paymentId: already.id,
+        paidCents: invoice.paidCents,
+        remainingCents: Math.max(0, invoice.totalCents - invoice.paidCents),
+        status: already.status === 'SUCCEEDED' ? ('SUCCEEDED' as const) : ('PENDING' as const),
+        clientSecret: null,
+      }
+    }
+
+    // PENDING card/terminal attempts reserve the remaining balance the same
+    // way a held deposit does — otherwise two concurrent cards both "fit".
+    const pendingSum = await tx.payment.aggregate({
+      where: { invoiceId: invoice.id, status: 'PENDING' },
+      _sum: { amountCents: true },
+    })
+    const reserved = invoice.paidCents + (pendingSum._sum.amountCents ?? 0)
+    const remaining = Math.max(0, invoice.totalCents - reserved)
+    if (input.amountCents > remaining) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        `Only ${(remaining / 100).toFixed(2)} is still owed on this bill.`,
+      )
+    }
+
+    const immediate =
+      input.method === 'CASH' ||
+      input.method === 'ACCOUNT_CREDIT' ||
+      input.method === 'GIFT_CARD' ||
+      input.method === 'OTHER'
+
+    if (immediate) {
+      const paidCents = invoice.paidCents + input.amountCents
+      const status = invoiceStatusFor(paidCents, invoice.totalCents)
+      const created = await tx.payment.create({
+        data: {
+          salonId: input.salonId,
+          invoiceId: invoice.id,
+          clientProfileId: invoice.clientProfileId,
+          amountCents: input.amountCents,
+          tipCents,
+          method: input.method,
+          status: 'SUCCEEDED',
+          idempotencyKey,
+          capturedAt: new Date(),
+        },
+        select: { id: true },
+      })
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          paidCents,
+          status,
+          ...(status === 'PAID' ? { paidAt: new Date() } : {}),
+        },
+      })
+      return {
+        paymentId: created.id,
+        paidCents,
+        remainingCents: Math.max(0, invoice.totalCents - paidCents),
+        status: 'SUCCEEDED' as const,
+        clientSecret: null,
+      }
+    }
+
+    // CARD / TERMINAL — talk to the provider outside the mental model of "paid".
+    const client = await tx.clientProfile.findFirst({
+      where: { id: invoice.clientProfileId, salonId: input.salonId },
+      select: { paymentsCustomerRef: true },
+    })
+    const card =
+      input.method === 'CARD'
+        ? await tx.savedCard.findFirst({
+            where: {
+              salonId: input.salonId,
+              clientProfileId: invoice.clientProfileId,
+              detachedAt: null,
+            },
+            orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+          })
+        : null
+
+    // Provider calls cannot sit inside a row lock; create the PENDING row first
+    // with a placeholder, then charge, then either settle or leave PENDING.
+    // We release the transaction after creating PENDING when we need the network.
+    const pending = await tx.payment.create({
       data: {
         salonId: input.salonId,
         invoiceId: invoice.id,
         clientProfileId: invoice.clientProfileId,
         amountCents: input.amountCents,
-        tipCents: input.tipCents ?? 0,
+        tipCents,
         method: input.method,
-        status: 'SUCCEEDED',
-        providerRef,
+        status: 'PENDING',
         idempotencyKey,
-        capturedAt: new Date(),
       },
       select: { id: true },
     })
 
-    await tx.invoice.update({
-      where: { id: invoice.id },
-      data: {
-        paidCents,
-        status: settled ? 'PAID' : 'PARTIALLY_PAID',
-        ...(settled ? { paidAt: new Date() } : {}),
+    return {
+      paymentId: pending.id,
+      paidCents: invoice.paidCents,
+      remainingCents: remaining,
+      status: 'PENDING' as const,
+      clientSecret: null,
+      _charge: {
+        paymentId: pending.id,
+        chargeCents,
+        customerRef: client?.paymentsCustomerRef ?? null,
+        paymentMethodRef: card?.providerRef ?? null,
+        offSession: Boolean(card && client?.paymentsCustomerRef && input.method === 'CARD'),
+      },
+    } as TakePaymentResult & {
+      _charge: {
+        paymentId: string
+        chargeCents: number
+        customerRef: string | null
+        paymentMethodRef: string | null
+        offSession: boolean
+      }
+    }
+  }).then(async (result) => {
+    const charge = (result as { _charge?: {
+      paymentId: string
+      chargeCents: number
+      customerRef: string | null
+      paymentMethodRef: string | null
+      offSession: boolean
+    } })._charge
+    if (!charge) return result
+
+    const intent = await paymentsPort().createIntent({
+      amountCents: charge.chargeCents,
+      currency: input.currency.toLowerCase(),
+      captureMethod: 'automatic',
+      idempotencyKey:
+        input.idempotencyKey ?? `pay_${input.invoiceId}_${charge.paymentId}`,
+      customerRef: charge.customerRef ?? undefined,
+      paymentMethodRef: charge.paymentMethodRef ?? undefined,
+      offSession: charge.offSession || undefined,
+      confirm: charge.offSession || undefined,
+      metadata: {
+        salonId: input.salonId,
+        invoiceId: input.invoiceId,
+        paymentId: charge.paymentId,
       },
     })
 
-    return created
-  })
+    await db.payment.update({
+      where: { id: charge.paymentId },
+      data: { providerRef: intent.id },
+    })
 
-  return {
-    paymentId: payment.id,
-    paidCents,
-    remainingCents: Math.max(0, invoice.totalCents - paidCents),
-  }
+    if (intent.status === 'SUCCEEDED') {
+      return applySucceededTillPayment({
+        salonId: input.salonId,
+        paymentId: charge.paymentId,
+      })
+    }
+
+    return {
+      paymentId: charge.paymentId,
+      paidCents: result.paidCents,
+      remainingCents: result.remainingCents,
+      status: 'PENDING' as const,
+      clientSecret: intent.clientSecret,
+    }
+  })
 }
 
 /**
@@ -787,46 +1035,122 @@ export async function refundPayment(input: {
   reason: string
   issuedByUserId?: string | null
 }): Promise<{ refundId: string }> {
-  const payment = await unsafeDb.payment.findFirst({
-    where: { id: input.paymentId, salonId: input.salonId },
-    include: { refunds: true },
+  const db = dbFor(input.salonId)
+  if (input.amountCents < CENTS) {
+    throw new DomainError('INVALID_INPUT', 'Enter an amount to refund.')
+  }
+
+  /*
+   * Lock payment + invoice together so a concurrent refund cannot both pass
+   * the refundable check and both decrement paidCents / both call the provider
+   * with different keys.
+   */
+  const prepared = await db.$transaction(async (tx) => {
+    const payment = await tx.payment.findFirst({
+      where: { id: input.paymentId, salonId: input.salonId },
+      include: { refunds: true },
+    })
+    if (!payment) throw new DomainError('NOT_FOUND', 'That payment no longer exists.')
+    if (payment.status !== 'SUCCEEDED') {
+      throw new DomainError(
+        'CONFLICT',
+        'That payment never completed, so there is nothing to refund.',
+      )
+    }
+
+    const alreadyRefunded = payment.refunds
+      .filter((r) => r.status === 'SUCCEEDED')
+      .reduce((sum, r) => sum + r.amountCents, 0)
+
+    const refundable = payment.amountCents + payment.tipCents - alreadyRefunded
+    if (input.amountCents > refundable) {
+      throw new DomainError(
+        'INVALID_INPUT',
+        `Only ${(refundable / 100).toFixed(2)} of this payment is still refundable.`,
+      )
+    }
+
+    const idempotencyKey = `ref_${payment.id}_${alreadyRefunded}_${input.amountCents}`
+    const existing = await tx.refund.findUnique({ where: { idempotencyKey } })
+    if (existing) return { refundId: existing.id, skip: true as const }
+
+    if (payment.invoiceId) {
+      await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${payment.invoiceId} FOR UPDATE`
+    }
+
+    return {
+      skip: false as const,
+      payment,
+      alreadyRefunded,
+      idempotencyKey,
+    }
   })
-  if (!payment) throw new DomainError('NOT_FOUND', 'That payment no longer exists.')
-  if (payment.status !== 'SUCCEEDED') {
-    throw new DomainError(
-      'CONFLICT',
-      'That payment never completed, so there is nothing to refund.',
-    )
-  }
 
-  const alreadyRefunded = payment.refunds
-    .filter((r) => r.status === 'SUCCEEDED')
-    .reduce((sum, r) => sum + r.amountCents, 0)
+  if (prepared.skip) return { refundId: prepared.refundId }
 
-  const refundable = payment.amountCents + payment.tipCents - alreadyRefunded
-  if (input.amountCents > refundable) {
-    throw new DomainError(
-      'INVALID_INPUT',
-      `Only ${(refundable / 100).toFixed(2)} of this payment is still refundable.`,
-    )
-  }
+  const { payment, alreadyRefunded, idempotencyKey } = prepared
 
-  const idempotencyKey = `ref_${payment.id}_${alreadyRefunded}_${input.amountCents}`
-
+  let providerRef: string | null = null
   if (payment.providerRef) {
-    await paymentsPort().refund(payment.providerRef, input.amountCents, idempotencyKey)
+    const refunded = await paymentsPort().refund(
+      payment.providerRef,
+      input.amountCents,
+      idempotencyKey,
+    )
+    providerRef = refunded.id
   }
 
-  const refund = await unsafeDb.refund.create({
-    data: {
-      salonId: input.salonId,
-      paymentId: payment.id,
-      amountCents: input.amountCents,
-      reason: input.reason,
-      status: 'SUCCEEDED',
-      issuedByUserId: input.issuedByUserId ?? null,
-    },
-    select: { id: true },
+  const refundId = await db.$transaction(async (tx) => {
+    const again = await tx.refund.findUnique({ where: { idempotencyKey } })
+    if (again) return again.id
+
+    const created = await tx.refund.create({
+      data: {
+        salonId: input.salonId,
+        paymentId: payment.id,
+        amountCents: input.amountCents,
+        reason: input.reason,
+        status: 'SUCCEEDED',
+        providerRef,
+        idempotencyKey,
+        issuedByUserId: input.issuedByUserId ?? null,
+      },
+      select: { id: true },
+    })
+
+    /*
+     * Unwind the bill. Without this a full refund leaves the invoice PAID and
+     * the front desk "outstanding" figure lying — the client was refunded but
+     * the books still say they settled.
+     *
+     * Tips refunded with the payment reduce paidCents only up to the service
+     * amount that was credited onto the invoice (tips sit beside paidCents on
+     * the payment, not inside invoice.totalCents).
+     */
+    if (payment.invoiceId) {
+      await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${payment.invoiceId} FOR UPDATE`
+      const invoice = await tx.invoice.findFirstOrThrow({
+        where: { id: payment.invoiceId, salonId: input.salonId },
+      })
+      // Only the service portion of this refund reduces invoice.paidCents.
+      const serviceAlreadyRefunded = Math.min(alreadyRefunded, payment.amountCents)
+      const serviceRefundNow = Math.min(
+        input.amountCents,
+        Math.max(0, payment.amountCents - serviceAlreadyRefunded),
+      )
+      const paidCents = Math.max(0, invoice.paidCents - serviceRefundNow)
+      const status = invoiceStatusFor(paidCents, invoice.totalCents)
+      await tx.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          paidCents,
+          status,
+          paidAt: status === 'PAID' ? invoice.paidAt : null,
+        },
+      })
+    }
+
+    return created.id
   })
 
   /*
@@ -847,7 +1171,7 @@ export async function refundPayment(input: {
     await releaseBenefitUse(input.salonId, payment.invoiceId)
   }
 
-  return { refundId: refund.id }
+  return { refundId }
 }
 
 // --- Cancellation ------------------------------------------------------------
@@ -865,13 +1189,14 @@ export async function assessCancellation(input: {
   cancelledAt?: Date
   isNoShow?: boolean
 }): Promise<{ feeCents: number; withinWindow: boolean; rationale: string }> {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const db = dbFor(input.salonId)
+  const appointment = await db.appointment.findFirst({
     where: { id: input.appointmentId, salonId: input.salonId },
     include: { deposits: true, cancellationFee: { select: { id: true } } },
   })
   if (!appointment) throw new DomainError('NOT_FOUND', 'That appointment no longer exists.')
 
-  const settings = await unsafeDb.salonSettings.findUnique({
+  const settings = await db.salonSettings.findUnique({
     where: { salonId: input.salonId },
     select: {
       cancellationWindowHours: true,
@@ -915,7 +1240,7 @@ export async function assessCancellation(input: {
   }).feeCents
 
   if (!appointment.cancellationFee) {
-    await unsafeDb.cancellationFee.create({
+    await db.cancellationFee.create({
       data: {
         salonId: input.salonId,
         appointmentId: appointment.id,
@@ -939,17 +1264,21 @@ export async function assessCancellation(input: {
    * Cancelled late, or missed the deposit covers the fee, capped at the fee —
    *                           a £50 deposit against a £30 fee returns £20.
    */
+  // Cap across deposits, not per deposit — two £50 holds against a £30 fee
+  // must keep £30 total, not £30 from each.
+  let remainingFee = grossFeeCents
   for (const deposit of heldDeposits) {
     if (outcome.withinWindow) {
       await releaseDeposit({ salonId: input.salonId, depositId: deposit.id })
       continue
     }
-    await forfeitDeposit({
+    const { forfeitedCents } = await forfeitDeposit({
       salonId: input.salonId,
       depositId: deposit.id,
       reason: outcome.rationale,
-      keepAtMostCents: grossFeeCents,
+      keepAtMostCents: remainingFee,
     })
+    remainingFee = Math.max(0, remainingFee - forfeitedCents)
   }
 
   return outcome
@@ -969,7 +1298,8 @@ export async function waiveCancellationFee(input: {
   reason: string
   userId: string
 }): Promise<void> {
-  const fee = await unsafeDb.cancellationFee.findFirst({
+  const db = dbFor(input.salonId)
+  const fee = await db.cancellationFee.findFirst({
     where: { appointmentId: input.appointmentId, salonId: input.salonId },
     select: { id: true, status: true },
   })
@@ -978,7 +1308,7 @@ export async function waiveCancellationFee(input: {
     throw new DomainError('CONFLICT', 'That fee has already been charged — refund it instead.')
   }
 
-  await unsafeDb.cancellationFee.update({
+  await db.cancellationFee.update({
     where: { id: fee.id },
     data: { status: 'WAIVED', waivedByUserId: input.userId, waiveReason: input.reason },
   })
@@ -1002,7 +1332,8 @@ export async function checkDiscount(input: {
 
 /** The reasons the owner has written, for the dropdown at the till. */
 export async function discountReasons(salonId: string) {
-  return unsafeDb.discountReason.findMany({
+  const db = dbFor(salonId)
+  return db.discountReason.findMany({
     where: { salonId, isActive: true },
     orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
     select: { id: true, label: true, kind: true, value: true, maxCents: true },
@@ -1010,7 +1341,8 @@ export async function discountReasons(salonId: string) {
 }
 
 export async function allDiscountReasons(salonId: string) {
-  return unsafeDb.discountReason.findMany({
+  const db = dbFor(salonId)
+  return db.discountReason.findMany({
     where: { salonId },
     orderBy: [{ isActive: 'desc' }, { sortOrder: 'asc' }, { label: 'asc' }],
   })
@@ -1030,11 +1362,12 @@ export async function resolveDiscount(input: {
   requestedCents?: number | null
   subtotalCents: number
 }): Promise<{ reason: DiscountReasonSpec | null; amountCents: number }> {
+  const db = dbFor(input.salonId)
   if (!input.discountReasonId) {
     return { reason: null, amountCents: 0 }
   }
 
-  const row = await unsafeDb.discountReason.findFirst({
+  const row = await db.discountReason.findFirst({
     where: { id: input.discountReasonId, salonId: input.salonId, isActive: true },
     select: { id: true, label: true, kind: true, value: true, maxCents: true },
   })
@@ -1061,6 +1394,7 @@ export async function saveDiscountReason(input: {
   isActive: boolean
   sortOrder: number
 }): Promise<{ id: string }> {
+  const db = dbFor(input.salonId)
   const data = {
     label: input.label.trim(),
     kind: input.kind,
@@ -1071,16 +1405,16 @@ export async function saveDiscountReason(input: {
   }
 
   if (input.id) {
-    const existing = await unsafeDb.discountReason.findFirst({
+    const existing = await db.discountReason.findFirst({
       where: { id: input.id, salonId: input.salonId },
       select: { id: true },
     })
     if (!existing) throw new DomainError('NOT_FOUND', 'That discount no longer exists.')
-    await unsafeDb.discountReason.update({ where: { id: existing.id }, data })
+    await db.discountReason.update({ where: { id: existing.id }, data })
     return { id: existing.id }
   }
 
-  const created = await unsafeDb.discountReason.create({
+  const created = await db.discountReason.create({
     data: { salonId: input.salonId, ...data },
     select: { id: true },
   })
@@ -1097,7 +1431,8 @@ export async function saveDiscountReason(input: {
  * piece of card, and only one of the two sides can be audited.
  */
 export async function giftCardBalance(salonId: string, giftCardId: string): Promise<number> {
-  const result = await unsafeDb.giftCardEntry.aggregate({
+  const db = dbFor(salonId)
+  const result = await db.giftCardEntry.aggregate({
     where: { salonId, giftCardId },
     _sum: { amountCents: true },
   })
@@ -1105,7 +1440,8 @@ export async function giftCardBalance(salonId: string, giftCardId: string): Prom
 }
 
 export async function findGiftCard(salonId: string, code: string) {
-  const card = await unsafeDb.giftCard.findFirst({
+  const db = dbFor(salonId)
+  const card = await db.giftCard.findFirst({
     where: { salonId, code: code.trim().toUpperCase() },
   })
   if (!card) return null
@@ -1130,7 +1466,8 @@ export async function redeemGiftCard(input: {
   idempotencyKey: string
   takenByUserId?: string | null
 }): Promise<{ paymentId: string; appliedCents: number; remainingOnCardCents: number }> {
-  const card = await unsafeDb.giftCard.findFirst({
+  const db = dbFor(input.salonId)
+  const card = await db.giftCard.findFirst({
     where: { salonId: input.salonId, code: input.code.trim().toUpperCase() },
     select: { id: true, status: true, expiresAt: true },
   })
@@ -1142,7 +1479,7 @@ export async function redeemGiftCard(input: {
     throw new DomainError('CONFLICT', 'That card has expired.')
   }
 
-  const invoice = await unsafeDb.invoice.findFirst({
+  const invoice = await db.invoice.findFirst({
     where: { id: input.invoiceId, salonId: input.salonId },
     select: { id: true, totalCents: true, paidCents: true, status: true },
   })
@@ -1158,8 +1495,9 @@ export async function redeemGiftCard(input: {
    * a double TAP; only the lock stops a genuine double SPEND, because those
    * carry different keys by design.
    */
-  const { applied, remaining, existingPaymentId } = await unsafeDb.$transaction(async (tx) => {
+  const { applied, remaining, existingPaymentId } = await db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "GiftCard" WHERE id = ${card.id} FOR UPDATE`
+    await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${invoice.id} FOR UPDATE`
 
     const already = await tx.giftCardEntry.findFirst({
       where: { giftCardId: card.id, idempotencyKey: input.idempotencyKey },
@@ -1183,8 +1521,17 @@ export async function redeemGiftCard(input: {
 
     // Never more than is on the card, and never more than is owed. Both bounds
     // matter: overpaying a bill from a card is how a balance disappears into a
-    // salon's takings with nothing to show the client.
-    const owed = Math.max(0, invoice.totalCents - invoice.paidCents)
+    // salon's takings with nothing to show the client. Owed is re-read under
+    // the invoice lock — a cash payment that landed after our outer read must
+    // not let the card overpay.
+    const liveInvoice = await tx.invoice.findFirstOrThrow({
+      where: { id: invoice.id, salonId: input.salonId },
+      select: { totalCents: true, paidCents: true, status: true },
+    })
+    if (liveInvoice.status === 'PAID') {
+      throw new DomainError('CONFLICT', 'That bill is already settled.')
+    }
+    const owed = Math.max(0, liveInvoice.totalCents - liveInvoice.paidCents)
     const take = Math.min(input.amountCents, balance, owed)
     if (take <= 0) {
       throw new DomainError('CONFLICT', 'There is nothing left to apply from that card.')
@@ -1215,19 +1562,39 @@ export async function redeemGiftCard(input: {
    * retry of the whole call is a lookup on both sides rather than a second
    * charge. Holding a row lock across a call to the payments provider would
    * block every other till on that card for as long as the network takes.
+   *
+   * If takePayment fails after the debit, reverse the ledger entry — otherwise
+   * the balance is gone and nothing settled the bill.
    */
-  const payment = await takePayment({
-    salonId: input.salonId,
-    invoiceId: input.invoiceId,
-    amountCents: applied,
-    method: 'GIFT_CARD',
-    currency: input.currency,
-    idempotencyKey: input.idempotencyKey,
-    takenByUserId: input.takenByUserId ?? null,
-  })
+  let payment: TakePaymentResult
+  try {
+    payment = await takePayment({
+      salonId: input.salonId,
+      invoiceId: input.invoiceId,
+      amountCents: applied,
+      method: 'GIFT_CARD',
+      currency: input.currency,
+      idempotencyKey: input.idempotencyKey,
+      takenByUserId: input.takenByUserId ?? null,
+    })
+  } catch (err) {
+    if (!existingPaymentId) {
+      await db.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT id FROM "GiftCard" WHERE id = ${card.id} FOR UPDATE`
+        await tx.giftCardEntry.deleteMany({
+          where: { giftCardId: card.id, idempotencyKey: input.idempotencyKey },
+        })
+        await tx.giftCard.update({
+          where: { id: card.id },
+          data: { status: 'ACTIVE' },
+        })
+      })
+    }
+    throw err
+  }
 
   if (!existingPaymentId) {
-    await unsafeDb.giftCardEntry.updateMany({
+    await db.giftCardEntry.updateMany({
       where: { giftCardId: card.id, idempotencyKey: input.idempotencyKey },
       data: { paymentId: payment.paymentId },
     })
@@ -1260,7 +1627,8 @@ function generateGiftCardCode(seed: string, index: number): string {
 
 /** The bill as the till shows it. */
 export async function loadInvoice(salonId: string, invoiceId: string) {
-  const invoice = await unsafeDb.invoice.findFirst({
+  const db = dbFor(salonId)
+  const invoice = await db.invoice.findFirst({
     where: { id: invoiceId, salonId },
     include: {
       lines: { orderBy: { sequence: 'asc' } },

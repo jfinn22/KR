@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { computeAvailability } from '@/domain/scheduling/availability'
 import { chainDuration } from '@/domain/scheduling/chain'
@@ -220,13 +220,14 @@ export async function chainForServices(
   salonId: string,
   serviceIds: readonly string[],
 ): Promise<PhaseChain> {
+  const db = dbFor(salonId)
   if (serviceIds.length === 0) {
     throw new DomainError('INVALID_INPUT', 'Pick at least one service.')
   }
 
   const [services, settingsRow] = await Promise.all([
     getServices(salonId, serviceIds),
-    unsafeDb.salonSettings.findUnique({ where: { salonId } }),
+    db.salonSettings.findUnique({ where: { salonId } }),
   ])
   if (services.length !== new Set(serviceIds).size) {
     throw new DomainError('NOT_FOUND', 'One of those services is no longer offered.')
@@ -323,7 +324,7 @@ async function solve(input: {
   })
 
   const result = computeAvailability(request)
-  const names = await stylistNames(result.slots.map((s) => s.stylistId))
+  const names = await stylistNames(input.salonId, result.slots.map((s) => s.stylistId))
   const durationMin = chainDuration(input.chain)
 
   return {
@@ -431,7 +432,8 @@ export async function resolveSlotForServices(
 }
 
 async function defaultLocationId(salonId: string): Promise<string> {
-  const location = await unsafeDb.location.findFirst({
+  const db = dbFor(salonId)
+  const location = await db.location.findFirst({
     where: { salonId, isActive: true },
     orderBy: { createdAt: 'asc' },
     select: { id: true },
@@ -441,9 +443,9 @@ async function defaultLocationId(salonId: string): Promise<string> {
 }
 
 /** The solver works in ids; a client needs a name on the button. */
-async function stylistNames(ids: readonly string[]): Promise<Map<string, string>> {
+async function stylistNames(salonId: string, ids: readonly string[]): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map()
-  const rows = await unsafeDb.stylistProfile.findMany({
+  const rows = await dbFor(salonId).stylistProfile.findMany({
     where: { id: { in: [...new Set(ids)] } },
     select: { id: true, displayName: true },
   })
@@ -451,7 +453,8 @@ async function stylistNames(ids: readonly string[]): Promise<Map<string, string>
 }
 
 async function anyChemical(salonId: string, serviceIds: readonly string[]): Promise<boolean> {
-  const count = await unsafeDb.service.count({
+  const db = dbFor(salonId)
+  const count = await db.service.count({
     where: { salonId, id: { in: [...serviceIds] }, isChemical: true },
   })
   return count > 0

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { paymentsPort } from '@/ports/registry'
 import type { WebhookEvent } from '@/ports/payments'
 import { reconcileDepositEvent } from '@/server/services/deposits'
@@ -217,28 +218,42 @@ async function dispatch(event: WebhookEvent): Promise<Record<string, unknown>> {
     }
 
     // Not a deposit — a payment taken at the till, which the provider confirms
-    // the same way.
+    // the same way. Settling SUCCEEDED must bump invoice.paidCents; flipping
+    // SUCCEEDED → FAILED without reversing the bill is how the books lie.
     const payment = await unsafeDb.payment.findFirst({
       where: { providerRef: event.objectId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, salonId: true },
     })
     if (!payment) return { handled: false, reason: 'nothing on file for that intent' }
 
-    const status =
-      event.type === 'payment_intent.succeeded'
-        ? 'SUCCEEDED'
-        : event.type === 'payment_intent.payment_failed'
-          ? 'FAILED'
-          : null
-    if (!status || payment.status === status) {
-      return { handled: true, kind: 'payment', status: payment.status }
+    if (event.type === 'payment_intent.succeeded') {
+      if (payment.status === 'SUCCEEDED') {
+        return { handled: true, kind: 'payment', status: payment.status }
+      }
+      if (payment.status !== 'PENDING') {
+        return { handled: true, kind: 'payment', status: payment.status }
+      }
+      const { applySucceededTillPayment } = await import('./commerce')
+      const applied = await applySucceededTillPayment({
+        salonId: payment.salonId,
+        paymentId: payment.id,
+      })
+      return { handled: true, kind: 'payment', status: applied.status }
     }
 
-    await unsafeDb.payment.update({
-      where: { id: payment.id },
-      data: { status: status as never, failureCode: event.failureCode ?? null },
-    })
-    return { handled: true, kind: 'payment', status }
+    if (event.type === 'payment_intent.payment_failed') {
+      if (payment.status !== 'PENDING') {
+        // Never move a settled payment to FAILED — the bill already counted it.
+        return { handled: true, kind: 'payment', status: payment.status }
+      }
+      await dbFor(payment.salonId).payment.update({
+        where: { id: payment.id },
+        data: { status: 'FAILED', failureCode: event.failureCode ?? null },
+      })
+      return { handled: true, kind: 'payment', status: 'FAILED' }
+    }
+
+    return { handled: true, kind: 'payment', status: payment.status }
   }
 
   return { handled: false, reason: `nothing listens for ${event.type}` }
