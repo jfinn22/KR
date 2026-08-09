@@ -431,7 +431,8 @@ Nothing here is a stub pretending to be a feature.
 
 - **Production refuses mock adapters and weak secrets.** `NODE_ENV=production`
   requires strong `AUTH_SECRET` / `CRON_SECRET` and rejects `ADAPTER_MODE=mock`
-  (and per-port mock overrides). Local signed photo URLs are HMAC’d with
+  (and per-port mock overrides), except when `E2E_ALLOW_MOCK=1` for the
+  Playwright production-build suite. Local signed photo URLs are HMAC’d with
   `AUTH_SECRET` or `STORAGE_SIGNING_SECRET`. The `/api/dev/outbox` route 404s
   unless the process is non-production *and* on mock adapters. Request-path
   services go through `dbFor(salonId)`; ESLint bans `unsafeDb` outside jobs,

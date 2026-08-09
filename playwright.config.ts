@@ -49,6 +49,10 @@ export default defineConfig({
     env: {
       ADAPTER_MODE: 'mock',
       NODE_ENV: 'production',
+      // Production gates refuse mock adapters and weak secrets; e2e opts in.
+      E2E_ALLOW_MOCK: '1',
+      AUTH_SECRET: 'e2e-only-auth-secret-32chars-min!!',
+      CRON_SECRET: 'e2e-only-cron-secret-32chars-min!!',
     },
   },
 })

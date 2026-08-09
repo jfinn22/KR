@@ -39,6 +39,12 @@ const serverSchema = z
     WORKER_POLL_MS: z.coerce.number().int().positive().default(2000),
     WORKER_BATCH_SIZE: z.coerce.number().int().positive().default(10),
 
+    /**
+     * Playwright CI runs a production build against mock adapters. That is
+     * intentional and must be opted into — never set this in a real deploy.
+     */
+    E2E_ALLOW_MOCK: z.coerce.boolean().default(false),
+
     // Mock fault injection — exercises failure paths in dev and CI.
     AI_MOCK_LATENCY_MS: z.coerce.number().int().min(0).default(0),
     AI_MOCK_FAILURE_RATE: z.coerce.number().min(0).max(1).default(0),
@@ -79,29 +85,31 @@ const serverSchema = z
         message: 'Production requires a strong CRON_SECRET (32+ chars, not the dev default).',
       })
     }
-    if (env.ADAPTER_MODE === 'mock') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['ADAPTER_MODE'],
-        message: 'Production refuses ADAPTER_MODE=mock.',
-      })
-    }
-    const ports = [
-      'PAYMENTS_ADAPTER',
-      'SMS_ADAPTER',
-      'EMAIL_ADAPTER',
-      'STORAGE_ADAPTER',
-      'AI_ADAPTER',
-      'CALENDAR_ADAPTER',
-      'ESIGN_ADAPTER',
-    ] as const
-    for (const port of ports) {
-      if (env[port] === 'mock') {
+    if (!env.E2E_ALLOW_MOCK) {
+      if (env.ADAPTER_MODE === 'mock') {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: [port],
-          message: `Production refuses ${port}=mock.`,
+          path: ['ADAPTER_MODE'],
+          message: 'Production refuses ADAPTER_MODE=mock.',
         })
+      }
+      const ports = [
+        'PAYMENTS_ADAPTER',
+        'SMS_ADAPTER',
+        'EMAIL_ADAPTER',
+        'STORAGE_ADAPTER',
+        'AI_ADAPTER',
+        'CALENDAR_ADAPTER',
+        'ESIGN_ADAPTER',
+      ] as const
+      for (const port of ports) {
+        if (env[port] === 'mock') {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [port],
+            message: `Production refuses ${port}=mock.`,
+          })
+        }
       }
     }
     if ((env.AI_ADAPTER ?? env.ADAPTER_MODE) === 'real' && !env.ANTHROPIC_API_KEY) {
