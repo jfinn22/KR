@@ -190,12 +190,15 @@ test.describe('background jobs', () => {
   test('the cron endpoint rejects an unknown job rather than silently accepting', async ({
     request,
   }) => {
-    const response = await request.post('/api/cron/not.a.real.job?secret=dev-only-cron-secret')
+    // Must match playwright.config.ts webServer.env.CRON_SECRET (production-strong).
+    const secret = 'e2e-only-cron-secret-32chars-min!!'
+    const response = await request.post(`/api/cron/not.a.real.job?secret=${secret}`)
     expect(response.status()).toBe(404)
   })
 
   test('a valid request enqueues a sweep', async ({ request }) => {
-    const response = await request.post('/api/cron/hold.expire?secret=dev-only-cron-secret')
+    const secret = 'e2e-only-cron-secret-32chars-min!!'
+    const response = await request.post(`/api/cron/hold.expire?secret=${secret}`)
     expect(response.ok()).toBe(true)
 
     const body = await response.json()

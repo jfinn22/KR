@@ -12,7 +12,10 @@ export const dynamic = 'force-dynamic'
  * messages.
  */
 export async function GET(request: Request) {
-  if (process.env.NODE_ENV === 'production' || process.env.ADAPTER_MODE !== 'mock') {
+  const allowE2e =
+    process.env.NODE_ENV === 'production' &&
+    (process.env.E2E_ALLOW_MOCK === '1' || process.env.E2E_ALLOW_MOCK === 'true')
+  if ((process.env.NODE_ENV === 'production' && !allowE2e) || process.env.ADAPTER_MODE !== 'mock') {
     return NextResponse.json({ error: 'Not available' }, { status: 404 })
   }
 
