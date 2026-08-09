@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { esignPort } from '@/ports/registry'
 import { hashDocument } from '@/ports/esign'
@@ -42,10 +42,11 @@ export async function recordPatchTest(input: {
   servicePlanId?: string | null
   validDays?: number
 }): Promise<{ patchTestId: string; readableFrom: Date; validUntil: Date }> {
+  const db = dbFor(input.salonId)
   const validDays = input.validDays ?? PATCH_TEST_VALID_DAYS
   const validUntil = new Date(input.appliedAt.getTime() + validDays * 86_400_000)
 
-  const test = await unsafeDb.patchTest.create({
+  const test = await db.patchTest.create({
     data: {
       salonId: input.salonId,
       clientProfileId: input.clientProfileId,
@@ -81,7 +82,8 @@ export async function readPatchTest(input: {
   notes?: string | null
   readAt?: Date
 }): Promise<void> {
-  const test = await unsafeDb.patchTest.findFirst({
+  const db = dbFor(input.salonId)
+  const test = await db.patchTest.findFirst({
     where: { id: input.patchTestId, salonId: input.salonId },
     select: { id: true, appliedAt: true, result: true, clientProfileId: true },
   })
@@ -98,14 +100,14 @@ export async function readPatchTest(input: {
     )
   }
 
-  await unsafeDb.patchTest.update({
+  await db.patchTest.update({
     where: { id: test.id },
     data: { result: input.result, readAt, notes: input.notes ?? null },
   })
 
   // A reaction is a permanent fact about the client, not just about this test.
   if (input.result === 'POSITIVE') {
-    await unsafeDb.hairProfile.updateMany({
+    await db.hairProfile.updateMany({
       where: { clientProfileId: test.clientProfileId },
       data: { priorReactionToColor: true },
     })
@@ -114,7 +116,8 @@ export async function readPatchTest(input: {
 
 /** The current, valid, negative test — or nothing. An expired one is nothing. */
 export async function validPatchTest(salonId: string, clientProfileId: string, now = new Date()) {
-  return unsafeDb.patchTest.findFirst({
+  const db = dbFor(salonId)
+  return db.patchTest.findFirst({
     where: {
       salonId,
       clientProfileId,
@@ -147,7 +150,8 @@ export type GrantKind =
  */
 
 export async function loadForm(salonId: string, key: string) {
-  const template = await unsafeDb.formTemplate.findFirst({
+  const db = dbFor(salonId)
+  const template = await db.formTemplate.findFirst({
     where: {
       key,
       status: 'PUBLISHED',
@@ -172,6 +176,7 @@ export async function submitForm(input: {
   ipAddress?: string | null
   userAgent?: string | null
 }): Promise<{ submissionId: string; documentHash: string; isLegalPlaceholder: boolean }> {
+  const db = dbFor(input.salonId)
   const template = await loadForm(input.salonId, input.formKey)
 
   if (template.requiresSignature && !input.signerName.trim()) {
@@ -184,7 +189,7 @@ export async function submitForm(input: {
     ? new Date(Date.now() + template.validForDays * 86_400_000)
     : null
 
-  const submission = await unsafeDb.$transaction(async (tx) => {
+  const submission = await db.$transaction(async (tx) => {
     const created = await tx.formSubmission.create({
       data: {
         salonId: input.salonId,
@@ -273,7 +278,8 @@ export async function verifySubmission(
   salonId: string,
   submissionId: string,
 ): Promise<{ matches: boolean; signedVersion: number; currentVersion: number }> {
-  const submission = await unsafeDb.formSubmission.findFirst({
+  const db = dbFor(salonId)
+  const submission = await db.formSubmission.findFirst({
     where: { id: submissionId, salonId },
     include: { formTemplate: true },
   })
@@ -300,7 +306,8 @@ export async function grantConsent(input: {
   scope?: string | null
   evidenceFormSubmissionId?: string | null
 }): Promise<void> {
-  await unsafeDb.consentGrant.create({
+  const db = dbFor(input.salonId)
+  await db.consentGrant.create({
     data: {
       salonId: input.salonId,
       clientProfileId: input.clientProfileId,
@@ -324,7 +331,8 @@ export async function revokeConsent(input: {
   clientProfileId: string
   kind: GrantKind
 }): Promise<void> {
-  await unsafeDb.consentGrant.updateMany({
+  const db = dbFor(input.salonId)
+  await db.consentGrant.updateMany({
     where: {
       salonId: input.salonId,
       clientProfileId: input.clientProfileId,
@@ -340,7 +348,8 @@ export async function hasConsent(
   clientProfileId: string,
   kind: GrantKind,
 ): Promise<boolean> {
-  const grant = await unsafeDb.consentGrant.findFirst({
+  const db = dbFor(salonId)
+  const grant = await db.consentGrant.findFirst({
     where: { salonId, clientProfileId, kind, status: 'GRANTED' },
   })
   return grant !== null
@@ -348,12 +357,13 @@ export async function hasConsent(
 
 /** Everything on file for a client, for the consent screen. */
 export async function consentState(salonId: string, clientProfileId: string) {
+  const db = dbFor(salonId)
   const [grants, submissions, patchTests, templates] = await Promise.all([
-    unsafeDb.consentGrant.findMany({
+    db.consentGrant.findMany({
       where: { salonId, clientProfileId },
       orderBy: { grantedAt: 'desc' },
     }),
-    unsafeDb.formSubmission.findMany({
+    db.formSubmission.findMany({
       where: { salonId, clientProfileId },
       orderBy: { submittedAt: 'desc' },
       include: {
@@ -361,7 +371,7 @@ export async function consentState(salonId: string, clientProfileId: string) {
         signature: { select: { signerName: true, signerRelationship: true, signedAt: true } },
       },
     }),
-    unsafeDb.patchTest.findMany({
+    db.patchTest.findMany({
       where: { salonId, clientProfileId },
       orderBy: { appliedAt: 'desc' },
       take: 5,
@@ -374,7 +384,7 @@ export async function consentState(salonId: string, clientProfileId: string) {
      * chemical service consent form that exists and cannot be signed is worse
      * than no form at all, because the salon believes it has one.
      */
-    unsafeDb.formTemplate.findMany({
+    db.formTemplate.findMany({
       where: { salonId, status: 'PUBLISHED' },
       orderBy: { name: 'asc' },
       select: {
@@ -412,7 +422,8 @@ export async function consentState(salonId: string, clientProfileId: string) {
  * satisfies the letter of a request and none of its purpose.
  */
 export async function exportClientData(salonId: string, clientProfileId: string) {
-  const client = await unsafeDb.clientProfile.findFirst({
+  const db = dbFor(salonId)
+  const client = await db.clientProfile.findFirst({
     where: { id: clientProfileId, salonId },
     include: {
       hairProfile: true,
@@ -424,22 +435,22 @@ export async function exportClientData(salonId: string, clientProfileId: string)
   if (!client) throw new DomainError('NOT_FOUND', 'That client is not on file.')
 
   const [appointments, consultations, formulas, photos] = await Promise.all([
-    unsafeDb.appointment.findMany({
+    db.appointment.findMany({
       where: { salonId, clientProfileId },
       orderBy: { startsAt: 'desc' },
       include: { services: { include: { service: { select: { name: true } } } } },
     }),
-    unsafeDb.consultation.findMany({
+    db.consultation.findMany({
       where: { salonId, clientProfileId },
       orderBy: { createdAt: 'desc' },
       include: { answers: true },
     }),
-    unsafeDb.formula.findMany({
+    db.formula.findMany({
       where: { salonId, clientProfileId },
       orderBy: { createdAt: 'desc' },
       include: { components: true },
     }),
-    unsafeDb.photoAsset.findMany({
+    db.photoAsset.findMany({
       where: { salonId, clientProfileId, deletedAt: null },
       select: { id: true, storageKey: true, mimeType: true, createdAt: true },
     }),
@@ -496,13 +507,14 @@ export async function eraseClient(input: {
   requestedByUserId: string
   reason: string
 }): Promise<{ photosDeleted: number; appointmentsRetained: number }> {
-  const client = await unsafeDb.clientProfile.findFirst({
+  const db = dbFor(input.salonId)
+  const client = await db.clientProfile.findFirst({
     where: { id: input.clientProfileId, salonId: input.salonId },
     select: { id: true },
   })
   if (!client) throw new DomainError('NOT_FOUND', 'That client is not on file.')
 
-  return unsafeDb.$transaction(async (tx) => {
+  return db.$transaction(async (tx) => {
     const photos = await tx.photoAsset.findMany({
       where: { salonId: input.salonId, clientProfileId: client.id },
       select: { id: true },

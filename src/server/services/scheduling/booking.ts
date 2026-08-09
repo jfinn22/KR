@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client'
-import { unsafeDb } from '@/server/db/client'
+import { dbFor, type TenantTx } from '@/server/db/tenant-client'
 import {
   fromEpochMinutes,
   localDateOfEpochMinutes,
@@ -55,7 +55,7 @@ function isSlotConflict(err: unknown): boolean {
  * other and a busy salon is not serialised through one lock.
  */
 async function lockStylistDay(
-  tx: Prisma.TransactionClient,
+  tx: TenantTx,
   stylistId: string,
   localDate: string,
 ): Promise<void> {
@@ -71,7 +71,7 @@ async function lockStylistDay(
  * we are about to fight over, so a stalled worker cannot keep a slot locked.
  */
 async function purgeExpiredHolds(
-  tx: Prisma.TransactionClient,
+  tx: TenantTx,
   stylistId: string,
   resourceIds: readonly string[],
 ): Promise<void> {
@@ -104,6 +104,7 @@ export interface CreateHoldInput {
 export async function createHold(
   input: CreateHoldInput,
 ): Promise<{ holdId: string; expiresAt: Date }> {
+  const db = dbFor(input.salonId)
   const { slot, chain } = input
   const expiresAt = new Date(Date.now() + input.ttlSeconds * 1000)
   const resourceIds = slot.placements
@@ -112,7 +113,7 @@ export async function createHold(
   const localDate = slot.localDate
 
   try {
-    return await unsafeDb.$transaction(async (tx) => {
+    return await db.$transaction(async (tx) => {
       if (input.idempotencyKey) {
         const existing = await tx.bookingHold.findUnique({
           where: { idempotencyKey: input.idempotencyKey },
@@ -173,7 +174,8 @@ export async function createHold(
 }
 
 export async function releaseHold(salonId: string, holdId: string): Promise<void> {
-  await unsafeDb.$transaction(async (tx) => {
+  const db = dbFor(salonId)
+  await db.$transaction(async (tx) => {
     const hold = await tx.bookingHold.findFirst({
       where: { id: holdId, salonId },
       select: { id: true, status: true },
@@ -229,8 +231,9 @@ export interface BookingResult {
  * brief, in which the slot appeared free to a concurrent booker.
  */
 export async function bookFromHold(input: BookFromHoldInput): Promise<BookingResult> {
+  const db = dbFor(input.salonId)
   try {
-    return await unsafeDb.$transaction(async (tx) => {
+    return await db.$transaction(async (tx) => {
       const hold = await tx.bookingHold.findFirst({
         where: { id: input.holdId, salonId: input.salonId },
         include: { segments: true },
@@ -383,7 +386,8 @@ export interface CancelInput {
 }
 
 export async function cancelAppointment(input: CancelInput): Promise<void> {
-  await unsafeDb.$transaction(async (tx) => {
+  const db = dbFor(input.salonId)
+  await db.$transaction(async (tx) => {
     const appointment = await tx.appointment.findFirst({
       where: { id: input.appointmentId, salonId: input.salonId },
       select: { id: true, version: true, status: true, servicePlanSessionId: true },
@@ -449,7 +453,7 @@ export async function cancelAppointment(input: CancelInput): Promise<void> {
       isNoShow: input.markNoShow,
     })
   } catch (error) {
-    await unsafeDb.outbox.create({
+    await db.outbox.create({
       data: {
         salonId: input.salonId,
         topic: 'cancellation.assessment_failed',

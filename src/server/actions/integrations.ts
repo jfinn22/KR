@@ -1,5 +1,6 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
@@ -11,7 +12,6 @@ import {
   revokeFeedToken,
   type WebhookTopic,
 } from '@/server/services/integrations'
-import { unsafeDb } from '@/server/db/client'
 
 /**
  * Connecting and disconnecting.
@@ -45,7 +45,7 @@ export const issueFeedTokenAction = withAuthz(
     auditAs: (input) => ({ entityType: 'StylistProfile', entityId: input.stylistProfileId }),
   },
   async (input, ctx) => {
-    const stylist = await unsafeDb.stylistProfile.findFirst({
+    const stylist = await dbFor(ctx.salonId).stylistProfile.findFirst({
       where: { id: input.stylistProfileId, salonId: ctx.salonId },
       select: { id: true },
     })

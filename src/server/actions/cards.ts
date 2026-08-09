@@ -1,5 +1,6 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
@@ -10,7 +11,6 @@ import {
   syncCards,
 } from '@/server/services/cards'
 import { forfeitDeposit, releaseDeposit } from '@/server/services/deposits'
-import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
 /**
@@ -29,7 +29,7 @@ import type { TenantContext } from '@/server/auth/context'
 const cuid = z.string().min(1).max(64)
 
 async function clientResource(clientProfileId: string, ctx: TenantContext) {
-  const client = await unsafeDb.clientProfile.findFirst({
+  const client = await dbFor(ctx.salonId).clientProfile.findFirst({
     where: { id: clientProfileId, salonId: ctx.salonId },
     select: { id: true, preferredStylistId: true },
   })
@@ -136,7 +136,7 @@ export const removeCardAction = withAuthz(
 )
 
 async function depositResource(depositId: string, ctx: TenantContext) {
-  const deposit = await unsafeDb.deposit.findFirst({
+  const deposit = await dbFor(ctx.salonId).deposit.findFirst({
     where: { id: depositId, salonId: ctx.salonId },
     select: { clientProfileId: true },
   })

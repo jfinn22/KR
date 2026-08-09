@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { journeyFor } from './photos'
 import type { EvaluationResult } from '@/domain/consultation/types'
@@ -15,10 +15,11 @@ import type { TimelineEntry } from '@/components/salon/hair-timeline'
  */
 
 export async function clientHome(salonId: string, clientProfileId: string) {
+  const db = dbFor(salonId)
   const now = new Date()
 
   const [next, openConsultations, plans, recent] = await Promise.all([
-    unsafeDb.appointment.findFirst({
+    db.appointment.findFirst({
       where: {
         salonId,
         clientProfileId,
@@ -33,7 +34,7 @@ export async function clientHome(salonId: string, clientProfileId: string) {
       },
     }),
 
-    unsafeDb.consultation.findMany({
+    db.consultation.findMany({
       where: {
         salonId,
         clientProfileId,
@@ -59,7 +60,7 @@ export async function clientHome(salonId: string, clientProfileId: string) {
     }),
 
     // Approved plans with something still to book — the client's actual to-do.
-    unsafeDb.servicePlan.findMany({
+    db.servicePlan.findMany({
       where: { salonId, clientProfileId, status: 'APPROVED' },
       orderBy: { createdAt: 'desc' },
       take: 5,
@@ -72,7 +73,7 @@ export async function clientHome(salonId: string, clientProfileId: string) {
     }),
 
     // What they had last, for one-tap rebooking.
-    unsafeDb.appointment.findFirst({
+    db.appointment.findFirst({
       where: { salonId, clientProfileId, status: 'COMPLETED' },
       orderBy: { startsAt: 'desc' },
       include: {
@@ -99,9 +100,10 @@ export async function clientHome(salonId: string, clientProfileId: string) {
 }
 
 export async function clientAppointments(salonId: string, clientProfileId: string) {
+  const db = dbFor(salonId)
   const now = new Date()
 
-  const appointments = await unsafeDb.appointment.findMany({
+  const appointments = await db.appointment.findMany({
     where: { salonId, clientProfileId },
     orderBy: { startsAt: 'desc' },
     take: 50,
@@ -124,7 +126,8 @@ export async function clientAppointments(salonId: string, clientProfileId: strin
 
 /** The consultation, its services, and the latest evaluation if there is one. */
 export async function consultationContext(salonId: string, consultationId: string) {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const db = dbFor(salonId)
+  const consultation = await db.consultation.findFirst({
     where: { id: consultationId, salonId },
     select: {
       id: true,
@@ -144,14 +147,14 @@ export async function consultationContext(salonId: string, consultationId: strin
   })
   if (!consultation) throw new DomainError('NOT_FOUND', 'That consultation no longer exists.')
 
-  const services = await unsafeDb.service.findMany({
+  const services = await db.service.findMany({
     where: { salonId, id: { in: consultation.requestedServiceIds } },
     select: { id: true, name: true, basePriceCents: true },
   })
 
   let evaluation: EvaluationResult | null = null
   if (consultation.latestEvaluationId) {
-    const row = await unsafeDb.ruleEvaluation.findUnique({
+    const row = await db.ruleEvaluation.findUnique({
       where: { id: consultation.latestEvaluationId },
       select: { outputSnapshotJson: true },
     })
@@ -169,8 +172,6 @@ export async function consultationContext(salonId: string, consultationId: strin
   }
 }
 
-
-
 /**
  * The hair history, assembled from the rows that actually record what happened.
  *
@@ -182,8 +183,9 @@ export async function hairTimeline(
   salonId: string,
   clientProfileId: string,
 ): Promise<TimelineEntry[]> {
+  const db = dbFor(salonId)
   const [appointments, formulas, patchTests, consultations] = await Promise.all([
-    unsafeDb.appointment.findMany({
+    db.appointment.findMany({
       where: { salonId, clientProfileId, status: 'COMPLETED' },
       orderBy: { startsAt: 'desc' },
       take: 40,
@@ -192,18 +194,18 @@ export async function hairTimeline(
         services: { include: { service: { select: { name: true, isLightening: true } } } },
       },
     }),
-    unsafeDb.formula.findMany({
+    db.formula.findMany({
       where: { salonId, clientProfileId },
       orderBy: { createdAt: 'desc' },
       take: 40,
       include: { stylistProfile: { select: { displayName: true } } },
     }),
-    unsafeDb.patchTest.findMany({
+    db.patchTest.findMany({
       where: { salonId, clientProfileId },
       orderBy: { appliedAt: 'desc' },
       take: 10,
     }),
-    unsafeDb.consultation.findMany({
+    db.consultation.findMany({
       where: { salonId, clientProfileId, status: { in: ['APPROVED', 'DECLINED'] } },
       orderBy: { createdAt: 'desc' },
       take: 20,
@@ -298,8 +300,9 @@ async function namesFor(
   salonId: string,
   serviceIds: readonly string[],
 ): Promise<Record<string, string>> {
+  const db = dbFor(salonId)
   if (serviceIds.length === 0) return {}
-  const services = await unsafeDb.service.findMany({
+  const services = await db.service.findMany({
     where: { salonId, id: { in: [...new Set(serviceIds)] } },
     select: { id: true, name: true },
   })

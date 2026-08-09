@@ -1,9 +1,9 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
-import { unsafeDb } from '@/server/db/client'
 import { paymentsPort } from '@/ports/registry'
 import {
   cancelMembership,
@@ -133,7 +133,7 @@ export const saveMembershipPlanAction = withAuthz(
      */
     const serviceIds = [...new Set(input.included.flatMap((i) => (i.serviceId ? [i.serviceId] : [])))]
     if (serviceIds.length > 0) {
-      const ours = await unsafeDb.service.count({
+      const ours = await dbFor(ctx.salonId).service.count({
         where: { salonId: ctx.salonId, id: { in: serviceIds } },
       })
       if (ours !== serviceIds.length) {
@@ -155,7 +155,7 @@ export const saveMembershipPlanAction = withAuthz(
      * mints a new one. Renaming a plan does not.
      */
     const existing = input.planId
-      ? await unsafeDb.clientMembershipPlan.findFirst({
+      ? await dbFor(ctx.salonId).clientMembershipPlan.findFirst({
           where: { id: input.planId, salonId: ctx.salonId },
           select: { priceCents: true, interval: true, stripePriceId: true },
         })
@@ -198,7 +198,7 @@ export const saveMembershipPlanAction = withAuthz(
      * predicate, and a count of zero is somebody reaching where they should not.
      */
     if (input.planId) {
-      const changed = await unsafeDb.clientMembershipPlan.updateMany({
+      const changed = await dbFor(ctx.salonId).clientMembershipPlan.updateMany({
         where: { id: input.planId, salonId: ctx.salonId },
         data,
       })
@@ -207,7 +207,7 @@ export const saveMembershipPlanAction = withAuthz(
 
     const plan = input.planId
       ? { id: input.planId }
-      : await unsafeDb.clientMembershipPlan.create({
+      : await dbFor(ctx.salonId).clientMembershipPlan.create({
           data: { salonId: ctx.salonId, ...data },
           select: { id: true },
         })

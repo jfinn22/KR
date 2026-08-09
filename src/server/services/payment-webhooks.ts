@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { paymentsPort } from '@/ports/registry'
 import type { WebhookEvent } from '@/ports/payments'
 import { reconcileDepositEvent } from '@/server/services/deposits'
@@ -245,7 +246,7 @@ async function dispatch(event: WebhookEvent): Promise<Record<string, unknown>> {
         // Never move a settled payment to FAILED — the bill already counted it.
         return { handled: true, kind: 'payment', status: payment.status }
       }
-      await unsafeDb.payment.update({
+      await dbFor(payment.salonId).payment.update({
         where: { id: payment.id },
         data: { status: 'FAILED', failureCode: event.failureCode ?? null },
       })

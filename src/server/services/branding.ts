@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { storagePort } from '@/ports/registry'
 import { deriveAccentLadder, toChannels, parseHex } from '@/domain/branding/contrast'
@@ -120,7 +121,8 @@ export async function saveLogoKey(salonId: string, logoKey: string | null): Prom
 }
 
 async function currentBrand(salonId: string): Promise<z.infer<typeof BRAND_JSON>> {
-  const salon = await unsafeDb.salon.findUnique({
+  const db = dbFor(salonId)
+  const salon = await db.salon.findUnique({
     where: { id: salonId },
     select: { brandJson: true },
   })
@@ -129,9 +131,10 @@ async function currentBrand(salonId: string): Promise<z.infer<typeof BRAND_JSON>
 }
 
 async function writeBrand(salonId: string, brand: z.infer<typeof BRAND_JSON>): Promise<void> {
+  const db = dbFor(salonId)
   // Strip undefined so a cleared field leaves no key behind.
   const clean = Object.fromEntries(Object.entries(brand).filter(([, v]) => v !== undefined))
-  await unsafeDb.salon.update({
+  await db.salon.update({
     where: { id: salonId },
     data: { brandJson: clean as never },
   })

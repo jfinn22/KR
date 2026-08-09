@@ -124,5 +124,20 @@ export function dbFor(salonId: string) {
 
 export type TenantDb = ReturnType<typeof dbFor>
 
+/**
+ * Interactive transaction client from `dbFor(salonId).$transaction(async (tx) => …)`.
+ *
+ * The extended client's `tx` is not assignable to `Prisma.TransactionClient`, so
+ * helpers that accept a transaction must take this (or a structural subset).
+ */
+export type TenantTx = TenantDb['$transaction'] extends {
+  <R>(
+    fn: (client: infer C) => Promise<R>,
+    options?: { maxWait?: number; timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel },
+  ): Promise<R>
+}
+  ? C
+  : never
+
 /** Re-exported so repositories can build typed filters without importing Prisma. */
 export { Prisma }

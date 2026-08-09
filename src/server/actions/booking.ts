@@ -1,5 +1,6 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
@@ -27,7 +28,6 @@ import {
 import { invalidateAvailabilityCache } from '@/server/services/scheduling/loader'
 import { loadPlan } from '@/server/services/service-plan'
 import { authorizeDeposit } from '@/server/services/deposits'
-import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
 /**
@@ -46,7 +46,7 @@ const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected a YYYY-MM-DD
 const HOLD_TTL_SECONDS = 10 * 60
 
 async function planResource(servicePlanId: string, ctx: TenantContext) {
-  const plan = await unsafeDb.servicePlan.findFirst({
+  const plan = await dbFor(ctx.salonId).servicePlan.findFirst({
     where: { id: servicePlanId, salonId: ctx.salonId },
     select: { clientProfileId: true, stylistProfileId: true },
   })
@@ -59,7 +59,7 @@ async function planResource(servicePlanId: string, ctx: TenantContext) {
 }
 
 async function clientResource(clientProfileId: string, ctx: TenantContext) {
-  const client = await unsafeDb.clientProfile.findFirst({
+  const client = await dbFor(ctx.salonId).clientProfile.findFirst({
     where: { id: clientProfileId, salonId: ctx.salonId },
     select: { id: true, preferredStylistId: true },
   })
@@ -72,7 +72,7 @@ async function clientResource(clientProfileId: string, ctx: TenantContext) {
 }
 
 async function appointmentResource(appointmentId: string, ctx: TenantContext) {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const appointment = await dbFor(ctx.salonId).appointment.findFirst({
     where: { id: appointmentId, salonId: ctx.salonId },
     select: { clientProfileId: true, primaryStylistId: true, locationId: true },
   })
@@ -157,7 +157,7 @@ export const releaseHoldAction = withAuthz(
     action: 'hold.release',
     schema: z.object({ holdId: cuid }),
     resource: async (input, ctx) => {
-      const hold = await unsafeDb.bookingHold.findFirst({
+      const hold = await dbFor(ctx.salonId).bookingHold.findFirst({
         where: { id: input.holdId, salonId: ctx.salonId },
         select: { clientProfileId: true, primaryStylistId: true },
       })
@@ -371,7 +371,7 @@ export const findDeskSlotsAction = withAuthz(
       throw new DomainError('INVALID_INPUT', 'That date range runs backwards.')
     }
 
-    const client = await unsafeDb.clientProfile.findFirstOrThrow({
+    const client = await dbFor(ctx.salonId).clientProfile.findFirstOrThrow({
       where: { id: input.clientProfileId, salonId: ctx.salonId },
       select: { completedVisits: true },
     })
@@ -469,7 +469,7 @@ const CONSULT_SEARCH = z.object({
 })
 
 async function consultationResource(consultationId: string, ctx: TenantContext) {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const consultation = await dbFor(ctx.salonId).consultation.findFirst({
     where: { id: consultationId, salonId: ctx.salonId },
     select: { clientProfileId: true, requestedStylistId: true },
   })
@@ -548,7 +548,7 @@ const JOIN_WAITLIST = z.object({
 })
 
 async function waitlistResource(entryId: string, ctx: TenantContext) {
-  const entry = await unsafeDb.waitlistEntry.findFirst({
+  const entry = await dbFor(ctx.salonId).waitlistEntry.findFirst({
     where: { id: entryId, salonId: ctx.salonId },
     select: { clientProfileId: true },
   })

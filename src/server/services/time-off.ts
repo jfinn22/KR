@@ -1,4 +1,3 @@
-import { unsafeDb } from '@/server/db/client'
 import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { invalidateAvailabilityCache } from '@/server/services/scheduling/loader'
@@ -46,7 +45,8 @@ async function clashesFor(
   startsAt: Date,
   endsAt: Date,
 ): Promise<number> {
-  return unsafeDb.appointment.count({
+  const db = dbFor(salonId)
+  return db.appointment.count({
     where: {
       salonId,
       primaryStylistId: stylistProfileId,
@@ -109,6 +109,7 @@ export async function requestTimeOff(input: {
   allDay?: boolean
   reason?: string | null
 }): Promise<{ timeOffId: string; clashes: number }> {
+  const db = dbFor(input.salonId)
   if (input.endsAt <= input.startsAt) {
     throw new DomainError('INVALID_INPUT', 'That ends before it starts.')
   }
@@ -124,7 +125,7 @@ export async function requestTimeOff(input: {
    * same afternoon means approving one and denying the other leaves the day
    * half-blocked, and nobody can tell from the screen which is in force.
    */
-  const overlapping = await unsafeDb.timeOff.findFirst({
+  const overlapping = await db.timeOff.findFirst({
     where: {
       salonId: input.salonId,
       stylistProfileId: input.stylistProfileId,
@@ -138,7 +139,7 @@ export async function requestTimeOff(input: {
     throw new DomainError('CONFLICT', 'They already have time off over some of that.')
   }
 
-  const created = await unsafeDb.timeOff.create({
+  const created = await db.timeOff.create({
     data: {
       salonId: input.salonId,
       stylistProfileId: input.stylistProfileId,
@@ -168,7 +169,8 @@ export async function decideTimeOff(input: {
   approve: boolean
   decidedByUserId?: string | null
 }): Promise<{ status: string; clashes: number }> {
-  const row = await unsafeDb.timeOff.findFirst({
+  const db = dbFor(input.salonId)
+  const row = await db.timeOff.findFirst({
     where: { id: input.timeOffId, salonId: input.salonId },
     select: { id: true, stylistProfileId: true, startsAt: true, endsAt: true, status: true },
   })
@@ -176,7 +178,7 @@ export async function decideTimeOff(input: {
 
   const status = input.approve ? 'APPROVED' : 'DENIED'
 
-  await unsafeDb.timeOff.updateMany({
+  await db.timeOff.updateMany({
     where: { id: row.id, salonId: input.salonId },
     data: { status, approvedByUserId: input.decidedByUserId ?? null },
   })
@@ -201,7 +203,8 @@ export async function cancelTimeOff(input: {
   salonId: string
   timeOffId: string
 }): Promise<void> {
-  const deleted = await unsafeDb.timeOff.deleteMany({
+  const db = dbFor(input.salonId)
+  const deleted = await db.timeOff.deleteMany({
     where: { id: input.timeOffId, salonId: input.salonId },
   })
   if (deleted.count === 0) throw new DomainError('NOT_FOUND', 'That request is not here.')

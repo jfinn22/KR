@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import type { ServiceChainSpec } from '@/domain/scheduling/chain'
 import type { ServiceFactSpec } from '@/domain/consultation/facts'
@@ -20,7 +20,8 @@ const serviceInclude = {
 export type CatalogService = Awaited<ReturnType<typeof getService>>
 
 export async function getService(salonId: string, serviceId: string) {
-  const service = await unsafeDb.service.findFirst({
+  const db = dbFor(salonId)
+  const service = await db.service.findFirst({
     where: { id: serviceId, salonId },
     include: serviceInclude,
   })
@@ -29,7 +30,8 @@ export async function getService(salonId: string, serviceId: string) {
 }
 
 export async function getServices(salonId: string, serviceIds: readonly string[]) {
-  const services = await unsafeDb.service.findMany({
+  const db = dbFor(salonId)
+  const services = await db.service.findMany({
     where: { salonId, id: { in: [...serviceIds] } },
     include: serviceInclude,
   })
@@ -44,7 +46,8 @@ export async function getServices(salonId: string, serviceIds: readonly string[]
 
 /** Categories with their bookable services, for the client-facing picker. */
 export async function listCatalog(salonId: string, opts: { onlineOnly?: boolean } = {}) {
-  return unsafeDb.serviceCategory.findMany({
+  const db = dbFor(salonId)
+  return db.serviceCategory.findMany({
     where: { salonId, isActive: true },
     orderBy: { sortOrder: 'asc' },
     include: {
@@ -119,12 +122,13 @@ export async function capableStylists(
   serviceIds: readonly string[],
   opts: { forNewClient?: boolean } = {},
 ) {
+  const db = dbFor(salonId)
   const [services, stylists] = await Promise.all([
-    unsafeDb.service.findMany({
+    db.service.findMany({
       where: { salonId, id: { in: [...serviceIds] } },
       select: { id: true, requiredSkillCode: true, requiredSkillLevel: true },
     }),
-    unsafeDb.stylistProfile.findMany({
+    db.stylistProfile.findMany({
       where: {
         salonId,
         isActive: true,
@@ -158,7 +162,8 @@ export async function requiredSkillFor(
   salonId: string,
   serviceIds: readonly string[],
 ): Promise<{ code: string; level: number } | null> {
-  const services = await unsafeDb.service.findMany({
+  const db = dbFor(salonId)
+  const services = await db.service.findMany({
     where: { salonId, id: { in: [...serviceIds] }, requiredSkillCode: { not: null } },
     select: { requiredSkillCode: true, requiredSkillLevel: true },
     orderBy: { requiredSkillLevel: 'desc' },
@@ -192,6 +197,7 @@ export async function replacePhases(
   serviceId: string,
   phases: readonly PhaseInput[],
 ): Promise<void> {
+  const db = dbFor(salonId)
   if (phases.length === 0) {
     throw new DomainError('INVALID_INPUT', 'A service needs at least one phase.')
   }
@@ -199,7 +205,7 @@ export async function replacePhases(
     throw new DomainError('INVALID_INPUT', 'Every phase needs a duration.')
   }
 
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     const service = await tx.service.findFirst({
       where: { id: serviceId, salonId },
       select: { id: true },
@@ -249,14 +255,15 @@ export async function upsertService(
   serviceId: string | null,
   input: ServiceInput,
 ): Promise<string> {
+  const db = dbFor(salonId)
   if (serviceId) {
-    const existing = await unsafeDb.service.findFirst({
+    const existing = await db.service.findFirst({
       where: { id: serviceId, salonId },
       select: { id: true },
     })
     if (!existing) throw new DomainError('NOT_FOUND', 'That service no longer exists.')
 
-    await unsafeDb.service.update({ where: { id: serviceId }, data: input })
+    await db.service.update({ where: { id: serviceId }, data: input })
     return serviceId
   }
 
@@ -267,7 +274,7 @@ export async function upsertService(
    * service, "Scalp treatment" when there is already a scalp treatment is an
    * ordinary Tuesday, and it should say which field to change.
    */
-  const clash = await unsafeDb.service.findFirst({
+  const clash = await db.service.findFirst({
     where: { salonId, slug: input.slug },
     select: { name: true },
   })
@@ -278,7 +285,7 @@ export async function upsertService(
     )
   }
 
-  const created = await unsafeDb.service.create({
+  const created = await db.service.create({
     data: { ...input, salonId },
     select: { id: true },
   })

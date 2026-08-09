@@ -1,5 +1,6 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
@@ -8,7 +9,6 @@ import {
   saveAppointmentNote,
   saveClientNotes,
 } from '@/server/services/front-desk'
-import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
 /**
@@ -27,7 +27,7 @@ import type { TenantContext } from '@/server/auth/context'
 const cuid = z.string().min(1).max(64)
 
 async function clientResource(clientProfileId: string, ctx: TenantContext) {
-  const client = await unsafeDb.clientProfile.findFirst({
+  const client = await dbFor(ctx.salonId).clientProfile.findFirst({
     where: { id: clientProfileId, salonId: ctx.salonId },
     select: { id: true, preferredStylistId: true },
   })
@@ -74,7 +74,7 @@ export const saveAppointmentNoteAction = withAuthz(
       internalNote: z.string().max(8000).nullable(),
     }),
     resource: async (input, ctx) => {
-      const appointment = await unsafeDb.appointment.findFirst({
+      const appointment = await dbFor(ctx.salonId).appointment.findFirst({
         where: { id: input.appointmentId, salonId: ctx.salonId },
         select: { id: true, clientProfileId: true, primaryStylistId: true },
       })

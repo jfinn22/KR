@@ -1,5 +1,6 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
@@ -8,7 +9,6 @@ import { claimForReview, resolveFlag } from '@/server/services/review-queue'
 import { evaluateConsultation } from '@/server/services/consultation'
 import { acceptSuggestion, rejectSuggestion, summariseConsultation } from '@/server/services/ai'
 import { reviewDetail } from '@/server/services/review-queue'
-import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
 /**
@@ -24,7 +24,7 @@ import type { TenantContext } from '@/server/auth/context'
 const cuid = z.string().min(1).max(64)
 
 async function consultationResource(consultationId: string, ctx: TenantContext) {
-  const row = await unsafeDb.consultation.findFirst({
+  const row = await dbFor(ctx.salonId).consultation.findFirst({
     where: { id: consultationId, salonId: ctx.salonId },
     select: { clientProfileId: true, requestedStylistId: true },
   })

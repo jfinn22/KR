@@ -1,11 +1,11 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
 import { advanceAppointment, markProcessing } from '@/server/services/appointment-lifecycle'
 import { invalidateAvailabilityCache } from '@/server/services/scheduling/loader'
-import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
 /**
@@ -20,7 +20,7 @@ import type { TenantContext } from '@/server/auth/context'
 const cuid = z.string().min(1).max(64)
 
 async function appointmentResource(appointmentId: string, ctx: TenantContext) {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const appointment = await dbFor(ctx.salonId).appointment.findFirst({
     where: { id: appointmentId, salonId: ctx.salonId },
     select: { clientProfileId: true, primaryStylistId: true, locationId: true },
   })

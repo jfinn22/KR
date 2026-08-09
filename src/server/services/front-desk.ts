@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { writeConsents } from '@/server/services/signup'
 
 /**
@@ -67,10 +67,11 @@ export async function deskDay(
   salonId: string,
   opts: { localDate: string; timeZone: string; locationId?: string | null; now?: Date },
 ): Promise<DeskDay> {
+  const db = dbFor(salonId)
   const now = opts.now ?? new Date()
   const { from, to } = dayBounds(opts.localDate, opts.timeZone)
 
-  const appointments = await unsafeDb.appointment.findMany({
+  const appointments = await db.appointment.findMany({
     where: {
       salonId,
       startsAt: { gte: from, lt: to },
@@ -96,7 +97,7 @@ export async function deskDay(
    */
   const flagged = new Set(
     (
-      await unsafeDb.riskFlag.findMany({
+      await db.riskFlag.findMany({
         where: {
           salonId,
           status: 'OPEN',
@@ -178,12 +179,13 @@ export async function deskDay(
  * the same way.
  */
 export async function findClients(salonId: string, query: string, limit = 20) {
+  const db = dbFor(salonId)
   const term = query.trim()
   if (term.length < 2) return []
 
   const digits = term.replace(/\D/g, '')
 
-  return unsafeDb.clientProfile.findMany({
+  return db.clientProfile.findMany({
     where: {
       salonId,
       status: 'ACTIVE',
@@ -219,7 +221,8 @@ export async function findClients(salonId: string, query: string, limit = 20) {
  * sat down for.
  */
 export async function checkoutView(salonId: string, appointmentId: string) {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const db = dbFor(salonId)
+  const appointment = await db.appointment.findFirst({
     where: { id: appointmentId, salonId },
     include: {
       clientProfile: { select: { firstName: true, lastName: true } },
@@ -344,13 +347,14 @@ export async function checkoutView(salonId: string, appointmentId: string) {
  * happens again.
  */
 export async function clientRecord(salonId: string, clientProfileId: string) {
-  const client = await unsafeDb.clientProfile.findFirst({
+  const db = dbFor(salonId)
+  const client = await db.clientProfile.findFirst({
     where: { id: clientProfileId, salonId },
     include: { hairProfile: true },
   })
   if (!client) return null
 
-  const accuracy = await unsafeDb.quoteAccuracy.findMany({
+  const accuracy = await db.quoteAccuracy.findMany({
     where: { salonId, appointment: { clientProfileId } },
     orderBy: { computedAt: 'desc' },
     take: 10,
@@ -368,7 +372,7 @@ export async function clientRecord(salonId: string, clientProfileId: string) {
    * card statement, rang up about it. The waive path existed at the same time
    * and was reachable from nowhere for the same reason.
    */
-  const fees = await unsafeDb.cancellationFee.findMany({
+  const fees = await db.cancellationFee.findMany({
     where: { salonId, appointment: { clientProfileId } },
     orderBy: { createdAt: 'desc' },
     take: 10,
@@ -399,7 +403,7 @@ export async function clientRecord(salonId: string, clientProfileId: string) {
    * "keep it" both existed as reasoned, audited operations that nothing could
    * call.
    */
-  const deposits = await unsafeDb.deposit.findMany({
+  const deposits = await db.deposit.findMany({
     where: {
       salonId,
       clientProfileId,
@@ -446,15 +450,16 @@ export async function daySchedule(
   salonId: string,
   opts: { localDate: string; timeZone: string; locationId?: string | null },
 ) {
+  const db = dbFor(salonId)
   const { from, to } = dayBounds(opts.localDate, opts.timeZone)
 
   const [stylists, segments] = await Promise.all([
-    unsafeDb.stylistProfile.findMany({
+    db.stylistProfile.findMany({
       where: { salonId, isActive: true },
       orderBy: { displayName: 'asc' },
       select: { id: true, displayName: true, colorHex: true },
     }),
-    unsafeDb.appointmentSegment.findMany({
+    db.appointmentSegment.findMany({
       where: {
         salonId,
         startsAt: { gte: from, lt: to },
@@ -513,8 +518,9 @@ export async function saveClientNotes(
   clientProfileId: string,
   internalNotes: string | null,
 ): Promise<void> {
+  const db = dbFor(salonId)
   const trimmed = internalNotes?.trim()
-  await unsafeDb.clientProfile.updateMany({
+  await db.clientProfile.updateMany({
     where: { id: clientProfileId, salonId },
     data: { internalNotes: trimmed && trimmed.length > 0 ? trimmed : null },
   })
@@ -526,8 +532,9 @@ export async function saveAppointmentNote(
   appointmentId: string,
   internalNote: string | null,
 ): Promise<void> {
+  const db = dbFor(salonId)
   const trimmed = internalNote?.trim()
-  await unsafeDb.appointment.updateMany({
+  await db.appointment.updateMany({
     where: { id: appointmentId, salonId },
     data: { internalNote: trimmed && trimmed.length > 0 ? trimmed : null },
   })
@@ -557,6 +564,7 @@ export async function createClientAtDesk(input: {
   internalNotes?: string | null
   marketingOptIn?: boolean
 }): Promise<{ id: string; mergedWithExisting: boolean }> {
+  const db = dbFor(input.salonId)
   const email = input.email?.trim().toLowerCase() || null
   const phoneDigits = input.phone?.replace(/\D/g, '') || null
 
@@ -568,7 +576,7 @@ export async function createClientAtDesk(input: {
    * are already on file.
    */
   if (email || (phoneDigits && phoneDigits.length >= 7)) {
-    const existing = await unsafeDb.clientProfile.findFirst({
+    const existing = await db.clientProfile.findFirst({
       where: {
         salonId: input.salonId,
         status: 'ACTIVE',
@@ -582,7 +590,7 @@ export async function createClientAtDesk(input: {
     if (existing) return { id: existing.id, mergedWithExisting: true }
   }
 
-  const created = await unsafeDb.clientProfile.create({
+  const created = await db.clientProfile.create({
     data: {
       salonId: input.salonId,
       firstName: input.firstName.trim(),

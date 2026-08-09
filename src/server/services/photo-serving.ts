@@ -1,4 +1,5 @@
 import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { storagePort } from '@/ports/registry'
 
 /**
@@ -43,7 +44,7 @@ async function brandingObject(storageKey: string): Promise<ServedObject | null> 
   if (!match) return null
   const salonId = match[1]!
 
-  const salon = await unsafeDb.salon.findUnique({
+  const salon = await dbFor(salonId).salon.findUnique({
     where: { id: salonId },
     select: { brandJson: true },
   })

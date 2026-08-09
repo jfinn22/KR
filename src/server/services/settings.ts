@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { invalidateAvailabilityCache } from '@/server/services/scheduling/loader'
 import type { InterleaveSettings } from '@/domain/scheduling/chain-stats'
 
@@ -12,7 +12,8 @@ import type { InterleaveSettings } from '@/domain/scheduling/chain-stats'
  */
 
 export async function interleaveSettings(salonId: string): Promise<InterleaveSettings> {
-  const row = await unsafeDb.salonSettings.findUnique({
+  const db = dbFor(salonId)
+  const row = await db.salonSettings.findUnique({
     where: { salonId },
     select: { interleaveEnabled: true, minInterleaveMin: true },
   })
@@ -31,7 +32,8 @@ export interface SchedulingSettingsView {
 }
 
 export async function schedulingSettings(salonId: string): Promise<SchedulingSettingsView> {
-  const row = await unsafeDb.salonSettings.findUnique({
+  const db = dbFor(salonId)
+  const row = await db.salonSettings.findUnique({
     where: { salonId },
     select: {
       interleaveEnabled: true,
@@ -59,7 +61,8 @@ export async function saveSchedulingSettings(
   salonId: string,
   input: SchedulingSettingsView,
 ): Promise<void> {
-  await unsafeDb.salonSettings.update({
+  const db = dbFor(salonId)
+  await db.salonSettings.update({
     where: { salonId },
     data: {
       interleaveEnabled: input.interleaveEnabled,
@@ -72,7 +75,8 @@ export async function saveSchedulingSettings(
 }
 
 export async function joinCodeFor(salonId: string): Promise<string | null> {
-  const row = await unsafeDb.salonSettings.findUnique({
+  const db = dbFor(salonId)
+  const row = await db.salonSettings.findUnique({
     where: { salonId },
     select: { joinCode: true },
   })
@@ -89,7 +93,8 @@ export async function joinCodeFor(salonId: string): Promise<string | null> {
  */
 
 export async function saveJoinCode(salonId: string, joinCode: string | null): Promise<void> {
-  await unsafeDb.salonSettings.update({
+  const db = dbFor(salonId)
+  await db.salonSettings.update({
     where: { salonId },
     data: { joinCode: joinCode?.trim().toUpperCase() || null },
   })

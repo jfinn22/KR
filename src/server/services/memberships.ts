@@ -174,6 +174,7 @@ export async function recordBenefitUse(input: {
   benefits: readonly AppliedBenefit[]
   now?: Date
 }): Promise<void> {
+  const db = dbFor(input.salonId)
   if (input.benefits.length === 0) return
 
   /*
@@ -182,7 +183,7 @@ export async function recordBenefitUse(input: {
    * cut left" used to both create use rows — the unique constraint cannot
    * cover multi-unit ledgers, so the lock + re-check is the guard.
    */
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "ClientMembership" WHERE id = ${input.membershipId} FOR UPDATE`
 
     const membership = await tx.clientMembership.findFirst({
@@ -215,7 +216,7 @@ export async function recordBenefitUse(input: {
       entitlements.map((entitlement) => [keyOf(entitlement), entitlement.perPeriod] as const),
     )
 
-    const allowed: typeof input.benefits = []
+    const allowed: AppliedBenefit[] = []
     for (const benefit of input.benefits) {
       const ceiling = ceilingByKey.get(benefit.entitlementKey) ?? null
       const used = usedByKey.get(benefit.entitlementKey) ?? 0
@@ -276,7 +277,8 @@ export async function recordBenefitUse(input: {
  * would let the same benefit be spent twice.
  */
 export async function releaseBenefitUse(salonId: string, invoiceId: string): Promise<void> {
-  await unsafeDb.membershipBenefitUse.deleteMany({ where: { salonId, invoiceId } })
+  const db = dbFor(salonId)
+  await db.membershipBenefitUse.deleteMany({ where: { salonId, invoiceId } })
 }
 
 // --- selling one ------------------------------------------------------------
@@ -676,6 +678,7 @@ export async function applySubscriptionEvent(event: {
   })
   if (!membership) return { handled: false }
 
+  const db = dbFor(membership.salonId)
   const periodEnd = event.currentPeriodEnd ? new Date(event.currentPeriodEnd) : null
 
   /*
@@ -692,7 +695,7 @@ export async function applySubscriptionEvent(event: {
   }
 
   if (event.type.endsWith('.deleted')) {
-    await unsafeDb.clientMembership.update({
+    await db.clientMembership.update({
       where: { id: membership.id },
       data: { status: 'CANCELLED', cancelledAt: now, pastDueSince: null },
     })
@@ -706,11 +709,11 @@ export async function applySubscriptionEvent(event: {
      * never more than a week overdue and the membership never resolves either
      * way.
      */
-    await unsafeDb.clientMembership.updateMany({
+    await db.clientMembership.updateMany({
       where: { id: membership.id, pastDueSince: null },
       data: { pastDueSince: now },
     })
-    await unsafeDb.clientMembership.update({
+    await db.clientMembership.update({
       where: { id: membership.id },
       data: { status: 'PAST_DUE' },
     })
@@ -745,7 +748,7 @@ export async function applySubscriptionEvent(event: {
   const advanced = periodEnd !== null && periodEnd.getTime() !== membership.renewsAt?.getTime()
   const newPeriodStart = membership.renewsAt ?? now
 
-  await unsafeDb.clientMembership.update({
+  await db.clientMembership.update({
     where: { id: membership.id },
     data: {
       ...(paid ? { status: 'ACTIVE' as const, pastDueSince: null } : {}),
@@ -826,7 +829,7 @@ export async function sweepDunning(now = new Date()): Promise<{ suspended: numbe
           if (!(err instanceof AdapterError) || err.code !== 'NOT_FOUND') throw err
         }
       }
-      await unsafeDb.clientMembership.update({
+      await dbFor(membership.salonId).clientMembership.update({
         where: { id: membership.id },
         data: { status: 'CANCELLED', cancelledAt: now },
       })

@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { evaluate } from '@/domain/consultation/engine'
 import { getRuleset, DEFAULT_RULESET_VERSION } from '@/domain/consultation/registry'
@@ -110,8 +110,9 @@ function toServiceSpec(service: {
  * writing one template that covers both.
  */
 async function pickTemplate(salonId: string, serviceIds: string[], templateKey?: string) {
+  const db = dbFor(salonId)
   if (templateKey) {
-    return unsafeDb.consultationTemplate.findFirst({
+    return db.consultationTemplate.findFirst({
       where: {
         status: 'PUBLISHED',
         key: templateKey,
@@ -121,7 +122,7 @@ async function pickTemplate(salonId: string, serviceIds: string[], templateKey?:
     })
   }
 
-  const candidates = await unsafeDb.consultationTemplate.findMany({
+  const candidates = await db.consultationTemplate.findMany({
     where: { status: 'PUBLISHED', OR: [{ salonId }, { salonId: null }] },
     orderBy: [{ salonId: 'desc' }, { version: 'desc' }],
   })
@@ -159,15 +160,16 @@ export async function startConsultation(input: {
   /** A stylist filling this in with the client in the chair. */
   inChair?: boolean
 }): Promise<string> {
+  const db = dbFor(input.salonId)
   const template = await pickTemplate(input.salonId, input.serviceIds, input.templateKey)
   if (!template) {
     throw new DomainError('NOT_FOUND', 'This salon has no published consultation form yet.')
   }
 
-  const settings = await unsafeDb.salonSettings.findUnique({ where: { salonId: input.salonId } })
+  const settings = await db.salonSettings.findUnique({ where: { salonId: input.salonId } })
   const expiryDays = settings?.consultationExpiryDays ?? 60
 
-  const consultation = await unsafeDb.consultation.create({
+  const consultation = await db.consultation.create({
     data: {
       salonId: input.salonId,
       clientProfileId: input.clientProfileId,
@@ -191,7 +193,8 @@ export async function saveAnswer(input: {
   questionKey: string
   value: unknown
 }): Promise<void> {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const db = dbFor(input.salonId)
+  const consultation = await db.consultation.findFirst({
     where: { id: input.consultationId, salonId: input.salonId },
     select: { id: true, status: true, templateId: true },
   })
@@ -200,13 +203,13 @@ export async function saveAnswer(input: {
     throw new DomainError('CONFLICT', 'This consultation has been submitted and cannot be edited.')
   }
 
-  const question = await unsafeDb.consultationQuestion.findFirst({
+  const question = await db.consultationQuestion.findFirst({
     where: { templateId: consultation.templateId, key: input.questionKey },
     select: { id: true },
   })
   if (!question) throw new DomainError('INVALID_INPUT', 'Unknown question.')
 
-  await unsafeDb.consultationAnswer.upsert({
+  await db.consultationAnswer.upsert({
     where: {
       consultationId_questionKey: {
         consultationId: consultation.id,
@@ -229,7 +232,8 @@ export async function loadConsultation(
   salonId: string,
   consultationId: string,
 ): Promise<ConsultationView> {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const db = dbFor(salonId)
+  const consultation = await db.consultation.findFirst({
     where: { id: consultationId, salonId },
     include: {
       answers: true,
@@ -259,14 +263,14 @@ export async function loadConsultation(
 
   let evaluation: EvaluationResult | null = null
   if (consultation.latestEvaluationId) {
-    const row = await unsafeDb.ruleEvaluation.findUnique({
+    const row = await db.ruleEvaluation.findUnique({
       where: { id: consultation.latestEvaluationId },
       select: { outputSnapshotJson: true },
     })
     evaluation = (row?.outputSnapshotJson as EvaluationResult | undefined) ?? null
   }
 
-  const services = await unsafeDb.service.findMany({
+  const services = await db.service.findMany({
     where: { salonId, id: { in: consultation.requestedServiceIds } },
     select: {
       isChemical: true,
@@ -306,9 +310,10 @@ export async function evaluateConsultation(input: {
   actorUserId?: string | null
   now?: Date
 }): Promise<EvaluationResult> {
+  const db = dbFor(input.salonId)
   const now = input.now ?? new Date()
 
-  const consultation = await unsafeDb.consultation.findFirst({
+  const consultation = await db.consultation.findFirst({
     where: { id: input.consultationId, salonId: input.salonId },
     include: {
       answers: true,
@@ -327,7 +332,7 @@ export async function evaluateConsultation(input: {
   })
   if (!consultation) throw new DomainError('NOT_FOUND', 'That consultation no longer exists.')
 
-  const services = await unsafeDb.service.findMany({
+  const services = await db.service.findMany({
     where: { salonId: input.salonId, id: { in: consultation.requestedServiceIds } },
     include: { phases: { orderBy: { sequence: 'asc' } } },
   })
@@ -343,11 +348,11 @@ export async function evaluateConsultation(input: {
 
   if (consultation.requestedStylistId) {
     const [skills, calibration] = await Promise.all([
-      unsafeDb.stylistSkill.findMany({
+      db.stylistSkill.findMany({
         where: { stylistProfileId: consultation.requestedStylistId },
         select: { skillCode: true, level: true },
       }),
-      unsafeDb.stylistCalibration.findFirst({
+      db.stylistCalibration.findFirst({
         where: { stylistProfileId: consultation.requestedStylistId, serviceId: null },
       }),
     ])
@@ -358,7 +363,7 @@ export async function evaluateConsultation(input: {
     }
   }
 
-  const patchTest = await unsafeDb.patchTest.findFirst({
+  const patchTest = await db.patchTest.findFirst({
     where: {
       clientProfileId: consultation.clientProfileId,
       result: 'NEGATIVE',
@@ -367,7 +372,7 @@ export async function evaluateConsultation(input: {
     orderBy: { validUntil: 'desc' },
   })
 
-  const guardianConsent = await unsafeDb.consentGrant.findFirst({
+  const guardianConsent = await db.consentGrant.findFirst({
     where: {
       clientProfileId: consultation.clientProfileId,
       kind: 'MINOR_GUARDIAN',
@@ -427,12 +432,12 @@ export async function evaluateConsultation(input: {
   })
 
   // A salon may switch a rule off, but may never author new logic.
-  const disabled = await unsafeDb.salonRuleOverride.findMany({
+  const disabled = await db.salonRuleOverride.findMany({
     where: { salonId: input.salonId, isEnabled: false },
     select: { ruleId: true },
   })
 
-  const pin = await unsafeDb.salonRulesetPin.findUnique({ where: { salonId: input.salonId } })
+  const pin = await db.salonRulesetPin.findUnique({ where: { salonId: input.salonId } })
   const ruleset = getRuleset(pin?.rulesetVersion ?? DEFAULT_RULESET_VERSION)
 
   const started = Date.now()
@@ -443,7 +448,7 @@ export async function evaluateConsultation(input: {
     disabledRuleIds: new Set(disabled.map((d) => d.ruleId)),
   })
 
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     const evaluation = await tx.ruleEvaluation.create({
       data: {
         salonId: input.salonId,
@@ -525,6 +530,7 @@ export async function submitConsultation(input: {
   /** Needed only to charge a corrective consultation, where one is charged. */
   currency?: string
 }): Promise<EvaluationResult> {
+  const db = dbFor(input.salonId)
   const view = await loadConsultation(input.salonId, input.consultationId)
 
   if (view.missing.length > 0) {
@@ -534,10 +540,10 @@ export async function submitConsultation(input: {
     )
   }
 
-  const settings = await unsafeDb.salonSettings.findUnique({ where: { salonId: input.salonId } })
+  const settings = await db.salonSettings.findUnique({ where: { salonId: input.salonId } })
   const slaHours = settings?.consultationSlaHours ?? 24
 
-  await unsafeDb.consultation.update({
+  await db.consultation.update({
     where: { id: input.consultationId },
     data: {
       status: 'SUBMITTED',
@@ -564,7 +570,7 @@ export async function submitConsultation(input: {
    */
   if (result.complexity.band === 'CORRECTIVE') {
     try {
-      const owner = await unsafeDb.consultation.findFirstOrThrow({
+      const owner = await db.consultation.findFirstOrThrow({
         where: { id: input.consultationId, salonId: input.salonId },
         select: { clientProfileId: true },
       })

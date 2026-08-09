@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 
 /**
  * Reading back what was done, and who did it.
@@ -43,10 +43,11 @@ export async function auditTrail(
   query: AuditQuery = {},
   now = new Date(),
 ): Promise<AuditEntry[]> {
+  const db = dbFor(salonId)
   const days = query.days ?? 30
   const take = Math.min(query.take ?? 100, 200)
 
-  const rows = await unsafeDb.auditLog.findMany({
+  const rows = await db.auditLog.findMany({
     where: {
       /*
        * The salon's own rows only. `AuditLog.salonId` is nullable because
@@ -81,7 +82,7 @@ export async function auditTrail(
    */
   const userIds = [...new Set(rows.flatMap((row) => (row.actorUserId ? [row.actorUserId] : [])))]
   const users = userIds.length
-    ? await unsafeDb.user.findMany({
+    ? await db.user.findMany({
         where: { id: { in: userIds } },
         select: { id: true, name: true, email: true },
       })
@@ -103,7 +104,8 @@ export async function auditTrail(
 
 /** The actions this salon has actually taken, for the filter to offer. */
 export async function auditActions(salonId: string, days = 30, now = new Date()) {
-  const rows = await unsafeDb.auditLog.groupBy({
+  const db = dbFor(salonId)
+  const rows = await db.auditLog.groupBy({
     by: ['action'],
     where: { salonId, createdAt: { gte: new Date(now.getTime() - days * 86_400_000) } },
     _count: { _all: true },

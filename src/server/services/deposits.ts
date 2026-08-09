@@ -1,4 +1,5 @@
 import { unsafeDb } from '@/server/db/client'
+import { dbFor, type TenantTx } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { paymentsPort } from '@/ports/registry'
 import type { Prisma } from '@prisma/client'
@@ -55,7 +56,7 @@ export function canTransition(from: string, to: string): boolean {
 }
 
 async function move(
-  tx: Prisma.TransactionClient,
+  tx: TenantTx,
   depositId: string,
   to: string,
   data: Prisma.DepositUpdateInput = {},
@@ -92,7 +93,8 @@ export async function authorizeDeposit(input: {
   depositId: string
   currency: string
 }): Promise<{ status: string; failureMessage?: string | null }> {
-  const deposit = await unsafeDb.deposit.findFirst({
+  const db = dbFor(input.salonId)
+  const deposit = await db.deposit.findFirst({
     where: { id: input.depositId, salonId: input.salonId },
     include: { savedCard: true, clientProfile: { select: { paymentsCustomerRef: true } } },
   })
@@ -132,7 +134,7 @@ export async function authorizeDeposit(input: {
   const failed = intent.status === 'FAILED' || intent.status === 'CANCELLED'
   const to = failed ? 'FAILED' : intent.status === 'SUCCEEDED' ? 'CAPTURED' : 'AUTHORIZED'
 
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await move(tx, deposit.id, to, {
       providerIntentId: intent.id,
       savedCard: { connect: { id: card.id } },
@@ -163,7 +165,8 @@ export async function captureDeposit(input: {
   salonId: string
   depositId: string
 }): Promise<{ capturedCents: number; status: string }> {
-  const deposit = await unsafeDb.deposit.findFirst({
+  const db = dbFor(input.salonId)
+  const deposit = await db.deposit.findFirst({
     where: { id: input.depositId, salonId: input.salonId },
   })
   if (!deposit) throw new DomainError('NOT_FOUND', 'That deposit no longer exists.')
@@ -175,12 +178,11 @@ export async function captureDeposit(input: {
   }
 
   const captured = await paymentsPort().capture(deposit.providerIntentId)
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await move(tx, deposit.id, 'CAPTURED', { authorizationExpiresAt: null })
   })
   return { capturedCents: captured.capturedCents, status: 'CAPTURED' }
 }
-
 
 /**
  * Record which bill consumed this deposit.
@@ -195,14 +197,15 @@ export async function markDepositApplied(input: {
   invoiceId: string
   paymentId?: string | null
 }): Promise<void> {
-  const deposit = await unsafeDb.deposit.findFirst({
+  const db = dbFor(input.salonId)
+  const deposit = await db.deposit.findFirst({
     where: { id: input.depositId, salonId: input.salonId },
     select: { id: true, status: true },
   })
   if (!deposit) throw new DomainError('NOT_FOUND', 'That deposit no longer exists.')
   if (deposit.status === 'APPLIED') return
 
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await move(tx, deposit.id, 'APPLIED', {
       appliedToPaymentId: input.paymentId ?? null,
       appliedToInvoice: { connect: { id: input.invoiceId } },
@@ -229,7 +232,8 @@ export async function forfeitDeposit(input: {
   reason: string
   keepAtMostCents?: number
 }): Promise<{ forfeitedCents: number }> {
-  const deposit = await unsafeDb.deposit.findFirst({
+  const db = dbFor(input.salonId)
+  const deposit = await db.deposit.findFirst({
     where: { id: input.depositId, salonId: input.salonId },
   })
   if (!deposit) throw new DomainError('NOT_FOUND', 'That deposit no longer exists.')
@@ -260,7 +264,7 @@ export async function forfeitDeposit(input: {
     )
   }
 
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     if (deposit.status === 'AUTHORIZED') {
       await move(tx, deposit.id, 'CAPTURED', { authorizationExpiresAt: null })
     }
@@ -288,7 +292,8 @@ export async function releaseDeposit(input: {
   salonId: string
   depositId: string
 }): Promise<{ released: boolean }> {
-  const deposit = await unsafeDb.deposit.findFirst({
+  const db = dbFor(input.salonId)
+  const deposit = await db.deposit.findFirst({
     where: { id: input.depositId, salonId: input.salonId },
   })
   if (!deposit) throw new DomainError('NOT_FOUND', 'That deposit no longer exists.')
@@ -309,7 +314,7 @@ export async function releaseDeposit(input: {
     }
   }
 
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await move(tx, deposit.id, 'REFUNDED')
   })
   return { released: true }
@@ -337,7 +342,8 @@ export async function chargeConsultationFee(input: {
   clientProfileId: string
   currency: string
 }): Promise<{ depositId: string; amountCents: number; status: string } | null> {
-  const settings = await unsafeDb.salonSettings.findUnique({
+  const db = dbFor(input.salonId)
+  const settings = await db.salonSettings.findUnique({
     where: { salonId: input.salonId },
     select: { correctiveConsultFeeCents: true },
   })
@@ -349,7 +355,7 @@ export async function chargeConsultationFee(input: {
    * still having one assessment, and re-evaluation runs on every submit — so
    * without this a hesitant client is charged for their own hesitation.
    */
-  const existing = await unsafeDb.deposit.findFirst({
+  const existing = await db.deposit.findFirst({
     where: {
       salonId: input.salonId,
       consultationId: input.consultationId,
@@ -364,7 +370,7 @@ export async function chargeConsultationFee(input: {
     }
   }
 
-  const deposit = await unsafeDb.deposit.create({
+  const deposit = await db.deposit.create({
     data: {
       salonId: input.salonId,
       clientProfileId: input.clientProfileId,
@@ -418,7 +424,8 @@ export async function renewDepositAuthorization(input: {
   depositId: string
   currency: string
 }): Promise<{ status: string }> {
-  const deposit = await unsafeDb.deposit.findFirst({
+  const db = dbFor(input.salonId)
+  const deposit = await db.deposit.findFirst({
     where: { id: input.depositId, salonId: input.salonId },
     select: { id: true, status: true, providerIntentId: true },
   })
@@ -433,7 +440,7 @@ export async function renewDepositAuthorization(input: {
     }
   }
 
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     await move(tx, deposit.id, 'PENDING', {
       // Cleared, or the new authorisation collides with the old row on the
       // unique index and the renewal fails on its own bookkeeping.
@@ -461,9 +468,10 @@ export async function reconcileDepositEvent(event: {
 }): Promise<{ matched: boolean; depositId?: string; status?: string }> {
   const deposit = await unsafeDb.deposit.findUnique({
     where: { providerIntentId: event.objectId },
-    select: { id: true, status: true },
+    select: { id: true, status: true, salonId: true },
   })
   if (!deposit) return { matched: false }
+  const db = dbFor(deposit.salonId)
 
   const to =
     event.type === 'payment_intent.succeeded'
@@ -488,7 +496,7 @@ export async function reconcileDepositEvent(event: {
     return { matched: true, depositId: deposit.id, status: deposit.status }
   }
 
-  await unsafeDb.deposit.update({
+  await db.deposit.update({
     where: { id: deposit.id },
     data: {
       status: to as never,
@@ -501,7 +509,8 @@ export async function reconcileDepositEvent(event: {
 }
 
 async function defaultCardFor(salonId: string, clientProfileId: string) {
-  return unsafeDb.savedCard.findFirst({
+  const db = dbFor(salonId)
+  return db.savedCard.findFirst({
     where: { salonId, clientProfileId, detachedAt: null },
     orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
   })

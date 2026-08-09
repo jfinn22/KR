@@ -1,5 +1,6 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
@@ -17,7 +18,6 @@ import {
 } from '@/server/services/commerce'
 import { capPercentFor } from '@/domain/commerce/discounts'
 import { can } from '@/domain/authz/policy'
-import { unsafeDb } from '@/server/db/client'
 import type { TenantContext } from '@/server/auth/context'
 
 /**
@@ -34,7 +34,7 @@ const cuid = z.string().min(1).max(64)
 const money = z.number().int().min(0).max(10_000_00)
 
 async function appointmentResource(appointmentId: string, ctx: TenantContext) {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const appointment = await dbFor(ctx.salonId).appointment.findFirst({
     where: { id: appointmentId, salonId: ctx.salonId },
     select: { clientProfileId: true, primaryStylistId: true, locationId: true },
   })
@@ -48,7 +48,7 @@ async function appointmentResource(appointmentId: string, ctx: TenantContext) {
 }
 
 async function invoiceResource(invoiceId: string, ctx: TenantContext) {
-  const invoice = await unsafeDb.invoice.findFirst({
+  const invoice = await dbFor(ctx.salonId).invoice.findFirst({
     where: { id: invoiceId, salonId: ctx.salonId },
     select: { clientProfileId: true },
   })
@@ -389,7 +389,7 @@ export const confirmPendingTillPaymentAction = withAuthz(
     action: 'payment.take',
     schema: z.object({ paymentId: cuid }),
     resource: async (input, ctx) => {
-      const payment = await unsafeDb.payment.findFirst({
+      const payment = await dbFor(ctx.salonId).payment.findFirst({
         where: { id: input.paymentId, salonId: ctx.salonId },
         select: { clientProfileId: true },
       })
@@ -424,7 +424,7 @@ export const refundPaymentAction = withAuthz(
       reason: z.string().min(8, 'Say why — it goes on the record.').max(500),
     }),
     resource: async (input, ctx) => {
-      const payment = await unsafeDb.payment.findFirst({
+      const payment = await dbFor(ctx.salonId).payment.findFirst({
         where: { id: input.paymentId, salonId: ctx.salonId },
         select: { clientProfileId: true },
       })

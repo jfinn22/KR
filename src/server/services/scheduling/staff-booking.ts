@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { bookingGate, isBookable, needsOverride, type GateDecision } from '@/domain/scheduling/gate'
 import { getServices } from '../catalog'
@@ -45,12 +45,13 @@ export async function deskBookingContext(input: {
   /** An approved plan the desk is booking against, if there is one. */
   servicePlanId?: string | null
 }): Promise<DeskBookingContext> {
+  const db = dbFor(input.salonId)
   const services = await getServices(input.salonId, input.serviceIds)
 
   const [patchTest, plan, chain] = await Promise.all([
     validPatchTest(input.salonId, input.clientProfileId),
     input.servicePlanId
-      ? unsafeDb.servicePlan.findFirst({
+      ? db.servicePlan.findFirst({
           where: {
             id: input.servicePlanId,
             salonId: input.salonId,
@@ -183,6 +184,7 @@ export async function bookFromDesk(input: DeskBookingInput): Promise<{
   startsAt: Date
   endsAt: Date
 }> {
+  const db = dbFor(input.salonId)
   const context = await assertGate(input)
 
   const resolved = await resolveSlotForServices({
@@ -229,7 +231,7 @@ export async function bookFromDesk(input: DeskBookingInput): Promise<{
    * person holding the brush is looking at.
    */
   if (context.gate.decision === 'OVERRIDABLE' && input.overrideReason) {
-    await unsafeDb.appointment.update({
+    await db.appointment.update({
       where: { id: booking.appointmentId },
       data: {
         internalNote: `Booked without a consultation. ${input.overrideReason.trim()}`,

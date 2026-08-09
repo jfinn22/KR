@@ -1,4 +1,3 @@
-import { unsafeDb } from '@/server/db/client'
 import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { noteColourApplied } from './hair-prediction'
@@ -67,7 +66,7 @@ export async function saveFormula(input: SaveFormulaInput): Promise<{ formulaId:
     ...new Set(input.components.flatMap((c) => (c.retailProductId ? [c.retailProductId] : []))),
   ]
   if (productIds.length > 0) {
-    const ours = await unsafeDb.retailProduct.count({
+    const ours = await db.retailProduct.count({
       where: { salonId: input.salonId, id: { in: productIds } },
     })
     if (ours !== productIds.length) {
@@ -75,7 +74,7 @@ export async function saveFormula(input: SaveFormulaInput): Promise<{ formulaId:
     }
   }
 
-  const formula = await unsafeDb.$transaction(async (tx) => {
+  const formula = await db.$transaction(async (tx) => {
     /*
      * One formula per appointment. A stylist correcting what they mixed is
      * fixing a record, not adding a second bowl — and `costOfService` reads the

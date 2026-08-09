@@ -1,9 +1,9 @@
 'use server'
 
+import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
-import { unsafeDb } from '@/server/db/client'
 import { recordAftercare, settleRecommendation } from '@/server/services/retention'
 import { resolveCheckIn } from '@/server/services/check-in'
 
@@ -57,7 +57,7 @@ export const recordAftercareAction = withAuthz(
      */
     if (input.products.length > 0) {
       const ids = [...new Set(input.products.map((p) => p.retailProductId))]
-      const ours = await unsafeDb.retailProduct.count({
+      const ours = await dbFor(ctx.salonId).retailProduct.count({
         where: { salonId: ctx.salonId, id: { in: ids } },
       })
       if (ours !== ids.length) {

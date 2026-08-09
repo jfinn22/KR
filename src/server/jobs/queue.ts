@@ -1,4 +1,5 @@
 import { unsafeDb } from '@/server/db/client'
+import type { TenantTx } from '@/server/db/tenant-client'
 import type { Prisma } from '@prisma/client'
 
 /**
@@ -35,7 +36,7 @@ export interface ClaimedJob {
 
 export async function enqueue(
   input: EnqueueInput,
-  tx: Prisma.TransactionClient | typeof unsafeDb = unsafeDb,
+  tx: Prisma.TransactionClient | TenantTx | typeof unsafeDb = unsafeDb,
 ): Promise<string | null> {
   if (input.dedupeKey) {
     const existing = await tx.job.findFirst({

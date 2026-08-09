@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { storagePort } from '@/ports/registry'
 import { enqueue } from '@/server/jobs/queue'
@@ -52,7 +52,8 @@ export async function consultationOwner(
   salonId: string,
   consultationId: string,
 ): Promise<{ salonId: string; clientProfileId: string; ownerStylistId: string | null }> {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const db = dbFor(salonId)
+  const consultation = await db.consultation.findFirst({
     where: { id: consultationId, salonId },
     select: { clientProfileId: true, requestedStylistId: true },
   })
@@ -74,6 +75,7 @@ export interface UploadInput {
 
 /** Store the bytes and record the asset. Shared by consultation and inspiration. */
 export async function storePhoto(input: UploadInput): Promise<{ id: string; key: string }> {
+  const db = dbFor(input.salonId)
   if (!ALLOWED_TYPES.has(input.contentType)) {
     throw new DomainError('INVALID_INPUT', 'Please upload a photo — JPEG, PNG, WebP or HEIC.')
   }
@@ -90,7 +92,7 @@ export async function storePhoto(input: UploadInput): Promise<{ id: string; key:
     contentType: input.contentType,
   })
 
-  const asset = await unsafeDb.photoAsset.create({
+  const asset = await db.photoAsset.create({
     data: {
       salonId: input.salonId,
       clientProfileId: input.clientProfileId,
@@ -122,7 +124,8 @@ export async function attachConsultationPhoto(input: {
   contentType: string
   uploadedByUserId?: string | null
 }): Promise<{ photoId: string; url: string }> {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const db = dbFor(input.salonId)
+  const consultation = await db.consultation.findFirst({
     where: { id: input.consultationId, salonId: input.salonId },
     select: { id: true, clientProfileId: true, status: true },
   })
@@ -139,18 +142,18 @@ export async function attachConsultationPhoto(input: {
     uploadedByUserId: input.uploadedByUserId,
   })
 
-  const existing = await unsafeDb.consultationPhoto.findFirst({
+  const existing = await db.consultationPhoto.findFirst({
     where: { consultationId: consultation.id, view: input.view, sequence: 0 },
     select: { id: true },
   })
 
   const photo = existing
-    ? await unsafeDb.consultationPhoto.update({
+    ? await db.consultationPhoto.update({
         where: { id: existing.id },
         data: { photoAssetId: asset.id, qualityScore: null, qualityIssues: [] },
         select: { id: true },
       })
-    : await unsafeDb.consultationPhoto.create({
+    : await db.consultationPhoto.create({
         data: {
           salonId: input.salonId,
           consultationId: consultation.id,
@@ -182,7 +185,8 @@ export async function addInspiration(input: {
   clientNote?: string | null
   uploadedByUserId?: string | null
 }): Promise<{ inspirationId: string }> {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const db = dbFor(input.salonId)
+  const consultation = await db.consultation.findFirst({
     where: { id: input.consultationId, salonId: input.salonId },
     select: { id: true, clientProfileId: true },
   })
@@ -204,11 +208,11 @@ export async function addInspiration(input: {
     photoAssetId = asset.id
   }
 
-  const count = await unsafeDb.inspirationPhoto.count({
+  const count = await db.inspirationPhoto.count({
     where: { consultationId: consultation.id },
   })
 
-  const inspiration = await unsafeDb.inspirationPhoto.create({
+  const inspiration = await db.inspirationPhoto.create({
     data: {
       salonId: input.salonId,
       consultationId: consultation.id,
@@ -248,7 +252,8 @@ export async function tagInspiration(input: {
   source?: 'CLIENT' | 'STYLIST' | 'AI'
   acceptedByUserId?: string | null
 }): Promise<void> {
-  const photo = await unsafeDb.inspirationPhoto.findFirst({
+  const db = dbFor(input.salonId)
+  const photo = await db.inspirationPhoto.findFirst({
     where: { id: input.inspirationPhotoId, salonId: input.salonId },
     select: { id: true },
   })
@@ -256,7 +261,7 @@ export async function tagInspiration(input: {
 
   const source = input.source ?? 'CLIENT'
 
-  await unsafeDb.$transaction(async (tx) => {
+  await db.$transaction(async (tx) => {
     // Replace this source's tags only. A client changing their mind must not
     // wipe the stylist's reading of the same photo, or the other way round.
     await tx.inspirationAttribute.deleteMany({
@@ -284,7 +289,8 @@ export async function signedUrlFor(storageKey: string): Promise<string> {
 
 /** Every photo on a consultation, with fresh URLs, for the capture grid. */
 export async function consultationPhotos(salonId: string, consultationId: string) {
-  const photos = await unsafeDb.consultationPhoto.findMany({
+  const db = dbFor(salonId)
+  const photos = await db.consultationPhoto.findMany({
     where: { salonId, consultationId },
     orderBy: [{ view: 'asc' }, { sequence: 'asc' }],
     include: { photoAsset: { select: { storageKey: true, mimeType: true } } },
@@ -314,7 +320,8 @@ export async function currentColourOf(
   salonId: string,
   consultationId: string,
 ): Promise<{ shadeKey: string | null; level: number | null }> {
-  const consultation = await unsafeDb.consultation.findFirst({
+  const db = dbFor(salonId)
+  const consultation = await db.consultation.findFirst({
     where: { id: consultationId, salonId },
     select: {
       answers: { select: { questionKey: true, valueJson: true } },
@@ -357,7 +364,8 @@ export async function targetColourOf(
   salonId: string,
   consultationId: string,
 ): Promise<{ shadeKey: string | null; level: Level | null }> {
-  const attributes = await unsafeDb.inspirationAttribute.findMany({
+  const db = dbFor(salonId)
+  const attributes = await db.inspirationAttribute.findMany({
     where: {
       salonId,
       key: { in: ['TARGET_TONE', 'TARGET_LEVEL'] },
@@ -414,7 +422,8 @@ function clampLevel(value: number): Level {
 }
 
 export async function inspirationPhotos(salonId: string, consultationId: string) {
-  const photos = await unsafeDb.inspirationPhoto.findMany({
+  const db = dbFor(salonId)
+  const photos = await db.inspirationPhoto.findMany({
     where: { salonId, consultationId },
     orderBy: { sequence: 'asc' },
     include: {
@@ -449,7 +458,8 @@ export async function removeInspirationPhoto(
   salonId: string,
   inspirationPhotoId: string,
 ): Promise<void> {
-  const photo = await unsafeDb.inspirationPhoto.findFirst({
+  const db = dbFor(salonId)
+  const photo = await db.inspirationPhoto.findFirst({
     where: { id: inspirationPhotoId, salonId },
     select: { id: true, photoAssetId: true, consultation: { select: { status: true } } },
   })
@@ -463,10 +473,10 @@ export async function removeInspirationPhoto(
 
   // The attributes go with it: a tag describing a picture nobody can see is
   // worse than no tag, because the stylist reads it as being about something.
-  await unsafeDb.inspirationPhoto.delete({ where: { id: photo.id } })
+  await db.inspirationPhoto.delete({ where: { id: photo.id } })
 
   if (photo.photoAssetId) {
-    await unsafeDb.photoAsset.update({
+    await db.photoAsset.update({
       where: { id: photo.photoAssetId },
       data: { deletedAt: new Date() },
     })
@@ -478,7 +488,8 @@ export async function removeConsultationPhoto(
   salonId: string,
   consultationPhotoId: string,
 ): Promise<void> {
-  const photo = await unsafeDb.consultationPhoto.findFirst({
+  const db = dbFor(salonId)
+  const photo = await db.consultationPhoto.findFirst({
     where: { id: consultationPhotoId, salonId },
     select: { id: true, photoAssetId: true, consultation: { select: { status: true } } },
   })
@@ -487,11 +498,11 @@ export async function removeConsultationPhoto(
     throw new DomainError('CONFLICT', 'This consultation is closed — photos can no longer change.')
   }
 
-  await unsafeDb.consultationPhoto.delete({ where: { id: photo.id } })
+  await db.consultationPhoto.delete({ where: { id: photo.id } })
 
   // Soft-delete the asset. A hard delete is the erasure job's business, and it
   // has to consider whether the same asset backs an approved record elsewhere.
-  await unsafeDb.photoAsset.update({
+  await db.photoAsset.update({
     where: { id: photo.photoAssetId },
     data: { deletedAt: new Date() },
   })

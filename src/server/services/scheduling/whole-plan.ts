@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { solveMultiSession } from '@/domain/scheduling/multi-session'
 import { chainDuration } from '@/domain/scheduling/chain'
@@ -138,7 +138,7 @@ export async function offerWholePlan(input: {
   now?: Date
 }): Promise<WholePlanOffer> {
   const { unbooked, result } = await solveWholePlan(input)
-  const names = await stylistNames(result.booking.map((s) => s.stylistId))
+  const names = await stylistNames(input.salonId, result.booking.map((s) => s.stylistId))
 
   return {
     complete: result.complete,
@@ -265,15 +265,16 @@ function addDaysLocal(localDate: string, days: number): string {
 }
 
 async function anyChemical(salonId: string, serviceIds: readonly string[]): Promise<boolean> {
-  const count = await unsafeDb.service.count({
+  const db = dbFor(salonId)
+  const count = await db.service.count({
     where: { salonId, id: { in: [...serviceIds] }, isChemical: true },
   })
   return count > 0
 }
 
-async function stylistNames(ids: readonly string[]): Promise<Map<string, string>> {
+async function stylistNames(salonId: string, ids: readonly string[]): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map()
-  const rows = await unsafeDb.stylistProfile.findMany({
+  const rows = await dbFor(salonId).stylistProfile.findMany({
     where: { id: { in: [...new Set(ids)] } },
     select: { id: true, displayName: true },
   })
@@ -281,7 +282,8 @@ async function stylistNames(ids: readonly string[]): Promise<Map<string, string>
 }
 
 async function defaultLocationId(salonId: string): Promise<string> {
-  const location = await unsafeDb.location.findFirst({
+  const db = dbFor(salonId)
+  const location = await db.location.findFirst({
     where: { salonId, isActive: true },
     orderBy: { createdAt: 'asc' },
     select: { id: true },

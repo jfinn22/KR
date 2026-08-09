@@ -1,4 +1,5 @@
 import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { hashPassword } from '@/server/auth/password'
 
@@ -77,13 +78,14 @@ export async function signUpClient(input: SignUpInput): Promise<SignUpResult> {
  * not start from nothing beside a shadow record of themselves.
  */
 async function linkToSalon(userId: string, input: SignUpInput, email: string): Promise<boolean> {
-  const already = await unsafeDb.clientProfile.findFirst({
+  const db = dbFor(input.salonId)
+  const already = await db.clientProfile.findFirst({
     where: { salonId: input.salonId, userId },
     select: { id: true },
   })
   if (already) return true
 
-  const walkIn = await unsafeDb.clientProfile.findFirst({
+  const walkIn = await db.clientProfile.findFirst({
     where: {
       salonId: input.salonId,
       userId: null,
@@ -94,7 +96,7 @@ async function linkToSalon(userId: string, input: SignUpInput, email: string): P
   })
 
   if (walkIn) {
-    await unsafeDb.clientProfile.update({
+    await db.clientProfile.update({
       where: { id: walkIn.id },
       data: { userId, source: 'PORTAL_CLAIMED' },
     })
@@ -102,7 +104,7 @@ async function linkToSalon(userId: string, input: SignUpInput, email: string): P
     return true
   }
 
-  const created = await unsafeDb.clientProfile.create({
+  const created = await db.clientProfile.create({
     data: {
       salonId: input.salonId,
       userId,
@@ -138,6 +140,7 @@ export async function writeConsents(
   marketingOptIn: boolean,
   capturedVia = 'SIGNUP',
 ): Promise<void> {
+  const db = dbFor(salonId)
   const rows = (['SMS', 'EMAIL'] as const).flatMap((channel) => [
     { channel, purpose: 'TRANSACTIONAL' as const, status: 'GRANTED' as const },
     {
@@ -148,7 +151,7 @@ export async function writeConsents(
   ])
 
   for (const row of rows) {
-    await unsafeDb.contactConsent.upsert({
+    await db.contactConsent.upsert({
       where: {
         clientProfileId_channel_purpose: {
           clientProfileId,
@@ -171,7 +174,8 @@ export async function writeConsents(
 
 /** Check a salon's join code, if it has one set. */
 export async function joinCodeMatches(salonId: string, code: string | null): Promise<boolean> {
-  const settings = await unsafeDb.salonSettings.findUnique({
+  const db = dbFor(salonId)
+  const settings = await db.salonSettings.findUnique({
     where: { salonId },
     select: { joinCode: true },
   })

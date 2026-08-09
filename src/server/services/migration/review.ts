@@ -1,4 +1,3 @@
-import { unsafeDb } from '@/server/db/client'
 import { dbFor } from '@/server/db/tenant-client'
 import { storagePort } from '@/ports/registry'
 import { DomainError } from '@/server/errors'
@@ -217,6 +216,7 @@ export async function rememberOptions(
   batchId: string,
   options: ReviewOptions,
 ): Promise<void> {
+  const db = dbFor(salonId)
   /*
    * Only a batch that has not run yet.
    *
@@ -226,7 +226,7 @@ export async function rememberOptions(
    * action calls this immediately before committing, which is exactly where
    * that would have happened.
    */
-  await unsafeDb.importBatch.updateMany({
+  await db.importBatch.updateMany({
     where: { id: batchId, salonId, status: { in: ['PENDING', 'REVIEWING'] } },
     data: { optionsJson: options as object, status: 'REVIEWING' },
   })

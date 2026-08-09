@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { unsafeDb } from '@/server/db/client'
+import { dbFor } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { storagePort } from '@/ports/registry'
 import { signedUrlFor } from './photos'
@@ -64,6 +64,7 @@ export async function addConsultationVideo(input: {
   durationSec?: number | null
   uploadedByUserId?: string | null
 }): Promise<{ id: string }> {
+  const db = dbFor(input.salonId)
   if (!ALLOWED_TYPES.has(input.contentType)) {
     throw new DomainError(
       'INVALID_INPUT',
@@ -80,7 +81,7 @@ export async function addConsultationVideo(input: {
     )
   }
 
-  const consultation = await unsafeDb.consultation.findFirst({
+  const consultation = await db.consultation.findFirst({
     where: { id: input.consultationId, salonId: input.salonId },
     select: { id: true, status: true },
   })
@@ -95,11 +96,11 @@ export async function addConsultationVideo(input: {
     contentType: input.contentType,
   })
 
-  const existing = await unsafeDb.consultationVideo.count({
+  const existing = await db.consultationVideo.count({
     where: { salonId: input.salonId, consultationId: input.consultationId },
   })
 
-  const video = await unsafeDb.$transaction(async (tx) => {
+  const video = await db.$transaction(async (tx) => {
     const asset = await tx.photoAsset.create({
       data: {
         salonId: input.salonId,
@@ -139,7 +140,8 @@ export async function addConsultationVideo(input: {
 }
 
 export async function consultationVideos(salonId: string, consultationId: string) {
-  const videos = await unsafeDb.consultationVideo.findMany({
+  const db = dbFor(salonId)
+  const videos = await db.consultationVideo.findMany({
     where: { salonId, consultationId },
     orderBy: { sequence: 'asc' },
     include: { photoAsset: { select: { storageKey: true, mimeType: true } } },
@@ -172,7 +174,8 @@ export async function removeConsultationVideo(input: {
   salonId: string
   videoId: string
 }): Promise<{ removed: boolean }> {
-  const video = await unsafeDb.consultationVideo.findFirst({
+  const db = dbFor(input.salonId)
+  const video = await db.consultationVideo.findFirst({
     where: { id: input.videoId, salonId: input.salonId },
     select: { id: true, photoAssetId: true, consultation: { select: { status: true } } },
   })
@@ -181,8 +184,8 @@ export async function removeConsultationVideo(input: {
     throw new DomainError('CONFLICT', 'This consultation is closed — it can no longer change.')
   }
 
-  await unsafeDb.consultationVideo.delete({ where: { id: video.id } })
-  await unsafeDb.photoAsset.update({
+  await db.consultationVideo.delete({ where: { id: video.id } })
+  await db.photoAsset.update({
     where: { id: video.photoAssetId },
     data: { deletedAt: new Date() },
   })

@@ -1,4 +1,4 @@
-import { unsafeDb } from '@/server/db/client'
+import { dbFor, type TenantTx } from '@/server/db/tenant-client'
 import { DomainError } from '@/server/errors'
 import { MockPaymentsAdapter } from '@/ports/payments'
 import { paymentsPort } from '@/ports/registry'
@@ -83,13 +83,14 @@ export async function quoteDeposit(input: {
   band: RiskBand
   serviceTotalCents: number
 }) {
+  const db = dbFor(input.salonId)
   const [services, salonDefault, settings] = await Promise.all([
-    unsafeDb.service.findMany({
+    db.service.findMany({
       where: { salonId: input.salonId, id: { in: [...input.serviceIds] } },
       select: { isChemical: true, containsDye: true, depositPolicy: true, baseComplexity: true },
     }),
-    unsafeDb.depositPolicy.findFirst({ where: { salonId: input.salonId, isDefault: true } }),
-    unsafeDb.salonSettings.findUnique({
+    db.depositPolicy.findFirst({ where: { salonId: input.salonId, isDefault: true } }),
+    db.salonSettings.findUnique({
       where: { salonId: input.salonId },
       select: { depositCapCents: true },
     }),
@@ -155,6 +156,7 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
   clientSecret: string | null
   status: string
 }> {
+  const db = dbFor(input.salonId)
   /*
    * The policy is loaded to be SNAPSHOTTED, not to decide the amount. What is
    * charged was decided by `quoteDeposit` at approval and frozen onto the plan;
@@ -172,7 +174,7 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
     return { depositId: null, amountCents: 0, clientSecret: null, status: 'NONE' }
   }
 
-  const existing = await unsafeDb.deposit.findFirst({
+  const existing = await db.deposit.findFirst({
     where: {
       salonId: input.salonId,
       clientProfileId: input.clientProfileId,
@@ -196,7 +198,7 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
 
   const deposit =
     existing ??
-    (await unsafeDb.deposit.create({
+    (await db.deposit.create({
       data: {
         salonId: input.salonId,
         clientProfileId: input.clientProfileId,
@@ -211,7 +213,7 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
       },
     }))
 
-  const card = await unsafeDb.savedCard.findFirst({
+  const card = await db.savedCard.findFirst({
     where: { salonId: input.salonId, clientProfileId: input.clientProfileId, detachedAt: null },
     orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
     select: { id: true },
@@ -249,7 +251,7 @@ export async function takeDeposit(input: TakeDepositInput): Promise<{
     },
   })
 
-  await unsafeDb.deposit.update({
+  await db.deposit.update({
     where: { id: deposit.id },
     data: { providerIntentId: intent.id },
   })
@@ -277,15 +279,16 @@ async function resolveDepositPolicy(
   salonId: string,
   servicePlanId?: string | null,
 ): Promise<DepositPolicySnapshot> {
+  const db = dbFor(salonId)
   if (servicePlanId) {
-    const plan = await unsafeDb.servicePlan.findFirst({
+    const plan = await db.servicePlan.findFirst({
       where: { id: servicePlanId, salonId },
       select: { depositPolicy: true, depositPolicySnapshotJson: true },
     })
     if (plan?.depositPolicy) return toSnapshot(plan.depositPolicy)
   }
 
-  const fallback = await unsafeDb.depositPolicy.findFirst({
+  const fallback = await db.depositPolicy.findFirst({
     where: { salonId, isDefault: true },
   })
   return fallback ? toSnapshot(fallback) : { mode: 'NONE', refundableUntilHours: 48 }
@@ -363,7 +366,8 @@ export interface BuildInvoiceInput {
  * against a number that is not on the bill.
  */
 export async function priceInvoice(input: BuildInvoiceInput) {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const db = dbFor(input.salonId)
+  const appointment = await db.appointment.findFirst({
     where: { id: input.appointmentId, salonId: input.salonId },
     include: {
       services: { include: { service: { select: { name: true } } } },
@@ -485,7 +489,7 @@ export async function priceInvoice(input: BuildInvoiceInput) {
    * rather than the appointment, so it does not appear in `deposits` above.
    */
   const consultationDeposits = appointment.consultationId
-    ? await unsafeDb.deposit.findMany({
+    ? await db.deposit.findMany({
         where: {
           salonId: input.salonId,
           consultationId: appointment.consultationId,
@@ -527,6 +531,7 @@ export async function priceInvoice(input: BuildInvoiceInput) {
 export async function buildInvoice(
   input: BuildInvoiceInput,
 ): Promise<{ invoiceId: string; totalCents: number; dueCents: number }> {
+  const db = dbFor(input.salonId)
   const priced = await priceInvoice(input)
   const { appointment, rows, totals, depositHeld, heldDeposits, membership } = priced
 
@@ -550,7 +555,7 @@ export async function buildInvoice(
     await captureDeposit({ salonId: input.salonId, depositId: deposit.id })
   }
 
-  const invoice = await unsafeDb.$transaction(async (tx) => {
+  const invoice = await db.$transaction(async (tx) => {
     const number = await nextInvoiceNumber(tx, input.salonId)
 
     const created = await tx.invoice.create({
@@ -665,7 +670,7 @@ export async function buildInvoice(
  * if they somehow do.
  */
 async function nextInvoiceNumber(
-  tx: Parameters<Parameters<typeof unsafeDb.$transaction>[0]>[0],
+  tx: TenantTx,
   salonId: string,
 ): Promise<string> {
   const last = await tx.invoice.findFirst({
@@ -726,7 +731,8 @@ export async function confirmPendingTillPayment(input: {
   salonId: string
   paymentId: string
 }): Promise<TakePaymentResult> {
-  const payment = await unsafeDb.payment.findFirst({
+  const db = dbFor(input.salonId)
+  const payment = await db.payment.findFirst({
     where: { id: input.paymentId, salonId: input.salonId },
   })
   if (!payment) throw new DomainError('NOT_FOUND', 'That payment no longer exists.')
@@ -753,7 +759,8 @@ export async function applySucceededTillPayment(input: {
   salonId: string
   paymentId: string
 }): Promise<TakePaymentResult> {
-  return unsafeDb.$transaction(async (tx) => {
+  const db = dbFor(input.salonId)
+  return db.$transaction(async (tx) => {
     const payment = await tx.payment.findFirst({
       where: { id: input.paymentId, salonId: input.salonId },
     })
@@ -811,6 +818,7 @@ export async function applySucceededTillPayment(input: {
 }
 
 export async function takePayment(input: TakePaymentInput): Promise<TakePaymentResult> {
+  const db = dbFor(input.salonId)
   if (input.amountCents < CENTS) {
     throw new DomainError('INVALID_INPUT', 'Enter an amount to take.')
   }
@@ -823,7 +831,7 @@ export async function takePayment(input: TakePaymentInput): Promise<TakePaymentR
    * then writing an absolute total both "succeed" and leave the bill short by
    * one of the payments — the classic lost update on a till.
    */
-  return unsafeDb.$transaction(async (tx) => {
+  return db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${input.invoiceId} FOR UPDATE`
 
     const invoice = await tx.invoice.findFirst({
@@ -848,7 +856,7 @@ export async function takePayment(input: TakePaymentInput): Promise<TakePaymentR
         paymentId: already.id,
         paidCents: invoice.paidCents,
         remainingCents: Math.max(0, invoice.totalCents - invoice.paidCents),
-        status: already.status === 'SUCCEEDED' ? 'SUCCEEDED' : 'PENDING',
+        status: already.status === 'SUCCEEDED' ? ('SUCCEEDED' as const) : ('PENDING' as const),
         clientSecret: null,
       }
     }
@@ -903,7 +911,7 @@ export async function takePayment(input: TakePaymentInput): Promise<TakePaymentR
         paymentId: created.id,
         paidCents,
         remainingCents: Math.max(0, invoice.totalCents - paidCents),
-        status: 'SUCCEEDED',
+        status: 'SUCCEEDED' as const,
         clientSecret: null,
       }
     }
@@ -991,7 +999,7 @@ export async function takePayment(input: TakePaymentInput): Promise<TakePaymentR
       },
     })
 
-    await unsafeDb.payment.update({
+    await db.payment.update({
       where: { id: charge.paymentId },
       data: { providerRef: intent.id },
     })
@@ -1027,6 +1035,7 @@ export async function refundPayment(input: {
   reason: string
   issuedByUserId?: string | null
 }): Promise<{ refundId: string }> {
+  const db = dbFor(input.salonId)
   if (input.amountCents < CENTS) {
     throw new DomainError('INVALID_INPUT', 'Enter an amount to refund.')
   }
@@ -1036,7 +1045,7 @@ export async function refundPayment(input: {
    * the refundable check and both decrement paidCents / both call the provider
    * with different keys.
    */
-  const prepared = await unsafeDb.$transaction(async (tx) => {
+  const prepared = await db.$transaction(async (tx) => {
     const payment = await tx.payment.findFirst({
       where: { id: input.paymentId, salonId: input.salonId },
       include: { refunds: true },
@@ -1091,7 +1100,7 @@ export async function refundPayment(input: {
     providerRef = refunded.id
   }
 
-  const refundId = await unsafeDb.$transaction(async (tx) => {
+  const refundId = await db.$transaction(async (tx) => {
     const again = await tx.refund.findUnique({ where: { idempotencyKey } })
     if (again) return again.id
 
@@ -1180,13 +1189,14 @@ export async function assessCancellation(input: {
   cancelledAt?: Date
   isNoShow?: boolean
 }): Promise<{ feeCents: number; withinWindow: boolean; rationale: string }> {
-  const appointment = await unsafeDb.appointment.findFirst({
+  const db = dbFor(input.salonId)
+  const appointment = await db.appointment.findFirst({
     where: { id: input.appointmentId, salonId: input.salonId },
     include: { deposits: true, cancellationFee: { select: { id: true } } },
   })
   if (!appointment) throw new DomainError('NOT_FOUND', 'That appointment no longer exists.')
 
-  const settings = await unsafeDb.salonSettings.findUnique({
+  const settings = await db.salonSettings.findUnique({
     where: { salonId: input.salonId },
     select: {
       cancellationWindowHours: true,
@@ -1230,7 +1240,7 @@ export async function assessCancellation(input: {
   }).feeCents
 
   if (!appointment.cancellationFee) {
-    await unsafeDb.cancellationFee.create({
+    await db.cancellationFee.create({
       data: {
         salonId: input.salonId,
         appointmentId: appointment.id,
@@ -1288,7 +1298,8 @@ export async function waiveCancellationFee(input: {
   reason: string
   userId: string
 }): Promise<void> {
-  const fee = await unsafeDb.cancellationFee.findFirst({
+  const db = dbFor(input.salonId)
+  const fee = await db.cancellationFee.findFirst({
     where: { appointmentId: input.appointmentId, salonId: input.salonId },
     select: { id: true, status: true },
   })
@@ -1297,7 +1308,7 @@ export async function waiveCancellationFee(input: {
     throw new DomainError('CONFLICT', 'That fee has already been charged — refund it instead.')
   }
 
-  await unsafeDb.cancellationFee.update({
+  await db.cancellationFee.update({
     where: { id: fee.id },
     data: { status: 'WAIVED', waivedByUserId: input.userId, waiveReason: input.reason },
   })
@@ -1321,7 +1332,8 @@ export async function checkDiscount(input: {
 
 /** The reasons the owner has written, for the dropdown at the till. */
 export async function discountReasons(salonId: string) {
-  return unsafeDb.discountReason.findMany({
+  const db = dbFor(salonId)
+  return db.discountReason.findMany({
     where: { salonId, isActive: true },
     orderBy: [{ sortOrder: 'asc' }, { label: 'asc' }],
     select: { id: true, label: true, kind: true, value: true, maxCents: true },
@@ -1329,7 +1341,8 @@ export async function discountReasons(salonId: string) {
 }
 
 export async function allDiscountReasons(salonId: string) {
-  return unsafeDb.discountReason.findMany({
+  const db = dbFor(salonId)
+  return db.discountReason.findMany({
     where: { salonId },
     orderBy: [{ isActive: 'desc' }, { sortOrder: 'asc' }, { label: 'asc' }],
   })
@@ -1349,11 +1362,12 @@ export async function resolveDiscount(input: {
   requestedCents?: number | null
   subtotalCents: number
 }): Promise<{ reason: DiscountReasonSpec | null; amountCents: number }> {
+  const db = dbFor(input.salonId)
   if (!input.discountReasonId) {
     return { reason: null, amountCents: 0 }
   }
 
-  const row = await unsafeDb.discountReason.findFirst({
+  const row = await db.discountReason.findFirst({
     where: { id: input.discountReasonId, salonId: input.salonId, isActive: true },
     select: { id: true, label: true, kind: true, value: true, maxCents: true },
   })
@@ -1380,6 +1394,7 @@ export async function saveDiscountReason(input: {
   isActive: boolean
   sortOrder: number
 }): Promise<{ id: string }> {
+  const db = dbFor(input.salonId)
   const data = {
     label: input.label.trim(),
     kind: input.kind,
@@ -1390,16 +1405,16 @@ export async function saveDiscountReason(input: {
   }
 
   if (input.id) {
-    const existing = await unsafeDb.discountReason.findFirst({
+    const existing = await db.discountReason.findFirst({
       where: { id: input.id, salonId: input.salonId },
       select: { id: true },
     })
     if (!existing) throw new DomainError('NOT_FOUND', 'That discount no longer exists.')
-    await unsafeDb.discountReason.update({ where: { id: existing.id }, data })
+    await db.discountReason.update({ where: { id: existing.id }, data })
     return { id: existing.id }
   }
 
-  const created = await unsafeDb.discountReason.create({
+  const created = await db.discountReason.create({
     data: { salonId: input.salonId, ...data },
     select: { id: true },
   })
@@ -1416,7 +1431,8 @@ export async function saveDiscountReason(input: {
  * piece of card, and only one of the two sides can be audited.
  */
 export async function giftCardBalance(salonId: string, giftCardId: string): Promise<number> {
-  const result = await unsafeDb.giftCardEntry.aggregate({
+  const db = dbFor(salonId)
+  const result = await db.giftCardEntry.aggregate({
     where: { salonId, giftCardId },
     _sum: { amountCents: true },
   })
@@ -1424,7 +1440,8 @@ export async function giftCardBalance(salonId: string, giftCardId: string): Prom
 }
 
 export async function findGiftCard(salonId: string, code: string) {
-  const card = await unsafeDb.giftCard.findFirst({
+  const db = dbFor(salonId)
+  const card = await db.giftCard.findFirst({
     where: { salonId, code: code.trim().toUpperCase() },
   })
   if (!card) return null
@@ -1449,7 +1466,8 @@ export async function redeemGiftCard(input: {
   idempotencyKey: string
   takenByUserId?: string | null
 }): Promise<{ paymentId: string; appliedCents: number; remainingOnCardCents: number }> {
-  const card = await unsafeDb.giftCard.findFirst({
+  const db = dbFor(input.salonId)
+  const card = await db.giftCard.findFirst({
     where: { salonId: input.salonId, code: input.code.trim().toUpperCase() },
     select: { id: true, status: true, expiresAt: true },
   })
@@ -1461,7 +1479,7 @@ export async function redeemGiftCard(input: {
     throw new DomainError('CONFLICT', 'That card has expired.')
   }
 
-  const invoice = await unsafeDb.invoice.findFirst({
+  const invoice = await db.invoice.findFirst({
     where: { id: input.invoiceId, salonId: input.salonId },
     select: { id: true, totalCents: true, paidCents: true, status: true },
   })
@@ -1477,7 +1495,7 @@ export async function redeemGiftCard(input: {
    * a double TAP; only the lock stops a genuine double SPEND, because those
    * carry different keys by design.
    */
-  const { applied, remaining, existingPaymentId } = await unsafeDb.$transaction(async (tx) => {
+  const { applied, remaining, existingPaymentId } = await db.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "GiftCard" WHERE id = ${card.id} FOR UPDATE`
     await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${invoice.id} FOR UPDATE`
 
@@ -1561,7 +1579,7 @@ export async function redeemGiftCard(input: {
     })
   } catch (err) {
     if (!existingPaymentId) {
-      await unsafeDb.$transaction(async (tx) => {
+      await db.$transaction(async (tx) => {
         await tx.$queryRaw`SELECT id FROM "GiftCard" WHERE id = ${card.id} FOR UPDATE`
         await tx.giftCardEntry.deleteMany({
           where: { giftCardId: card.id, idempotencyKey: input.idempotencyKey },
@@ -1576,7 +1594,7 @@ export async function redeemGiftCard(input: {
   }
 
   if (!existingPaymentId) {
-    await unsafeDb.giftCardEntry.updateMany({
+    await db.giftCardEntry.updateMany({
       where: { giftCardId: card.id, idempotencyKey: input.idempotencyKey },
       data: { paymentId: payment.paymentId },
     })
@@ -1609,7 +1627,8 @@ function generateGiftCardCode(seed: string, index: number): string {
 
 /** The bill as the till shows it. */
 export async function loadInvoice(salonId: string, invoiceId: string) {
-  const invoice = await unsafeDb.invoice.findFirst({
+  const db = dbFor(salonId)
+  const invoice = await db.invoice.findFirst({
     where: { id: invoiceId, salonId },
     include: {
       lines: { orderBy: { sequence: 'asc' } },
