@@ -1,4 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { lookup } from 'node:dns/promises'
+import { isIP } from 'node:net'
 import { unsafeDb } from '@/server/db/client'
 import { DomainError } from '@/server/errors'
 import { calendarPort } from '@/ports/registry'
@@ -296,6 +298,8 @@ export async function emitWebhook(input: {
   salonId: string
   topic: WebhookTopic
   payload: Record<string, unknown>
+  /** Stable id for this emission (usually the outbox row id). */
+  dedupeKey?: string | null
 }): Promise<{ queued: number }> {
   const endpoints = await unsafeDb.webhookEndpoint.findMany({
     where: {
@@ -318,7 +322,10 @@ export async function emitWebhook(input: {
       endpointId: endpoint.id,
       topic: input.topic,
       payloadJson: input.payload as never,
+      dedupeKey: input.dedupeKey ?? null,
     })),
+    // A retried outbox.dispatch must not enqueue a second delivery per endpoint.
+    skipDuplicates: true,
   })
 
   return { queued: wanted.length }
@@ -366,6 +373,10 @@ export async function deliverWebhooks(limit = 50): Promise<{ sent: number; faile
     })
 
     try {
+      // Re-check at delivery time — an endpoint URL must not become an open
+      // proxy into the private network after DNS changes.
+      await assertPublicHttpsTarget(new URL(endpoint.url))
+
       const response = await fetch(endpoint.url, {
         method: 'POST',
         headers: {
@@ -486,6 +497,8 @@ export async function addEndpoint(input: {
     throw new DomainError('INVALID_INPUT', 'The address has to start with https.')
   }
 
+  await assertPublicHttpsTarget(parsed)
+
   const secret = `whsec_${randomBytes(24).toString('base64url')}`
 
   const endpoint = await unsafeDb.webhookEndpoint.create({
@@ -499,6 +512,52 @@ export async function addEndpoint(input: {
   })
 
   return { id: endpoint.id, secret }
+}
+
+/** Block private / link-local / metadata targets (SSRF). Fail closed on DNS errors. */
+export async function assertPublicHttpsTarget(parsed: URL): Promise<void> {
+  if (parsed.protocol !== 'https:') {
+    throw new DomainError('INVALID_INPUT', 'The address has to start with https.')
+  }
+  const host = parsed.hostname.toLowerCase()
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) {
+    throw new DomainError('INVALID_INPUT', 'That address is not reachable from here.')
+  }
+
+  const literal = isIP(host)
+  if (literal && isPrivateIp(host)) {
+    throw new DomainError('INVALID_INPUT', 'That address is not reachable from here.')
+  }
+
+  if (!literal) {
+    let records: { address: string; family: number }[]
+    try {
+      records = await lookup(host, { all: true, verbatim: true })
+    } catch {
+      throw new DomainError('INVALID_INPUT', 'That address could not be resolved.')
+    }
+    if (records.length === 0 || records.some((r) => isPrivateIp(r.address))) {
+      throw new DomainError('INVALID_INPUT', 'That address is not reachable from here.')
+    }
+  }
+}
+
+function isPrivateIp(address: string): boolean {
+  const v4 = address.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])]
+    if (a === 10 || a === 127 || a === 0) return true
+    if (a === 169 && b === 254) return true
+    if (a === 172 && b >= 16 && b <= 31) return true
+    if (a === 192 && b === 168) return true
+    if (a === 100 && b >= 64 && b <= 127) return true // CGNAT
+    return false
+  }
+  const normalised = address.toLowerCase()
+  if (normalised === '::1' || normalised === '0:0:0:0:0:0:0:1') return true
+  if (normalised.startsWith('fc') || normalised.startsWith('fd')) return true // ULA
+  if (normalised.startsWith('fe80')) return true // link-local
+  return false
 }
 
 export async function removeEndpoint(salonId: string, endpointId: string): Promise<void> {

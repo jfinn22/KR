@@ -176,32 +176,90 @@ export async function recordBenefitUse(input: {
 }): Promise<void> {
   if (input.benefits.length === 0) return
 
-  const membership = await unsafeDb.clientMembership.findFirst({
-    where: { id: input.membershipId, salonId: input.salonId },
-    select: { currentPeriodStart: true },
-  })
-  if (!membership) return
+  /*
+   * Lock the membership row and refuse to write an allowance that has already
+   * been spent this period. Two concurrent checkouts both reading "one free
+   * cut left" used to both create use rows — the unique constraint cannot
+   * cover multi-unit ledgers, so the lock + re-check is the guard.
+   */
+  await unsafeDb.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "ClientMembership" WHERE id = ${input.membershipId} FOR UPDATE`
 
-  await unsafeDb.membershipBenefitUse.createMany({
-    /*
-     * One row per unit of allowance spent, not one per line. A line of two
-     * haircuts against "two cuts a month" spends both, and a single row would
-     * leave the client a free cut they have already had.
-     */
-    data: input.benefits.flatMap((benefit) =>
-      Array.from({ length: Math.max(1, benefit.units) }, (_, unit) => ({
+    const membership = await tx.clientMembership.findFirst({
+      where: { id: input.membershipId, salonId: input.salonId },
+      select: { currentPeriodStart: true },
+    })
+    if (!membership) return
+
+    const periodStart = membership.currentPeriodStart ?? new Date(0)
+    const already = await tx.membershipBenefitUse.groupBy({
+      by: ['entitlementKey'],
+      where: {
+        salonId: input.salonId,
+        membershipId: input.membershipId,
+        periodStart,
+      },
+      _count: { _all: true },
+    })
+    const usedByKey = new Map(already.map((row) => [row.entitlementKey, row._count._all]))
+
+    // Re-load entitlements to know the allowance ceiling.
+    const full = await tx.clientMembership.findFirst({
+      where: { id: input.membershipId, salonId: input.salonId },
+      include: { plan: { select: { includedJson: true } } },
+    })
+    if (!full) return
+
+    const entitlements = entitlementsOf(full.plan.includedJson)
+    const ceilingByKey = new Map(
+      entitlements.map((entitlement) => [keyOf(entitlement), entitlement.perPeriod] as const),
+    )
+
+    const allowed: typeof input.benefits = []
+    for (const benefit of input.benefits) {
+      const ceiling = ceilingByKey.get(benefit.entitlementKey) ?? null
+      const used = usedByKey.get(benefit.entitlementKey) ?? 0
+      if (ceiling != null && used + benefit.units > ceiling) {
+        throw new DomainError(
+          'CONFLICT',
+          `That membership allowance for ${benefit.label} has already been used this period.`,
+        )
+      }
+      usedByKey.set(benefit.entitlementKey, used + benefit.units)
+      allowed.push(benefit)
+    }
+
+    // Idempotent on the same invoice: a retry must not double-count.
+    const prior = await tx.membershipBenefitUse.count({
+      where: {
         salonId: input.salonId,
         membershipId: input.membershipId,
         invoiceId: input.invoiceId,
-        entitlementKey: benefit.entitlementKey,
-        label: benefit.label,
-        // The whole saving goes on the first row of the benefit and zero on
-        // the rest, so summing the ledger gives what the membership actually
-        // saved rather than a multiple of it.
-        discountCents: unit === 0 ? benefit.discountCents : 0,
-        periodStart: membership.currentPeriodStart ?? new Date(0),
-      })),
-    ),
+      },
+    })
+    if (prior > 0) return
+
+    await tx.membershipBenefitUse.createMany({
+      /*
+       * One row per unit of allowance spent, not one per line. A line of two
+       * haircuts against "two cuts a month" spends both, and a single row would
+       * leave the client a free cut they have already had.
+       */
+      data: allowed.flatMap((benefit) =>
+        Array.from({ length: Math.max(1, benefit.units) }, (_, unit) => ({
+          salonId: input.salonId,
+          membershipId: input.membershipId,
+          invoiceId: input.invoiceId,
+          entitlementKey: benefit.entitlementKey,
+          label: benefit.label,
+          // The whole saving goes on the first row of the benefit and zero on
+          // the rest, so summing the ledger gives what the membership actually
+          // saved rather than a multiple of it.
+          discountCents: unit === 0 ? benefit.discountCents : 0,
+          periodStart,
+        })),
+      ),
+    })
   })
 }
 
@@ -421,7 +479,7 @@ export async function setMembershipPaused(input: {
 
   const membership = await db.clientMembership.findFirst({
     where: { id: input.membershipId, salonId: input.salonId },
-    select: { id: true, status: true, stripeSubscriptionId: true },
+    select: { id: true, status: true, stripeSubscriptionId: true, pastDueSince: true },
   })
   if (!membership) throw new DomainError('NOT_FOUND', 'That membership is not here.')
   if (membership.status === 'CANCELLED') {
@@ -451,7 +509,11 @@ export async function setMembershipPaused(input: {
     }
   }
 
-  const status = input.paused ? 'PAUSED' : 'ACTIVE'
+  const status = input.paused
+    ? 'PAUSED'
+    : membership.pastDueSince
+      ? 'PAST_DUE'
+      : 'ACTIVE'
   await db.clientMembership.update({
     where: { id: membership.id },
     data: { status },
@@ -710,7 +772,13 @@ export async function applySubscriptionEvent(event: {
 export async function sweepDunning(now = new Date()): Promise<{ suspended: number; cancelled: number }> {
   const overdue = await unsafeDb.clientMembership.findMany({
     where: { status: { in: ['PAST_DUE'] }, pastDueSince: { not: null } },
-    select: { id: true, salonId: true, clientProfileId: true, pastDueSince: true },
+    select: {
+      id: true,
+      salonId: true,
+      clientProfileId: true,
+      pastDueSince: true,
+      stripeSubscriptionId: true,
+    },
     take: 500,
   })
 
@@ -743,6 +811,21 @@ export async function sweepDunning(now = new Date()): Promise<{ suspended: numbe
     }
 
     if (action.cancel) {
+      /*
+       * Provider first — the same rule as a manual cancel. Ending the row
+       * locally while Stripe keeps charging is a client paying for nothing.
+       */
+      if (membership.stripeSubscriptionId) {
+        try {
+          await paymentsPort().cancelSubscription({
+            subscriptionRef: membership.stripeSubscriptionId,
+            atPeriodEnd: false,
+            idempotencyKey: `dunning-cancel:${membership.id}`,
+          })
+        } catch (err) {
+          if (!(err instanceof AdapterError) || err.code !== 'NOT_FOUND') throw err
+        }
+      }
       await unsafeDb.clientMembership.update({
         where: { id: membership.id },
         data: { status: 'CANCELLED', cancelledAt: now },

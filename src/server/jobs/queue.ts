@@ -45,6 +45,13 @@ export async function enqueue(
     if (existing) return null
   }
 
+  // Dynamic import avoids a cycle with handlers.ts, which imports enqueue.
+  let definedAttempts: number | undefined
+  if (input.maxAttempts == null) {
+    const { JOB_REGISTRY } = await import('./handlers')
+    definedAttempts = JOB_REGISTRY[input.type]?.maxAttempts
+  }
+
   const job = await tx.job.create({
     data: {
       type: input.type,
@@ -53,7 +60,7 @@ export async function enqueue(
       queue: input.queue ?? 'default',
       runAt: input.runAt ?? new Date(),
       priority: input.priority ?? 100,
-      maxAttempts: input.maxAttempts ?? 5,
+      maxAttempts: input.maxAttempts ?? definedAttempts ?? 5,
       dedupeKey: input.dedupeKey ?? null,
     },
     select: { id: true },

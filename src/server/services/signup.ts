@@ -171,13 +171,16 @@ export async function writeConsents(
 
 /** Check a salon's join code, if it has one set. */
 export async function joinCodeMatches(salonId: string, code: string | null): Promise<boolean> {
-  if (!code) return true
   const settings = await unsafeDb.salonSettings.findUnique({
     where: { salonId },
     select: { joinCode: true },
   })
-  if (!settings?.joinCode) return true
-  return settings.joinCode.trim().toUpperCase() === code.trim().toUpperCase()
+  const required = settings?.joinCode?.trim()
+  // No code configured — the door is open.
+  if (!required) return true
+  // A salon that set a code is not open to an empty submission.
+  if (!code?.trim()) return false
+  return required.toUpperCase() === code.trim().toUpperCase()
 }
 
 export function assertJoinCode(matched: boolean): void {

@@ -116,14 +116,14 @@ function mockPayload(task: AiTask, hash: string): unknown {
           'Maintenance blonde, straightforward',
           'First-time client wanting a big change',
         ]),
-        bullets: [
-          'Reports home colour on the mid-lengths and ends.',
-          'Goal is several levels lighter than the current base.',
-          'No allergy history disclosed; patch test status should be confirmed.',
-          'Photos show visible banding from mid-shaft down.',
-          'Client has indicated they are open to more than one visit.',
+        summary:
+          'Reports home colour on the mid-lengths and ends. Goal is several levels lighter ' +
+          'than the current base. Photos show visible banding from mid-shaft down. Client has ' +
+          'indicated they are open to more than one visit.',
+        watchFor: [
+          'Patch test status should be confirmed before any oxidative colour.',
+          'Banding on the lengths may need a corrective approach.',
         ],
-        confidence: Number((0.55 + seeded(hash, 'c') * 0.4).toFixed(2)),
       }
 
     case 'photo.analysis':
@@ -174,7 +174,7 @@ function mockPayload(task: AiTask, hash: string): unknown {
 
     case 'risk.explain':
       return {
-        explanation:
+        plainEnglish:
           'Home colour builds up on the ends over time, so it lifts unevenly. Taking it lighter ' +
           'gradually protects the condition of your hair and gives a much cleaner result than ' +
           'forcing it in one appointment.',
@@ -182,10 +182,8 @@ function mockPayload(task: AiTask, hash: string): unknown {
 
     case 'formula.suggest':
       return {
-        components: [
-          { role: 'BASE', shade: `${6 + Math.floor(seeded(hash, 'f1') * 3)}N`, parts: 1 },
-          { role: 'TONE', shade: pick(hash, 'f2', ['.1', '.2', '.03']), parts: 0.5 },
-        ],
+        rationale:
+          'A mid-lift base with a cool toner keeps warmth under control without forcing the ends.',
         developerVolume: pick(hash, 'dv', [10, 20, 30]),
         processingTimeMin: 20 + Math.floor(seeded(hash, 'pt') * 25),
         cautions: ['Strand test before full application.'],
@@ -298,8 +296,8 @@ export class AnthropicAiAdapter implements AiPort {
 
   constructor(
     private readonly apiKey?: string,
-    private readonly model = 'claude-sonnet-5',
-    private readonly heavyModel = 'claude-opus-5',
+    private readonly model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-20250514',
+    private readonly heavyModel = process.env.ANTHROPIC_MODEL_HEAVY ?? 'claude-opus-4-20250514',
   ) {}
 
   /** Photo work and formula suggestion get the stronger model. */
@@ -394,8 +392,8 @@ export class AnthropicAiAdapter implements AiPort {
  */
 const SYSTEM_PROMPTS: Record<AiTask, string> = {
   'consultation.summary':
-    'You brief a senior hair stylist. Summarise the consultation in five short bullets. ' +
-    'State only what the data supports. Never give a verdict on whether the service is safe.',
+    'You brief a senior hair stylist. Return a short headline, a prose summary, and up to five ' +
+    'watchFor notes. State only what the data supports. Never give a verdict on whether the service is safe.',
   'photo.analysis':
     'You describe what is visible in a photograph of hair. Report observations only — banding, ' +
     'regrowth, breakage, apparent level and tone. You must NOT assess risk or recommend a service.',

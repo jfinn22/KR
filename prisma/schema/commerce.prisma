@@ -355,6 +355,8 @@ model Refund {
   reason         String?
   status         PaymentStatus @default(PENDING)
   providerRef    String?
+  /// Same role as Payment.idempotencyKey — a retry must not refund twice.
+  idempotencyKey String?       @unique
   issuedByUserId String?
   createdAt      DateTime      @default(now()) @db.Timestamptz(3)
 

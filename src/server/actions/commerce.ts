@@ -6,6 +6,7 @@ import { withAuthz, DomainError } from './guard'
 import {
   buildInvoice,
   checkDiscount,
+  confirmPendingTillPayment,
   priceInvoice,
   redeemGiftCard,
   refundPayment,
@@ -79,7 +80,6 @@ const BILL = z.object({
   /** The written explanation the policy layer demands over the cap. */
   reason: z.string().max(500).optional(),
   tipCents: money.optional(),
-  taxRateBps: z.number().int().min(0).max(5000).optional(),
 })
 
 /**
@@ -113,12 +113,14 @@ export const buildInvoiceAction = withAuthz(
     const role = ctx.principal.kind === 'staff' ? ctx.principal.role : null
 
     // Price it first. The permission question needs the answer.
+    // Tax is never taken from the till payload — a caller posting taxRateBps: 0
+    // would otherwise wipe the salon's rate. Until a salon tax setting exists,
+    // pricing uses its built-in default (zero).
     const preview = await priceInvoice({
       salonId: ctx.salonId,
       appointmentId: input.appointmentId,
       lines: input.lines,
       tipCents: input.tipCents,
-      taxRateBps: input.taxRateBps,
     })
 
     const { reason, amountCents: orderDiscountCents } = await resolveDiscount({
@@ -183,7 +185,6 @@ export const buildInvoiceAction = withAuthz(
       discountApprovedByUserId:
         ctx.principal.kind === 'system' ? null : (ctx.principal.userId ?? null),
       tipCents: input.tipCents,
-      taxRateBps: input.taxRateBps,
     })
 
     revalidatePath(`/s/${ctx.salonSlug}/desk`)
@@ -204,7 +205,6 @@ export const previewInvoiceAction = withAuthz(
       appointmentId: input.appointmentId,
       lines: input.lines,
       tipCents: input.tipCents,
-      taxRateBps: input.taxRateBps,
     })
 
     const { reason, amountCents } = await resolveDiscount({
@@ -230,7 +230,6 @@ export const previewInvoiceAction = withAuthz(
             lines: input.lines,
             orderDiscountCents: amountCents,
             tipCents: input.tipCents,
-            taxRateBps: input.taxRateBps,
           })
         : preview
 
@@ -379,6 +378,31 @@ export const takePaymentAction = withAuthz(
       takenByUserId: ctx.principal.kind === 'system' ? null : ctx.principal.userId,
     })
 
+    revalidatePath(`/s/${ctx.salonSlug}/desk`)
+    return result
+  },
+)
+
+/** Finish a PENDING mock till payment when Stripe.js is not configured. */
+export const confirmPendingTillPaymentAction = withAuthz(
+  {
+    action: 'payment.take',
+    schema: z.object({ paymentId: cuid }),
+    resource: async (input, ctx) => {
+      const payment = await unsafeDb.payment.findFirst({
+        where: { id: input.paymentId, salonId: ctx.salonId },
+        select: { clientProfileId: true },
+      })
+      if (!payment) throw new DomainError('NOT_FOUND', 'That payment no longer exists.')
+      return { salonId: ctx.salonId, clientProfileId: payment.clientProfileId }
+    },
+    auditAs: (input) => ({ entityType: 'Payment', entityId: input.paymentId }),
+  },
+  async (input, ctx) => {
+    const result = await confirmPendingTillPayment({
+      salonId: ctx.salonId,
+      paymentId: input.paymentId,
+    })
     revalidatePath(`/s/${ctx.salonSlug}/desk`)
     return result
   },

@@ -371,6 +371,8 @@ model WebhookDelivery {
 
   topic        String
   payloadJson  Json
+  /// Outbox event id (or similar) — retries must not enqueue a second row.
+  dedupeKey    String?
   status       WebhookDeliveryStatus @default(PENDING)
   attempts     Int                   @default(0)
   responseCode Int?
@@ -378,6 +380,7 @@ model WebhookDelivery {
   deliveredAt  DateTime?             @db.Timestamptz(3)
   createdAt    DateTime              @default(now()) @db.Timestamptz(3)
 
+  @@unique([endpointId, dedupeKey])
   @@index([salonId, status, createdAt])
   @@index([endpointId, createdAt])
 }

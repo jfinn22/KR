@@ -146,15 +146,30 @@ describe('payments port', () => {
   }
 
   it('authorises a deposit without capturing it', async () => {
-    const intent = await payments.createIntent(deposit)
+    const intent = await payments.createIntent({
+      ...deposit,
+      confirm: true,
+      paymentMethodRef: 'pm_test',
+    })
     expect(intent.status).toBe('REQUIRES_CAPTURE')
     expect(intent.capturedCents).toBe(0)
   })
 
-  it('captures immediately when capture is automatic', async () => {
-    const intent = await payments.createIntent({ ...deposit, captureMethod: 'automatic' })
+  it('captures immediately when capture is automatic and confirmed', async () => {
+    const intent = await payments.createIntent({
+      ...deposit,
+      captureMethod: 'automatic',
+      confirm: true,
+      paymentMethodRef: 'pm_test',
+    })
     expect(intent.status).toBe('SUCCEEDED')
     expect(intent.capturedCents).toBe(9500)
+  })
+
+  it('does not treat an unconfirmed automatic intent as paid', async () => {
+    const intent = await payments.createIntent({ ...deposit, captureMethod: 'automatic' })
+    expect(intent.status).toBe('REQUIRES_PAYMENT_METHOD')
+    expect(intent.capturedCents).toBe(0)
   })
 
   // The behaviour that stops a double-tap becoming a double charge.
@@ -175,19 +190,32 @@ describe('payments port', () => {
   })
 
   it('refuses to capture more than was authorised', async () => {
-    const intent = await payments.createIntent(deposit)
+    const intent = await payments.createIntent({
+      ...deposit,
+      confirm: true,
+      paymentMethodRef: 'pm_test',
+    })
     await expect(payments.capture(intent.id, 20_000)).rejects.toThrow(/OVER_CAPTURE|more than/)
   })
 
   it('supports a partial capture', async () => {
-    const intent = await payments.createIntent(deposit)
+    const intent = await payments.createIntent({
+      ...deposit,
+      confirm: true,
+      paymentMethodRef: 'pm_test',
+    })
     const captured = await payments.capture(intent.id, 5000)
     expect(captured.capturedCents).toBe(5000)
     expect(captured.status).toBe('SUCCEEDED')
   })
 
   it('refunds only what was captured', async () => {
-    const intent = await payments.createIntent({ ...deposit, captureMethod: 'automatic' })
+    const intent = await payments.createIntent({
+      ...deposit,
+      captureMethod: 'automatic',
+      confirm: true,
+      paymentMethodRef: 'pm_test',
+    })
     await expect(payments.refund(intent.id, 20_000, 'r1')).rejects.toThrow(/OVER_REFUND|exceeds/)
     const refund = await payments.refund(intent.id, 2500, 'r2')
     expect(refund.status).toBe('SUCCEEDED')
@@ -195,14 +223,24 @@ describe('payments port', () => {
   })
 
   it('refunds are idempotent too', async () => {
-    const intent = await payments.createIntent({ ...deposit, captureMethod: 'automatic' })
+    const intent = await payments.createIntent({
+      ...deposit,
+      captureMethod: 'automatic',
+      confirm: true,
+      paymentMethodRef: 'pm_test',
+    })
     const a = await payments.refund(intent.id, 1000, 'same-key')
     const b = await payments.refund(intent.id, 1000, 'same-key')
     expect(b.id).toBe(a.id)
   })
 
   it('cannot cancel a captured intent — that is a refund', async () => {
-    const intent = await payments.createIntent({ ...deposit, captureMethod: 'automatic' })
+    const intent = await payments.createIntent({
+      ...deposit,
+      captureMethod: 'automatic',
+      confirm: true,
+      paymentMethodRef: 'pm_test',
+    })
     await expect(payments.cancel(intent.id)).rejects.toThrow(/INVALID_STATE|refund/)
   })
 
@@ -467,10 +505,19 @@ describe('storage port', () => {
 // ---------------------------------------------------------------------------
 
 describe('ai port', () => {
+  // Locked to the service-layer schemas in src/server/services/ai.ts so a
+  // mock drift fails here rather than silently returning null in the product.
   const summarySchema = z.object({
-    headline: z.string(),
-    bullets: z.array(z.string()),
-    confidence: z.number(),
+    headline: z.string().max(120),
+    summary: z.string().max(900),
+    watchFor: z.array(z.string().max(160)).max(5),
+  })
+  const explainSchema = z.object({ plainEnglish: z.string().max(600) })
+  const formulaSchema = z.object({
+    rationale: z.string().max(400),
+    developerVolume: z.number().int().min(5).max(40).nullable(),
+    processingTimeMin: z.number().int().min(5).max(120).nullable(),
+    cautions: z.array(z.string().max(160)).max(4),
   })
 
   const request = {
@@ -550,20 +597,28 @@ describe('ai port', () => {
 
   it('covers every task with a schema-valid stand-in', async () => {
     const ai = new MockAiAdapter()
-    const loose = z.record(z.unknown())
-    for (const task of [
-      'consultation.summary',
-      'photo.analysis',
-      'inspiration.attributes',
-      'risk.explain',
-      'formula.suggest',
-      'intake.normalize',
-    ] as const) {
+    const schemas = {
+      'consultation.summary': summarySchema,
+      'photo.analysis': z.record(z.unknown()),
+      'inspiration.attributes': z.object({
+        attributes: z.array(
+          z.object({
+            key: z.string(),
+            value: z.string(),
+            confidence: z.number(),
+          }),
+        ),
+      }),
+      'risk.explain': explainSchema,
+      'formula.suggest': formulaSchema,
+      'intake.normalize': z.record(z.unknown()),
+    } as const
+    for (const task of Object.keys(schemas) as (keyof typeof schemas)[]) {
       const result = await ai.complete({
         task,
         promptVersion: 'v1',
         input: { x: 1 },
-        schema: loose,
+        schema: schemas[task],
       })
       expect(result.ok, `${task} produced no output`).toBe(true)
     }

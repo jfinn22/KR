@@ -25,7 +25,8 @@ export const dynamic = 'force-dynamic'
 /** A logo is a logo. Anything larger is a photograph somebody has mistaken. */
 const MAX_BYTES = 2 * 1024 * 1024
 
-const ALLOWED = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'])
+// No SVG: served inline it is an XSS vector, and a logo does not need vectors.
+const ALLOWED = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
 export async function POST(request: Request) {
   try {
@@ -56,16 +57,9 @@ export async function POST(request: Request) {
       )
     }
 
-    /*
-     * The declared type is checked, never trusted for storage. A file called
-     * .png that is really something else is stored as whatever it claimed and
-     * served with that content type, which is how an upload field becomes an
-     * XSS hole — so SVG is allowed but the signed URL is the storage layer's
-     * problem, not a reason to accept arbitrary types here.
-     */
     const contentType = file.type || 'application/octet-stream'
     if (!ALLOWED.has(contentType)) {
-      throw new DomainError('INVALID_INPUT', 'Use a PNG, JPEG, WebP or SVG.')
+      throw new DomainError('INVALID_INPUT', 'Use a PNG, JPEG or WebP.')
     }
 
     const bytes = Buffer.from(await file.arrayBuffer())

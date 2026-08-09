@@ -173,13 +173,24 @@ export async function createHold(
 }
 
 export async function releaseHold(salonId: string, holdId: string): Promise<void> {
-  await unsafeDb.$transaction([
-    unsafeDb.appointmentSegment.deleteMany({ where: { salonId, bookingHoldId: holdId } }),
-    unsafeDb.bookingHold.updateMany({
+  await unsafeDb.$transaction(async (tx) => {
+    const hold = await tx.bookingHold.findFirst({
+      where: { id: holdId, salonId },
+      select: { id: true, status: true },
+    })
+    // Consumed holds own live appointment segments. Deleting by bookingHoldId
+    // after promote would wipe a real booking — only ACTIVE holds are free to
+    // tear down, and only HOLD-state segments go with them.
+    if (!hold || hold.status !== 'ACTIVE') return
+
+    await tx.appointmentSegment.deleteMany({
+      where: { salonId, bookingHoldId: holdId, state: 'HOLD' },
+    })
+    await tx.bookingHold.updateMany({
       where: { salonId, id: holdId, status: 'ACTIVE' },
       data: { status: 'RELEASED' },
-    }),
-  ])
+    })
+  })
   invalidateAvailabilityCache(salonId)
 }
 
@@ -276,10 +287,16 @@ export async function bookFromHold(input: BookFromHoldInput): Promise<BookingRes
         })
       }
 
-      // Promote, never recreate.
+      // Promote, never recreate. Clear bookingHoldId so a later releaseHold
+      // (decline/sweep racing accept) cannot delete these segments by hold id.
       await tx.appointmentSegment.updateMany({
         where: { bookingHoldId: hold.id },
-        data: { state: 'ACTIVE', holdExpiresAt: null, appointmentId: appointment.id },
+        data: {
+          state: 'ACTIVE',
+          holdExpiresAt: null,
+          appointmentId: appointment.id,
+          bookingHoldId: null,
+        },
       })
 
       await tx.bookingHold.update({

@@ -330,26 +330,43 @@ export class MockPaymentsAdapter implements PaymentsPort {
      * A card on file that is confirmed off-session lands already authorised —
      * there is nobody at the keyboard to complete a step, which is the whole
      * reason the agreement was taken in advance.
+     *
+     * Automatic capture without confirm is NOT succeeded: that is an incomplete
+     * PaymentIntent waiting on the browser (or a terminal). Treating it as paid
+     * is how the till used to settle a bill against a charge that never ran.
      */
     const chargedNow = Boolean(input.confirm && input.paymentMethodRef)
     const id = mockId('pi', input.idempotencyKey)
+    const status: PaymentIntent['status'] = chargedNow
+      ? input.captureMethod === 'manual'
+        ? 'REQUIRES_CAPTURE'
+        : 'SUCCEEDED'
+      : 'REQUIRES_PAYMENT_METHOD'
     const intent: PaymentIntent = {
       id,
       amountCents: input.amountCents,
       currency: input.currency,
-      status:
-        input.captureMethod === 'manual'
-          ? 'REQUIRES_CAPTURE'
-          : chargedNow || input.captureMethod === 'automatic'
-            ? 'SUCCEEDED'
-            : 'REQUIRES_PAYMENT_METHOD',
-      capturedCents: input.captureMethod === 'manual' ? 0 : input.amountCents,
+      status,
+      capturedCents: status === 'SUCCEEDED' ? input.amountCents : 0,
       clientSecret: `${id}_secret`,
       createdAt: mockNow(),
     }
     this.intents.set(id, intent)
     this.byIdempotency.set(input.idempotencyKey, id)
     return { ...intent }
+  }
+
+  /** Dev/CI stand-in for the browser confirming a PaymentIntent. */
+  confirmTestIntent(id: string): PaymentIntent {
+    const intent = this.intents.get(id)
+    if (!intent) throw new AdapterError(this.name, 'NOT_FOUND', 'No such payment intent.')
+    const updated: PaymentIntent = {
+      ...intent,
+      status: 'SUCCEEDED',
+      capturedCents: intent.amountCents,
+    }
+    this.intents.set(id, updated)
+    return { ...updated }
   }
 
   async createCustomer(input: {

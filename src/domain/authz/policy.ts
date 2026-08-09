@@ -212,8 +212,9 @@ const deny = (reason: DenyReason): PolicyResult => ({ allowed: false, reason })
 export function can(principal: Principal, action: Action, resource: ResourceRef): PolicyResult {
   switch (principal.kind) {
     case 'platform_admin': {
-      // Impersonation is time-boxed and audited at the session layer; here it
-      // only ever grants access to the salon actually being impersonated.
+      // Global access for a platform admin, scoped to the salon in the URL —
+      // not time-boxed impersonation. The field is named impersonatingSalonId
+      // for historical reasons; there is no separate impersonation session.
       if (principal.impersonatingSalonId !== resource.salonId) return deny('WRONG_TENANT')
       return { allowed: true, requiresReason: true }
     }

@@ -8,11 +8,13 @@ import { Button } from '@/components/ui/button'
 import { Field, Input, Select, Textarea } from '@/components/ui/field'
 import {
   buildInvoiceAction,
+  confirmPendingTillPaymentAction,
   previewInvoiceAction,
   redeemGiftCardAction,
   refundPaymentAction,
   takePaymentAction,
 } from '@/server/actions/commerce'
+import { clientEnv } from '@/env'
 import { formatMoney } from '@/lib/format'
 
 /**
@@ -236,6 +238,29 @@ export function Till({
       setError(result.error)
       setBusy(false)
       return
+    }
+
+    /*
+     * CARD/TERMINAL may come back PENDING with a clientSecret. With a real
+     * publishable key the browser would confirm via Elements; in mock/dev
+     * with no key we finish the intent on the server so the till still works.
+     */
+    if (result.data.status === 'PENDING' && result.data.clientSecret) {
+      if (clientEnv.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY) {
+        setError(
+          'This card still needs confirming in the payment form. Add a card on file, or use cash.',
+        )
+        setBusy(false)
+        return
+      }
+      const confirmed = await confirmPendingTillPaymentAction(salonSlug, {
+        paymentId: result.data.paymentId,
+      })
+      if (!confirmed.ok) {
+        setError(confirmed.error)
+        setBusy(false)
+        return
+      }
     }
 
     // A new key for the next payment: this one is spent.

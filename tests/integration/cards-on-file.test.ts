@@ -493,6 +493,49 @@ describe('cancelling settles the deposit', () => {
     // deposit is only $50 of it.
     expect((await paymentsPort().getIntent(after.providerIntentId!))?.capturedCents).toBe(5_000)
   })
+
+  it('caps the forfeit across multiple deposits, not per deposit', async () => {
+    // Late cancel: 50% of $60 = $30 fee. Two $50 holds must keep $30 total.
+    await unsafeDb.salonSettings.update({
+      where: { salonId: S },
+      data: { cancellationWindowHours: 48, cancellationFeePercent: 50 },
+    })
+    const client = await makeClientWithCard()
+    const appointment = await makeAppointment(
+      client.id,
+      6_000,
+      new Date(Date.now() + 60 * 60_000),
+    )
+    const first = await unsafeDb.deposit.create({
+      data: {
+        salonId: S,
+        clientProfileId: client.id,
+        appointmentId: appointment.id,
+        amountCents: 5_000,
+        status: 'PENDING',
+      },
+    })
+    const second = await unsafeDb.deposit.create({
+      data: {
+        salonId: S,
+        clientProfileId: client.id,
+        appointmentId: appointment.id,
+        amountCents: 5_000,
+        status: 'PENDING',
+      },
+    })
+    await authorizeDeposit({ salonId: S, depositId: first.id, currency: 'USD' })
+    await authorizeDeposit({ salonId: S, depositId: second.id, currency: 'USD' })
+
+    await assessCancellation({ salonId: S, appointmentId: appointment.id })
+
+    const a = await unsafeDb.deposit.findUniqueOrThrow({ where: { id: first.id } })
+    const b = await unsafeDb.deposit.findUniqueOrThrow({ where: { id: second.id } })
+    const kept =
+      ((await paymentsPort().getIntent(a.providerIntentId!))?.capturedCents ?? 0) +
+      ((await paymentsPort().getIntent(b.providerIntentId!))?.capturedCents ?? 0)
+    expect(kept).toBe(3_000)
+  })
 })
 
 // ---------------------------------------------------------------------------

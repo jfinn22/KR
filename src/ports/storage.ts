@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -153,9 +153,23 @@ function applyStrip(input: PutObjectInput): { body: Buffer; stripped: boolean } 
  * scheme by hand would be free to drift from it, and a drifted verifier that
  * still returns 200 is indistinguishable from a working one until the day it
  * serves somebody else's client photos.
+ *
+ * HMAC with a server secret — a bare hash of key+expires is forgeable by anyone
+ * who sees a URL (the key is in the path).
  */
+function storageSigningSecret(): string {
+  return (
+    process.env.STORAGE_SIGNING_SECRET ||
+    process.env.AUTH_SECRET ||
+    'dev-only-storage-signing-secret'
+  )
+}
+
 export function localSignature(key: string, expiresAtEpochSeconds: number): string {
-  return createHash('sha256').update(`${key}:${expiresAtEpochSeconds}`).digest('hex').slice(0, 32)
+  return createHmac('sha256', storageSigningSecret())
+    .update(`${key}:${expiresAtEpochSeconds}`)
+    .digest('hex')
+    .slice(0, 32)
 }
 
 export function verifyLocalSignature(
