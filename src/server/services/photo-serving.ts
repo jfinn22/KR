@@ -21,10 +21,16 @@ export async function readStoredObject(storageKey: string): Promise<ServedObject
   // The asset row is the authority on what this key is allowed to be served
   // as: trusting a sniffed type would let an uploaded file dictate how the
   // browser interprets it.
-  const asset = await unsafeDb.photoAsset.findFirst({
-    where: { storageKey, deletedAt: null },
-    select: { mimeType: true },
-  })
+  const salonId = salonIdFromStorageKey(storageKey)
+  const asset = salonId
+    ? await dbFor(salonId).photoAsset.findFirst({
+        where: { storageKey, deletedAt: null },
+        select: { mimeType: true },
+      })
+    : await unsafeDb.photoAsset.findFirst({
+        where: { storageKey, deletedAt: null },
+        select: { mimeType: true },
+      })
   if (asset) {
     const bytes = await storagePort().get(storageKey)
     if (!bytes) return null
@@ -37,6 +43,11 @@ export async function readStoredObject(storageKey: string): Promise<ServedObject
   if (branding) return branding
 
   return null
+}
+
+function salonIdFromStorageKey(storageKey: string): string | null {
+  const match = /^salons\/([^/]+)\//.exec(storageKey)
+  return match?.[1] ?? null
 }
 
 async function brandingObject(storageKey: string): Promise<ServedObject | null> {

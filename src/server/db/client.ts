@@ -3,10 +3,12 @@ import { PrismaClient } from '@prisma/client'
 /**
  * Base Prisma clients.
  *
- * `unsafeDb` is UNSCOPED. It sees every salon's rows and must never be used to
- * serve a request. ESLint restricts its import to src/server/repositories,
- * src/server/jobs, prisma/seed and scripts. Request handlers get a scoped
- * client from `dbFor(ctx)` in ./tenant-client.
+ * `unsafeDb` is UNSCOPED. It sees every salon's rows. Request-path code must
+ * use `dbFor(salonId)` from ./tenant-client instead.
+ *
+ * ESLint bans importing `unsafeDb` outside the allowlist in `.eslintrc.json`
+ * (jobs, auth bootstrap, public-guard, audit/outbox sinks, and the few
+ * services that still need a true cross-tenant or pre-tenant lookup).
  */
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient }
@@ -30,4 +32,3 @@ export const unsafeDb: PrismaClient = globalForPrisma.prisma ?? create()
 if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = unsafeDb
 
 export type Db = PrismaClient
-

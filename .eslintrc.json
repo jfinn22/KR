@@ -22,6 +22,50 @@
   "overrides": [
     {
       "files": ["src/server/**/*.ts", "prisma/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              {
+                "name": "@/server/db/client",
+                "importNames": ["unsafeDb"],
+                "message": "Request paths must use dbFor(salonId) from @/server/db/tenant-client. unsafeDb is only for jobs, auth bootstrap, and true cross-tenant sweeps."
+              },
+              {
+                "name": "@/server/db/client",
+                "importNames": ["default"],
+                "message": "Import dbFor from @/server/db/tenant-client, or unsafeDb only from an allowlisted module."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/server/db/**/*.ts",
+        "src/server/jobs/**/*.ts",
+        "src/server/auth/config.ts",
+        "src/server/auth/context.ts",
+        "src/server/actions/public-guard.ts",
+        "src/server/audit.ts",
+        "src/server/outbox-sink.ts",
+        "src/server/services/dev-outbox.ts",
+        "src/server/services/signup.ts",
+        "src/server/services/branding.ts",
+        "src/server/services/check-in.ts",
+        "src/server/services/photo-serving.ts",
+        "src/server/services/payment-webhooks.ts",
+        "src/server/services/deposits.ts",
+        "src/server/services/memberships.ts",
+        "src/server/services/integrations.ts",
+        "src/server/services/platform-billing.ts",
+        "src/server/services/scheduling/waitlist.ts",
+        "prisma/**/*.ts",
+        "scripts/**/*.ts",
+        "tests/**/*.ts"
+      ],
       "rules": { "no-restricted-imports": "off" }
     },
     {

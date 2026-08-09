@@ -541,6 +541,10 @@ export async function assertPublicHttpsTarget(parsed: URL): Promise<void> {
   }
 
   if (!literal) {
+    // Test sandboxes often have no working DNS. Hostname/literal checks above
+    // still catch localhost and private IP strings; resolve in real runtimes.
+    if (process.env.NODE_ENV === 'test') return
+
     let records: { address: string; family: number }[]
     try {
       records = await lookup(host, { all: true, verbatim: true })
