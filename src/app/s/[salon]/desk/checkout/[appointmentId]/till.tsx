@@ -143,6 +143,20 @@ export function Till({
   const [attemptKey, setAttemptKey] = React.useState(() => `till-${appointmentId}-${counter()}`)
 
   const chosenReason = discountOptions.find((option) => option.id === discountReasonId) ?? null
+
+  /*
+   * An open amount belongs to the reason it was typed against.
+   *
+   * The field only renders for an OPEN reason, but the value outlived it:
+   * switch to a percentage reason, or back to "No discount", and the amount
+   * stayed in `billPayload` as `discountRequestedCents` with nothing on screen
+   * showing it. Same shape of bug as the tip sharing this cell, in the other
+   * direction, and the same fix — the state goes when the field does.
+   */
+  React.useEffect(() => {
+    if (chosenReason?.kind !== 'OPEN') setOpenAmount('')
+  }, [chosenReason?.kind])
+
   const outstanding = invoice
     ? Math.max(0, invoice.totalCents - invoice.paidCents)
     : (preview?.dueCents ?? Math.max(0, agreedTotalCents - depositHeldCents))
@@ -444,7 +458,7 @@ export function Till({
               </Select>
             </Field>
 
-            {chosenReason?.kind === 'OPEN' ? (
+            {chosenReason?.kind === 'OPEN' && (
               <Field label="How much" htmlFor="discount-amount" help="This reason has no set rate.">
                 <Input
                   id="discount-amount"
@@ -456,19 +470,28 @@ export function Till({
                   onChange={(e) => setOpenAmount(e.target.value)}
                 />
               </Field>
-            ) : (
-              <Field label="Tip" htmlFor="tip" help="Never taxed, never discounted.">
-                <Input
-                  id="tip"
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  step="0.01"
-                  value={tip}
-                  onChange={(e) => setTip(e.target.value)}
-                />
-              </Field>
             )}
+
+            {/*
+             * The tip has its own cell and is always on screen.
+             *
+             * It used to share a cell with the open-amount field through a
+             * ternary, so choosing an open-amount discount took the tip input
+             * out of the DOM — while `tip` stayed in `billPayload` and went on
+             * being charged. A tip typed, then hidden, was still added to the
+             * bill, and nothing on the screen said so.
+             */}
+            <Field label="Tip" htmlFor="tip" help="Never taxed, never discounted.">
+              <Input
+                id="tip"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.01"
+                value={tip}
+                onChange={(e) => setTip(e.target.value)}
+              />
+            </Field>
           </div>
 
           {/*

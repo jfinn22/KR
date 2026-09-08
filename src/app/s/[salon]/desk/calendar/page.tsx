@@ -107,20 +107,35 @@ export default async function CalendarPage({
       ) : (
         <div className="overflow-x-auto rounded-lg border border-line bg-canvas">
           <div className="flex min-w-max">
-            {/* Time gutter */}
-            <div className="w-16 shrink-0 border-r border-line" style={{ height }}>
-              {hours.map((minute) => (
-                <div
-                  key={minute}
-                  className="tabular absolute -translate-y-1/2 pl-2 text-label text-ink-subtle"
-                  style={{
-                    marginTop: (minute - startMin) * PIXELS_PER_MIN,
-                    position: 'relative',
-                  }}
-                >
-                  {formatMinuteOfDay(minute)}
-                </div>
-              ))}
+            {/*
+             * Time gutter.
+             *
+             * The labels are positioned from the top of the gutter, exactly as the
+             * hour rules in each column are. They used to carry `absolute` in the
+             * class list and `position: 'relative'` in the inline style — and the
+             * inline style wins, so every label sat in normal flow and its
+             * `marginTop` stacked on top of the previous one's. The offsets
+             * accumulated instead of measuring from the container, which put the
+             * 9pm label 7,871px below the hour rule it names.
+             *
+             * The spacer matches the sticky stylist header each column renders
+             * before its positioned area, so both start counting from the same line.
+             */}
+            <div className="w-16 shrink-0 border-r border-line">
+              <div className="border-b border-line px-3 py-2" aria-hidden="true">
+                <p className="text-secondary font-medium">&nbsp;</p>
+              </div>
+              <div className="relative" style={{ height }}>
+                {hours.map((minute) => (
+                  <div
+                    key={minute}
+                    className="tabular absolute -translate-y-1/2 pl-2 text-label text-ink-subtle"
+                    style={{ top: (minute - startMin) * PIXELS_PER_MIN }}
+                  >
+                    {formatMinuteOfDay(minute)}
+                  </div>
+                ))}
+              </div>
             </div>
 
             {columns.map((column) => (
