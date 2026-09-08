@@ -476,4 +476,3 @@ export const waiveFeeAction = withAuthz(
     return { waived: true }
   },
 )
-

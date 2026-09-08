@@ -74,9 +74,7 @@ export default async function WaitlistPage({ params }: { params: Promise<{ salon
                     )}
                   </>
                 ) : (
-                  <Badge tone="info">
-                    Waiting {daysSince(entry.waitingSince)}
-                  </Badge>
+                  <Badge tone="info">Waiting {daysSince(entry.waitingSince)}</Badge>
                 )}
                 <Button variant="secondary" size="sm" asChild>
                   <Link href={`/s/${salon}/desk/book?client=${entry.clientId}`}>Book them in</Link>

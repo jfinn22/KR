@@ -55,7 +55,6 @@ export async function audit(ctx: TenantContext, entry: AuditEntry): Promise<void
   })
 }
 
-
 /**
  * Audit an action taken by somebody with no account.
  *

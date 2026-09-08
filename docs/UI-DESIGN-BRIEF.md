@@ -16,12 +16,12 @@ Three of the four screens you asked me to redesign **cannot be built as describe
 server work first.** This is not a paint job. If the team plans it as one, it will fail in
 sprint two.
 
-| What was asked | What the code says | Real cost |
-|---|---|---|
-| "The Stylist Dashboard" | A stylist **cannot open `/desk` at all**. `policy.ts:78` — `'appointment.viewAny': row(A, A, A, N, N)` against role order `[OWNER, MANAGER, FRONT_DESK, STYLIST, ASSISTANT]`. `desk/page.tsx:30` gates on exactly that. The nav drops links whose permission fails (`layout.tsx:52-56`), so a stylist silently loses *Today* and *Diary*. `appointment.viewOwn` is granted to every role and used by **zero** routes. | New route + new service query + policy work. ~1.5 wks. Not UI. |
-| "Smooth drag-and-drop calendar" | **The permission exists; the implementation does not.** `policy.ts:88` already grants `'appointment.reschedule': row(A, A, A, O, N)` and `:91` `'appointment.forceSlot': row(AR, AR, AR, OR, N)`, and `Appointment.version` exists for it — but no service, action, route or test implements either. The complete set is `checkIn / startChair / endChair / markProcessing / markNoShow / checkOut` (`actions/appointment.ts`) and `hold / confirm / cancel` (`actions/booking.ts`). Nothing moves an appointment. And an appointment is not a block — `domain/scheduling/chain.ts` builds a `PhaseChain` of up to six typed segments (`BUFFER_BEFORE, ACTIVE, PROCESSING, RINSE, BUFFER_AFTER, BLOCK`), frozen onto the approved plan. | Server-side reschedule + chain revalidation is the bulk of it. ~3–4 wks total. |
-| "Before/after photo galleries" | `AppointmentPhoto` with kinds `BEFORE / PROGRESS / AFTER` **was deliberately deleted** in migration `20260806050000_drop_unused_models`. Today's `ConsultationPhoto` carries a `PhotoView` angle (FRONT/ROOTS/MIDS/…) but no pairing. | Schema restoration first. ~1 wk before any UI. |
-| "Clean, frictionless checkout and tip screen" | The only genuinely UI-shaped ask. Tip is a bare `<input type="number">` at `till.tsx:460`. The server side is complete and correct — `tipCents`, never taxed, never discounted, tracked per payment. | Pure frontend. ~1 wk. Do this first. |
+| What was asked                                | What the code says                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      | Real cost                                                                      |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| "The Stylist Dashboard"                       | A stylist **cannot open `/desk` at all**. `policy.ts:78` — `'appointment.viewAny': row(A, A, A, N, N)` against role order `[OWNER, MANAGER, FRONT_DESK, STYLIST, ASSISTANT]`. `desk/page.tsx:30` gates on exactly that. The nav drops links whose permission fails (`layout.tsx:52-56`), so a stylist silently loses _Today_ and _Diary_. `appointment.viewOwn` is granted to every role and used by **zero** routes.                                                                                                                                                                                                                                                                                                                   | New route + new service query + policy work. ~1.5 wks. Not UI.                 |
+| "Smooth drag-and-drop calendar"               | **The permission exists; the implementation does not.** `policy.ts:88` already grants `'appointment.reschedule': row(A, A, A, O, N)` and `:91` `'appointment.forceSlot': row(AR, AR, AR, OR, N)`, and `Appointment.version` exists for it — but no service, action, route or test implements either. The complete set is `checkIn / startChair / endChair / markProcessing / markNoShow / checkOut` (`actions/appointment.ts`) and `hold / confirm / cancel` (`actions/booking.ts`). Nothing moves an appointment. And an appointment is not a block — `domain/scheduling/chain.ts` builds a `PhaseChain` of up to six typed segments (`BUFFER_BEFORE, ACTIVE, PROCESSING, RINSE, BUFFER_AFTER, BLOCK`), frozen onto the approved plan. | Server-side reschedule + chain revalidation is the bulk of it. ~3–4 wks total. |
+| "Before/after photo galleries"                | `AppointmentPhoto` with kinds `BEFORE / PROGRESS / AFTER` **was deliberately deleted** in migration `20260806050000_drop_unused_models`. Today's `ConsultationPhoto` carries a `PhotoView` angle (FRONT/ROOTS/MIDS/…) but no pairing.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   | Schema restoration first. ~1 wk before any UI.                                 |
+| "Clean, frictionless checkout and tip screen" | The only genuinely UI-shaped ask. Tip is a bare `<input type="number">` at `till.tsx:460`. The server side is complete and correct — `tipCents`, never taxed, never discounted, tracked per payment.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | Pure frontend. ~1 wk. Do this first.                                           |
 
 **Sequencing consequence:** ship the POS, then the client record, then the dashboard, then
 the calendar. That is the reverse of how exciting they sound and the right order by
@@ -46,7 +46,7 @@ So the honest diagnosis is not "this is ugly and needs new colours." It is:
    with no client-side behaviour whatsoever. Nothing drags, nothing animates, nothing
    responds. That is what makes it feel flat — not the hues.
 3. **The screens have IA problems, not styling problems.** The client record is twelve
-   flat stacked sections in one scroll with deposits and cancellation fees *above* consent
+   flat stacked sections in one scroll with deposits and cancellation fees _above_ consent
    and strand tests — and **colour formulas do not appear on it at all** (they live only on
    `desk/appointment/[id]`). A colourist cannot see a client's colour history from the
    client's own page.
@@ -57,13 +57,13 @@ is already working and leave all three real problems in place.
 ### 0.3 What this brief actually recommends
 
 > **Quiet chrome, vivid content.** The nav, cards, tables and forms stay calm and get
-> *better*, not louder. Colour is promoted hard into the places where it carries meaning —
+> _better_, not louder. Colour is promoted hard into the places where it carries meaning —
 > stylist identity, service category, appointment state, hair shade, photos. Delight comes
 > from motion and responsiveness, not pigment on structural surfaces.
 
 This satisfies "fun, vibrant and colourful" honestly: a diary where eight columns each carry
 their stylist's colour, service categories are colour-coded, blocks lift and snap under your
-hand, and the till celebrates a closed sale, reads as *far* more alive than the current
+hand, and the till celebrates a closed sale, reads as _far_ more alive than the current
 build — while a receptionist can still stare at it for eight hours.
 
 ### 0.4 Bugs found while auditing (see Appendix A for detail)
@@ -72,7 +72,7 @@ build — while a receptionist can still stare at it for eight hours.
   the hour rules — measured in Chromium at up to **7,871px of drift on a 1,176px grid**.
   Three-line fix.
 - **`--ink-subtle` fails WCAG AA.** `#77777F` is **4.44:1** on white and is used as real text
-  in **67 places**. The palette test only asserts the token *exists* (line 33); it never
+  in **67 places**. The palette test only asserts the token _exists_ (line 33); it never
   checks its contrast.
 - **Input borders fail WCAG 1.4.11.** `--line` `#E6E7EB` is **1.24:1** on canvas, against the
   3:1 required for UI component boundaries.
@@ -104,18 +104,18 @@ The current neutrals are cool greys (`#FAFAFB`, `#F4F5F7`). Warming them a few d
 single highest-ratio change in this document: it costs three token values, breaks nothing,
 and moves the whole product from "clinical" to "inviting" without touching a component.
 
-| Token | Hex | RGB channels | Status | Role |
-|---|---|---|---|---|
-| `--ink` | `#0B0B0C` | `11 11 12` | **Keep** | All body copy. 19.67:1 on canvas. |
-| `--ink-muted` | `#55555C` | `85 85 92` | **Keep** | Secondary copy. 7.39:1. |
-| `--ink-subtle` | `#696971` | `105 105 113` | **RETUNE — a11y fix** | Was `#77777F` at 4.44:1 (**fails AA**). New value clears 4.5:1 on all seven surfaces it lands on. |
-| `--ink-inverse` | `#FFFFFF` | `255 255 255` | **Keep** | Text on filled colour. |
-| `--canvas` | `#FFFFFF` | `255 255 255` | **Keep** | Cards. Stays pure white. |
-| `--surface` | `#FBFAF9` | `251 250 249` | **RETUNE** | Was `#FAFAFB` (cool). Warmed. |
-| `--surface-alt` | `#F5F3F1` | `245 243 241` | **RETUNE** | Was `#F4F5F7` (cool). Warmed. |
-| `--line` | `#E8E5E1` | `232 229 225` | **RETUNE** | Decorative hairlines only. Warmed to match. |
-| `--line-strong` | `#D6D2CD` | `214 210 205` | **RETUNE** | Heavier dividers. |
-| `--field` | `#8A8A92` | `138 138 146` | **NEW — a11y fix** | Input/select/textarea boundary. 3.43:1 canvas, 3.29:1 surface, 3.09:1 surface-alt — clears WCAG 1.4.11 everywhere. See §1.5. |
+| Token           | Hex       | RGB channels  | Status                | Role                                                                                                                         |
+| --------------- | --------- | ------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `--ink`         | `#0B0B0C` | `11 11 12`    | **Keep**              | All body copy. 19.67:1 on canvas.                                                                                            |
+| `--ink-muted`   | `#55555C` | `85 85 92`    | **Keep**              | Secondary copy. 7.39:1.                                                                                                      |
+| `--ink-subtle`  | `#696971` | `105 105 113` | **RETUNE — a11y fix** | Was `#77777F` at 4.44:1 (**fails AA**). New value clears 4.5:1 on all seven surfaces it lands on.                            |
+| `--ink-inverse` | `#FFFFFF` | `255 255 255` | **Keep**              | Text on filled colour.                                                                                                       |
+| `--canvas`      | `#FFFFFF` | `255 255 255` | **Keep**              | Cards. Stays pure white.                                                                                                     |
+| `--surface`     | `#FBFAF9` | `251 250 249` | **RETUNE**            | Was `#FAFAFB` (cool). Warmed.                                                                                                |
+| `--surface-alt` | `#F5F3F1` | `245 243 241` | **RETUNE**            | Was `#F4F5F7` (cool). Warmed.                                                                                                |
+| `--line`        | `#E8E5E1` | `232 229 225` | **RETUNE**            | Decorative hairlines only. Warmed to match.                                                                                  |
+| `--line-strong` | `#D6D2CD` | `214 210 205` | **RETUNE**            | Heavier dividers.                                                                                                            |
+| `--field`       | `#8A8A92` | `138 138 146` | **NEW — a11y fix**    | Input/select/textarea boundary. 3.43:1 canvas, 3.29:1 surface, 3.09:1 surface-alt — clears WCAG 1.4.11 everywhere. See §1.5. |
 
 #### Primary — brandable
 
@@ -124,44 +124,44 @@ replace at runtime. Gold and rose are deliberately locked (their meaning — mon
 hair — is the same at every salon).
 
 > **Constraint that shapes everything:** the design **must not depend on the primary's hue.**
-> Any salon can turn it magenta. Use it for *structure and action*, never to mean a category.
+> Any salon can turn it magenta. Use it for _structure and action_, never to mean a category.
 
-| Token | Hex | Channels | Status | Contrast |
-|---|---|---|---|---|
-| `--blue-900` | `#10305A` | `16 48 90` | Retune | white 13.19:1 — nav column |
-| `--blue-700` | `#1B5AA0` | `27 90 160` | Retune | white 6.96:1 — hover |
-| `--blue-500` | `#1E74C8` | `30 116 200` | **RETUNE — brighter** | white **4.79:1** — primary fill + focus ring |
-| `--blue-300` | `#5794CC` | `87 148 204` | **RETUNE — a11y fix** | Border rung. 3.22:1 on white — the lightest value that clears the ladder's own `AA_UI` rule. Shipped `#85B3DB` is 2.22:1 and violates it. See A4. |
-| `--blue-100` | `#E3F0FC` | `227 240 252` | Retune | secondary button fill; `--blue-900` on it 11.39:1 |
-| `--blue-50` | `#F3F9FE` | `243 249 254` | Retune | washes |
+| Token        | Hex       | Channels      | Status                | Contrast                                                                                                                                          |
+| ------------ | --------- | ------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--blue-900` | `#10305A` | `16 48 90`    | Retune                | white 13.19:1 — nav column                                                                                                                        |
+| `--blue-700` | `#1B5AA0` | `27 90 160`   | Retune                | white 6.96:1 — hover                                                                                                                              |
+| `--blue-500` | `#1E74C8` | `30 116 200`  | **RETUNE — brighter** | white **4.79:1** — primary fill + focus ring                                                                                                      |
+| `--blue-300` | `#5794CC` | `87 148 204`  | **RETUNE — a11y fix** | Border rung. 3.22:1 on white — the lightest value that clears the ladder's own `AA_UI` rule. Shipped `#85B3DB` is 2.22:1 and violates it. See A4. |
+| `--blue-100` | `#E3F0FC` | `227 240 252` | Retune                | secondary button fill; `--blue-900` on it 11.39:1                                                                                                 |
+| `--blue-50`  | `#F3F9FE` | `243 249 254` | Retune                | washes                                                                                                                                            |
 
 > **A warning, learned the hard way.** My first attempt at "brighter" was `#2C7FD0`, which
 > measures **4.16:1** with white — below AA. `globals.css` already carries a comment saying
-> *"make it pop cannot walk it below contrast"*, and it is right. `#1E74C8` is the brightest,
+> _"make it pop cannot walk it below contrast"_, and it is right. `#1E74C8` is the brightest,
 > most saturated blue I could find that still clears 4.5:1 with white. Do not lighten it
 > further without re-running the numbers.
 
 #### Semantic and identity families
 
-| Token | Hex | Channels | Status | Job |
-|---|---|---|---|---|
-| `--gold-700` | `#8A6C1F` | `138 108 31` | Keep | Only gold rung that carries text (4.54:1 on gold-100) |
-| `--gold-600` | `#A8842C` | `168 132 44` | Keep | Borders/icons only — 3.50:1. **Not** gold-500: that measures 2.42:1 and fails. |
-| `--gold-500` | `#C9A227` | `201 162 39` | Keep | Fill. Black text 8.13:1. Money, status, the bookable processing gap. |
-| `--gold-300` | `#E2C766` | `226 199 102` | Keep | Hover fill |
-| `--gold-100` | `#FBF5E3` | `251 245 227` | Keep | Wash |
-| `--rose-700` | `#962F5C` | `150 47 92` | Keep | Text on rose (6.54:1) |
-| `--rose-500` | `#C75285` | `199 82 133` | Keep | Marker, 4.22:1 |
-| `--rose-100` | `#FCEEF5` | `252 238 245` | Keep | Wash — the hair itself |
-| `--violet-700` | `#5B21B6` | `91 33 182` | **NEW** | Text on violet, 7.42:1 |
-| `--violet-500` | `#7C3AED` | `124 58 237` | **NEW** | Marker 5.70:1; carries **white** text at 5.70:1 |
-| `--violet-100` | `#EFE9FD` | `239 233 253` | **NEW** | Wash |
-| `--coral-700` | `#9A3412` | `154 52 18` | **NEW** | Text on coral, 6.22:1 |
-| `--coral-500` | `#EA580C` | `234 88 12` | **NEW** | Marker 3.56:1 (**black** text only — 5.53:1) |
-| `--coral-100` | `#FFE8E0` | `255 232 224` | **NEW** | Wash |
-| `--success` / `--success-soft` | `#2F6B4F` / `#EEF5F1` | | Keep | 5.68:1 |
-| `--warn` / `--warn-soft` | `#8A6108` / `#FDF4E5` | | Keep | 5.07:1 |
-| `--danger` / `--danger-soft` | `#A32E2E` / `#FBEFEF` | | Keep | 6.26:1 |
+| Token                          | Hex                   | Channels      | Status  | Job                                                                            |
+| ------------------------------ | --------------------- | ------------- | ------- | ------------------------------------------------------------------------------ |
+| `--gold-700`                   | `#8A6C1F`             | `138 108 31`  | Keep    | Only gold rung that carries text (4.54:1 on gold-100)                          |
+| `--gold-600`                   | `#A8842C`             | `168 132 44`  | Keep    | Borders/icons only — 3.50:1. **Not** gold-500: that measures 2.42:1 and fails. |
+| `--gold-500`                   | `#C9A227`             | `201 162 39`  | Keep    | Fill. Black text 8.13:1. Money, status, the bookable processing gap.           |
+| `--gold-300`                   | `#E2C766`             | `226 199 102` | Keep    | Hover fill                                                                     |
+| `--gold-100`                   | `#FBF5E3`             | `251 245 227` | Keep    | Wash                                                                           |
+| `--rose-700`                   | `#962F5C`             | `150 47 92`   | Keep    | Text on rose (6.54:1)                                                          |
+| `--rose-500`                   | `#C75285`             | `199 82 133`  | Keep    | Marker, 4.22:1                                                                 |
+| `--rose-100`                   | `#FCEEF5`             | `252 238 245` | Keep    | Wash — the hair itself                                                         |
+| `--violet-700`                 | `#5B21B6`             | `91 33 182`   | **NEW** | Text on violet, 7.42:1                                                         |
+| `--violet-500`                 | `#7C3AED`             | `124 58 237`  | **NEW** | Marker 5.70:1; carries **white** text at 5.70:1                                |
+| `--violet-100`                 | `#EFE9FD`             | `239 233 253` | **NEW** | Wash                                                                           |
+| `--coral-700`                  | `#9A3412`             | `154 52 18`   | **NEW** | Text on coral, 6.22:1                                                          |
+| `--coral-500`                  | `#EA580C`             | `234 88 12`   | **NEW** | Marker 3.56:1 (**black** text only — 5.53:1)                                   |
+| `--coral-100`                  | `#FFE8E0`             | `255 232 224` | **NEW** | Wash                                                                           |
+| `--success` / `--success-soft` | `#2F6B4F` / `#EEF5F1` |               | Keep    | 5.68:1                                                                         |
+| `--warn` / `--warn-soft`       | `#8A6108` / `#FDF4E5` |               | Keep    | 5.07:1                                                                         |
+| `--danger` / `--danger-soft`   | `#A32E2E` / `#FBEFEF` |               | Keep    | 6.26:1                                                                         |
 
 **Two new hues. Not eight.** §1.3 explains why that number is a hard ceiling, not timidity.
 
@@ -175,13 +175,13 @@ before you run out of them.**
 I ran Viénot–Brettel–Mollon dichromat simulation over a candidate 8-hue set and measured
 pairwise CIELAB ΔE under normal vision and all three dichromacies. Results:
 
-| Set size | Best subset | Worst-case ΔE (all vision types) | Verdict |
-|---|---|---|---|
-| 8 | indigo, violet, fuchsia, rose, coral, amber, teal, ocean | **3.5** | Unusable — rose/teal are identical under deuteranopia |
-| 7 | …minus teal | 3.8 | Unusable |
-| 6 | violet, fuchsia, coral, amber, teal, ocean | 9.6 | Confusable |
-| **5** | **violet, rose, coral, amber, ocean** | **18.5** | **Safe** |
-| 4 | indigo, rose, coral, amber | 20.0 | Safe |
+| Set size | Best subset                                              | Worst-case ΔE (all vision types) | Verdict                                               |
+| -------- | -------------------------------------------------------- | -------------------------------- | ----------------------------------------------------- |
+| 8        | indigo, violet, fuchsia, rose, coral, amber, teal, ocean | **3.5**                          | Unusable — rose/teal are identical under deuteranopia |
+| 7        | …minus teal                                              | 3.8                              | Unusable                                              |
+| 6        | violet, fuchsia, coral, amber, teal, ocean               | 9.6                              | Confusable                                            |
+| **5**    | **violet, rose, coral, amber, ocean**                    | **18.5**                         | **Safe**                                              |
+| 4        | indigo, rose, coral, amber                               | 20.0                             | Safe                                                  |
 
 **The categorical set is exactly five**, and three of them (`ocean`=blue, `amber`=gold,
 `rose`) already ship. That is the entire cost of colour-coding every stylist and every
@@ -197,19 +197,19 @@ who read it.
   be made safe — you cannot guarantee contrast or distinguishability on a value a user typed.
 - Salons with more than five stylists reuse hues. That is fine, because —
 - **Colour is never the only channel.** Every stylist chip carries initials; every column
-  carries a name header. Colour makes scanning fast; the initials make it *correct*.
+  carries a name header. Colour makes scanning fast; the initials make it _correct_.
 - Migrate the existing defaults (`#0F2A4A` for stylists, `#C9A227` for categories) onto the
   five-token set in a data migration.
 
 Each hue is a **triple**, all verified:
 
-| Hue | fill (100) | marker (500/600) | label (700) | ink on fill | label on fill | marker on white |
-|---|---|---|---|---|---|---|
-| ocean | `#E3F0FC` | `#1E74C8` | `#10305A` | 16.99 | 11.39 | 4.79 |
-| rose | `#FCEEF5` | `#C75285` | `#962F5C` | 17.51 | 6.54 | 4.22 |
-| amber | `#FBF5E3` | `#A8842C` | `#8A6C1F` | 18.05 | 4.54 | 3.50 |
-| violet | `#EFE9FD` | `#7C3AED` | `#5B21B6` | 16.24 | 7.42 | 5.70 |
-| coral | `#FFE8E0` | `#EA580C` | `#9A3412` | 16.74 | 6.22 | 3.56 |
+| Hue    | fill (100) | marker (500/600) | label (700) | ink on fill | label on fill | marker on white |
+| ------ | ---------- | ---------------- | ----------- | ----------- | ------------- | --------------- |
+| ocean  | `#E3F0FC`  | `#1E74C8`        | `#10305A`   | 16.99       | 11.39         | 4.79            |
+| rose   | `#FCEEF5`  | `#C75285`        | `#962F5C`   | 17.51       | 6.54          | 4.22            |
+| amber  | `#FBF5E3`  | `#A8842C`        | `#8A6C1F`   | 18.05       | 4.54          | 3.50            |
+| violet | `#EFE9FD`  | `#7C3AED`        | `#5B21B6`   | 16.24       | 7.42          | 5.70            |
+| coral  | `#FFE8E0`  | `#EA580C`        | `#9A3412`   | 16.74       | 6.22          | 3.56            |
 
 Calendar block anatomy: **tinted fill + 4px left marker + black label.** Never a saturated
 fill behind text — that is what makes colourful calendars unreadable.
@@ -358,8 +358,17 @@ into 67 call sites. Add:
 /* --- The gap that let #77777F ship. ink-subtle is TEXT, at 12-14px, in 67
        places. It gets the same 4.5:1 bar as every other text token. --- */
 describe('ink-subtle is text and must clear AA', () => {
-  const backgrounds = ['canvas','surface','surface-alt','blue-50','blue-100',
-                       'gold-100','rose-100','violet-100','coral-100']
+  const backgrounds = [
+    'canvas',
+    'surface',
+    'surface-alt',
+    'blue-50',
+    'blue-100',
+    'gold-100',
+    'rose-100',
+    'violet-100',
+    'coral-100',
+  ]
   it.each(backgrounds)('ink-subtle on %s', (bg) => {
     expect(contrastRatio(token('ink-subtle'), token(bg))).toBeGreaterThanOrEqual(AA_NORMAL)
   })
@@ -367,17 +376,17 @@ describe('ink-subtle is text and must clear AA', () => {
 
 /* --- WCAG 1.4.11: an input's boundary identifies a UI component. --- */
 describe('form field boundaries (3:1)', () => {
-  it.each(['canvas','surface','surface-alt'])('field border on %s', (bg) => {
+  it.each(['canvas', 'surface', 'surface-alt'])('field border on %s', (bg) => {
     expect(contrastRatio(token('field'), token(bg))).toBeGreaterThanOrEqual(AA_UI)
   })
 })
 
 /* --- The five identity hues. Each is a triple and all three legs must hold. --- */
-const IDENTITY = ['blue','rose','gold','violet','coral'] as const
+const IDENTITY = ['blue', 'rose', 'gold', 'violet', 'coral'] as const
 describe.each(IDENTITY)('identity hue: %s', (hue) => {
   const fill = hue === 'blue' ? 'blue-100' : `${hue}-100`
   const label = hue === 'blue' ? 'blue-900' : `${hue}-700`
-  const marker = hue === 'gold' ? 'gold-600' : `${hue}-500`   // gold-500 is 2.42:1 — a fill, never a marker
+  const marker = hue === 'gold' ? 'gold-600' : `${hue}-500` // gold-500 is 2.42:1 — a fill, never a marker
   it('black block copy on the fill', () =>
     expect(contrastRatio(token('ink'), token(fill))).toBeGreaterThanOrEqual(AA_NORMAL))
   it('coloured label on the fill', () =>
@@ -404,12 +413,12 @@ describe.each(IDENTITY)('identity hue: %s', (hue) => {
 
 `branding.ts:91` writes `vars['--blue-${rung}']` and nothing else. So:
 
-| Family | Brandable? | Therefore |
-|---|---|---|
-| `--blue-*` | **Yes** | Structure and action only. **Never** use blue to mean a category — a salon can turn it any hue and the meaning evaporates. In the identity palette it is "ocean", and a branded salon simply has an ocean that matches its brand. |
-| `--gold-*`, `--rose-*` | No — locked | Money/status and hair. Same meaning everywhere. |
-| `--violet-*`, `--coral-*` | No — locked | New identity hues. Lock them, or the CVD guarantee in §1.3 dies the moment a salon picks its own. |
-| semantic | No | Success/warn/danger must never be brand-dependent. |
+| Family                    | Brandable?  | Therefore                                                                                                                                                                                                                         |
+| ------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--blue-*`                | **Yes**     | Structure and action only. **Never** use blue to mean a category — a salon can turn it any hue and the meaning evaporates. In the identity palette it is "ocean", and a branded salon simply has an ocean that matches its brand. |
+| `--gold-*`, `--rose-*`    | No — locked | Money/status and hair. Same meaning everywhere.                                                                                                                                                                                   |
+| `--violet-*`, `--coral-*` | No — locked | New identity hues. Lock them, or the CVD guarantee in §1.3 dies the moment a salon picks its own.                                                                                                                                 |
+| semantic                  | No          | Success/warn/danger must never be brand-dependent.                                                                                                                                                                                |
 
 `deriveAccentLadder` must be extended to also assert the new pairings when a salon saves a
 brand colour, or the runtime half of the guarantee lags the shipped half.
@@ -441,24 +450,24 @@ const display = Bricolage_Grotesque({
   subsets: ['latin'],
   variable: '--font-display',
   display: 'swap',
-  axes: ['opsz'],           // variable optical size
+  axes: ['opsz'], // variable optical size
   weight: ['600', '700', '800'],
 })
 ```
 
-| Token | Size | Line height | Tracking | Weight | Font | Use |
-|---|---|---|---|---|---|---|
-| `display-xl` | 2.5rem / 40px | 1.15 | −0.02em | 800 | Bricolage | Page title, one per screen |
-| `display-lg` | 2rem / 32px | 1.2 | −0.02em | 700 | Bricolage | Screen heading |
-| `display-md` | 1.5rem / 24px | 1.25 | −0.015em | 700 | Bricolage | Section heading |
-| `display-sm` | 1.25rem / 20px | 1.3 | −0.01em | 700 | Bricolage | Card title |
-| `body` | 1rem / 16px | 1.6 | 0 | 400 | Inter | Body copy |
-| `secondary` | 0.875rem / 14px | 1.55 | 0 | 400 | Inter | Table cells, secondary |
-| `label` | 0.75rem / 12px | 1.4 | 0.08em | 500 | Inter | Uppercase micro-label |
-| `numeric-lg` | 2rem / 32px | 1.1 | −0.01em | 700 | Inter *tnum* | **NEW** — stat figures and money. Inter, not the display face: figures are compared vertically and need tabular numerals. |
+| Token        | Size            | Line height | Tracking | Weight | Font         | Use                                                                                                                       |
+| ------------ | --------------- | ----------- | -------- | ------ | ------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `display-xl` | 2.5rem / 40px   | 1.15        | −0.02em  | 800    | Bricolage    | Page title, one per screen                                                                                                |
+| `display-lg` | 2rem / 32px     | 1.2         | −0.02em  | 700    | Bricolage    | Screen heading                                                                                                            |
+| `display-md` | 1.5rem / 24px   | 1.25        | −0.015em | 700    | Bricolage    | Section heading                                                                                                           |
+| `display-sm` | 1.25rem / 20px  | 1.3         | −0.01em  | 700    | Bricolage    | Card title                                                                                                                |
+| `body`       | 1rem / 16px     | 1.6         | 0        | 400    | Inter        | Body copy                                                                                                                 |
+| `secondary`  | 0.875rem / 14px | 1.55        | 0        | 400    | Inter        | Table cells, secondary                                                                                                    |
+| `label`      | 0.75rem / 12px  | 1.4         | 0.08em   | 500    | Inter        | Uppercase micro-label                                                                                                     |
+| `numeric-lg` | 2rem / 32px     | 1.1         | −0.01em  | 700    | Inter _tnum_ | **NEW** — stat figures and money. Inter, not the display face: figures are compared vertically and need tabular numerals. |
 
 > **Fix a latent inconsistency while you are here.** `Stat` in `data.tsx` renders its figure
-> as `tabular mt-2 font-display text-display-lg`. It *does* ask for tabular numerals — but
+> as `tabular mt-2 font-display text-display-lg`. It _does_ ask for tabular numerals — but
 > `.tabular` sets `font-variant-numeric: tabular-nums`, which only takes effect if the face
 > ships a `tnum` feature. Inter does; whether the display face does is a per-font question,
 > and it silently no-ops if not. Money columns should not depend on that. Move `Stat` to
@@ -480,26 +489,28 @@ motion tokens.
 const buttonVariants = cva(
   // base
   'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg font-semibold ' +
-  'transition-[transform,box-shadow,background-color,border-color] duration-instant ease-out ' +
-  'active:translate-y-px active:duration-[60ms] ' +
-  'disabled:pointer-events-none disabled:opacity-45 ' +
-  'motion-reduce:transition-none motion-reduce:hover:translate-y-0 ' +
-  '[&_svg]:size-4 [&_svg]:shrink-0',
+    'transition-[transform,box-shadow,background-color,border-color] duration-instant ease-out ' +
+    'active:translate-y-px active:duration-[60ms] ' +
+    'disabled:pointer-events-none disabled:opacity-45 ' +
+    'motion-reduce:transition-none motion-reduce:hover:translate-y-0 ' +
+    '[&_svg]:size-4 [&_svg]:shrink-0',
   {
     variants: {
       variant: {
-        primary:   'bg-blue-500 text-ink-inverse shadow-raised hover:-translate-y-px hover:bg-blue-700 hover:shadow-overlay active:bg-blue-900 active:shadow-card',
-        secondary: 'border border-blue-300 bg-blue-100 text-blue-900 hover:border-blue-500 hover:bg-blue-300/40', // full-opacity border: /60 composites to 1.93:1, see A4
-        gold:      'bg-gold-500 text-ink shadow-raised hover:-translate-y-px hover:bg-gold-300 hover:shadow-overlay active:shadow-card',
-        ghost:     'text-blue-700 hover:bg-blue-50',
-        link:      'text-blue-500 underline-offset-4 hover:underline',
-        danger:    'bg-danger text-ink-inverse shadow-raised hover:-translate-y-px hover:bg-danger/90',
+        primary:
+          'bg-blue-500 text-ink-inverse shadow-raised hover:-translate-y-px hover:bg-blue-700 hover:shadow-overlay active:bg-blue-900 active:shadow-card',
+        secondary:
+          'border border-blue-300 bg-blue-100 text-blue-900 hover:border-blue-500 hover:bg-blue-300/40', // full-opacity border: /60 composites to 1.93:1, see A4
+        gold: 'bg-gold-500 text-ink shadow-raised hover:-translate-y-px hover:bg-gold-300 hover:shadow-overlay active:shadow-card',
+        ghost: 'text-blue-700 hover:bg-blue-50',
+        link: 'text-blue-500 underline-offset-4 hover:underline',
+        danger: 'bg-danger text-ink-inverse shadow-raised hover:-translate-y-px hover:bg-danger/90',
         'danger-quiet': 'border-2 border-danger/30 bg-danger-soft text-danger hover:bg-danger/10',
       },
       size: {
-        sm:   'h-10 px-3.5 text-secondary',   // was h-9 (36px) — below the 44px touch target
-        md:   'h-11 px-5 text-secondary',
-        lg:   'h-12 px-7 text-body',
+        sm: 'h-10 px-3.5 text-secondary', // was h-9 (36px) — below the 44px touch target
+        md: 'h-11 px-5 text-secondary',
+        lg: 'h-12 px-7 text-body',
         icon: 'h-11 w-11',
       },
     },
@@ -515,11 +526,11 @@ const buttonVariants = cva(
 #### Card — `src/components/ui/card.tsx`
 
 ```ts
-'rounded-xl border border-line bg-canvas shadow-card ' +
-'transition-shadow duration-quick ease-out'
+'rounded-xl border border-line bg-canvas shadow-card ' + 'transition-shadow duration-quick ease-out'
 // interactive cards additionally:
-'hover:shadow-raised hover:border-line-strong motion-reduce:transition-none'
+;('hover:shadow-raised hover:border-line-strong motion-reduce:transition-none')
 ```
+
 Radius `lg` (10px) → `xl` (16px) for cards only. Controls stay at 10px. The larger radius on
 large surfaces is most of the perceived "softness" upgrade, and it costs one class.
 
@@ -537,6 +548,7 @@ const inputStyles =
   'aria-[invalid=true]:border-danger aria-[invalid=true]:shadow-[0_0_0_3px_rgb(var(--danger)/0.15)] ' +
   'motion-reduce:transition-none'
 ```
+
 `border-line` → **`border-field`** is the WCAG 1.4.11 fix. The focus ring becomes a soft
 3px halo rather than a hard outline — friendlier, and still 4.79:1 against white.
 
@@ -552,21 +564,21 @@ const inputStyles =
 
 ### 1.10 Elevation, radius, motion
 
-| Scale | Value | Use |
-|---|---|---|
-| `shadow-card` | `0 1px 2px rgba(41,37,33,.05)` | Resting card |
-| `shadow-raised` | contact + `0 4px 12px -2px /.08` | Buttons, hovered cards |
-| `shadow-overlay` | contact + `0 12px 28px -6px /.12` | Popovers, hovered primary |
-| `shadow-lifted` | `0 8px 16px -4px /.14, 0 24px 48px -12px /.18` | **Dragging only.** The only genuinely dramatic shadow, and it exists so a dragged block reads as picked up. |
-| `shadow-modal` | `0 12px 40px rgba(11,11,12,.12)` | Dialogs |
+| Scale            | Value                                          | Use                                                                                                         |
+| ---------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `shadow-card`    | `0 1px 2px rgba(41,37,33,.05)`                 | Resting card                                                                                                |
+| `shadow-raised`  | contact + `0 4px 12px -2px /.08`               | Buttons, hovered cards                                                                                      |
+| `shadow-overlay` | contact + `0 12px 28px -6px /.12`              | Popovers, hovered primary                                                                                   |
+| `shadow-lifted`  | `0 8px 16px -4px /.14, 0 24px 48px -12px /.18` | **Dragging only.** The only genuinely dramatic shadow, and it exists so a dragged block reads as picked up. |
+| `shadow-modal`   | `0 12px 40px rgba(11,11,12,.12)`               | Dialogs                                                                                                     |
 
 Radius: controls `10px`, cards `16px`, pills `999px`, calendar blocks `8px`.
 
 Motion durations and easings are in §1.4. **Rules:** animate `transform` and `opacity` only
 (compositor-only — never `top`, `height`, `width`, `margin`, or `box-shadow` on a list of
 items). `prefers-reduced-motion` is already handled globally in `globals.css`; components
-additionally carry `motion-reduce:` classes so a reduced-motion user still gets the *state
-change*, just not the travel.
+additionally carry `motion-reduce:` classes so a reduced-motion user still gets the _state
+change_, just not the travel.
 
 ---
 
@@ -584,11 +596,11 @@ feature.
 
 Three audiences, three surfaces, one visual language:
 
-| Role | Route | Question it answers |
-|---|---|---|
-| Stylist | `/my-day` **(new)** | "What is my next three hours, and what do I need to know before each client sits down?" |
-| Receptionist | `/desk` (exists) | "Who is late, who is waiting, who owes money?" |
-| Owner | `/insights` (exists) | "Is the business working?" |
+| Role         | Route                | Question it answers                                                                     |
+| ------------ | -------------------- | --------------------------------------------------------------------------------------- |
+| Stylist      | `/my-day` **(new)**  | "What is my next three hours, and what do I need to know before each client sits down?" |
+| Receptionist | `/desk` (exists)     | "Who is late, who is waiting, who owes money?"                                          |
+| Owner        | `/insights` (exists) | "Is the business working?"                                                              |
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -622,11 +634,12 @@ expectedCents / unpaidDeposits` and the state groups. `analytics.ts` exposes
 one `stylistProfileId`. Budget for that; do not let a designer promise it as free.
 
 **At-a-glance hierarchy** — readable from two metres:
+
 1. Client name — `display-sm`, `--ink`, semibold
 2. Time — `numeric-lg`, tabular
 3. Everything else — `secondary`/`label`, `--ink-muted`
 
-**Keep `/desk`'s single best idea.** Grouping by *what needs doing* (`Running late` /
+**Keep `/desk`'s single best idea.** Grouping by _what needs doing_ (`Running late` /
 `Arriving` / `In the chair` / `Processing` / `Finished`) rather than chronologically is
 genuinely better than what most salon software does. Do not "modernise" it into a plain
 timeline. "Running late" keeps its `danger` left-accent — `feedback.tsx` is right that a
@@ -671,7 +684,7 @@ it. Every redesign decision below protects it.
 - **Block anatomy:** `bg-{hue}-100` fill, `border-l-4 border-{hue}-500`, `--ink` label.
   Never a saturated fill behind text.
 - **Processing blocks keep gold** and gain a subtle diagonal hatch, so "free" is encoded by
-  *pattern as well as colour* — a stylist with deuteranopia must still find sellable gaps.
+  _pattern as well as colour_ — a stylist with deuteranopia must still find sellable gaps.
   **But design for their absence:** `interleaveEnabled` defaults to **false**
   (`tenancy.prisma:146`), so on a default salon there are **no gold blocks at all**. The
   "sell the gap" story is a feature of salons that switched it on. The diary must look
@@ -686,16 +699,21 @@ it. Every redesign decision below protects it.
 `PIXELS_PER_MIN = 1.4` with `blockHeight = Math.max(14, …)`. A 10-minute segment renders
 **14px tall** — one third of the 44px minimum target, and far too short for its own label.
 
-Fix: keep 1.4 px/min as the *default* but add a density control (Compact 1.0 / Comfortable
+Fix: keep 1.4 px/min as the _default_ but add a density control (Compact 1.0 / Comfortable
 1.4 / Roomy 2.0, persisted per user). Independently, enforce a **44px minimum hit area** by
 giving short blocks a transparent `::after` overlay that extends the touch region without
 changing the visual height:
 
 ```css
-.cal-block { position: relative; }
+.cal-block {
+  position: relative;
+}
 .cal-block::after {
-  content: ''; position: absolute; inset-inline: 0;
-  top: 50%; transform: translateY(-50%);
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  transform: translateY(-50%);
   height: max(100%, 44px);
 }
 ```
@@ -721,7 +739,7 @@ src/app/s/[salon]/desk/calendar/
   use-drag.ts       'use client' — the pointer state machine
 ```
 
-`scripts/check-client-boundary.mjs` forbids a server module importing a *non-JSX* export from
+`scripts/check-client-boundary.mjs` forbids a server module importing a _non-JSX_ export from
 a client module. `page.tsx` importing `<DayGrid />` as JSX is fine. Keep `minutesInto` and
 all formatting in `src/lib/format.ts` (unmarked, shared) — **do not** let a helper drift into
 `day-grid.tsx` and get imported back by the server, or the boundary check fails.
@@ -754,7 +772,7 @@ IDLE ─────────────────────────
   `shadow-raised`. During drag: `cursor: grabbing`, `shadow-lifted`, `opacity .92`,
   `scale(1.02)`, and a **live time label pinned to the pointer** ("11:45 – 14:30").
 - **Snap: `SchedulingSettings.slotGranularityMin`, which defaults to 15 — not 5.**
-  `round5` in `chain.ts` rounds phase *durations*; slot *starts* are offered on the
+  `round5` in `chain.ts` rounds phase _durations_; slot _starts_ are offered on the
   granularity grid (`tenancy.prisma:137`). Read the salon's value and snap to it. Snapping
   to 5 produces starts the solver would never have offered, so every other drop is rejected.
 - **The chain moves, not the block.** Dragging the `ACTIVE` segment translates the whole
@@ -771,15 +789,17 @@ IDLE ─────────────────────────
 ```ts
 // src/server/actions/scheduling.ts  — DOES NOT EXIST YET
 export const rescheduleAppointmentAction = withAuthz(
-  'appointment.reschedule',            // new action in domain/authz/actions.ts + policy.ts
+  'appointment.reschedule', // new action in domain/authz/actions.ts + policy.ts
   z.object({
     appointmentId: z.string(),
     stylistProfileId: z.string(),
     startsAt: z.string().datetime(),
-    idempotencyKey: z.string(),        // same discipline as till.tsx — a dropped
-  }),                                  // block that retries must not double-book
-  async (ctx, input) => { /* rebuild chain, re-run conflict + roster + resource
-                             validation, write segments in one transaction */ },
+    idempotencyKey: z.string(), // same discipline as till.tsx — a dropped
+  }), // block that retries must not double-book
+  async (ctx, input) => {
+    /* rebuild chain, re-run conflict + roster + resource
+                             validation, write segments in one transaction */
+  },
 )
 ```
 
@@ -812,28 +832,28 @@ and any estimate that ignores them is wrong:
 
 A drag-only calendar is inaccessible and, in several jurisdictions, non-compliant.
 
-| Key | Action |
-|---|---|
-| `Tab` | Move between blocks in time order |
-| `Enter` | Open the appointment |
-| `Space` | Pick up / put down (enters "move mode") |
-| `↑ / ↓` | Move ±5 min (`Shift` ±30) |
-| `← / →` | Move to previous/next stylist column |
-| `Shift + ↑/↓` | Resize the end |
-| `Escape` | Cancel, return to origin |
+| Key           | Action                                  |
+| ------------- | --------------------------------------- |
+| `Tab`         | Move between blocks in time order       |
+| `Enter`       | Open the appointment                    |
+| `Space`       | Pick up / put down (enters "move mode") |
+| `↑ / ↓`       | Move ±5 min (`Shift` ±30)               |
+| `← / →`       | Move to previous/next stylist column    |
+| `Shift + ↑/↓` | Resize the end                          |
+| `Escape`      | Cancel, return to origin                |
 
 Every move announces through a single `aria-live="polite"` region:
-*"Ada Lovelace, balayage, moved to 11:45, Maya. Processing 12:15 to 12:45 now free."*
+_"Ada Lovelace, balayage, moved to 11:45, Maya. Processing 12:15 to 12:45 now free."_
 Debounce announcements to 150ms or arrow-key repeat floods the screen reader.
 
 #### Phased delivery — be realistic
 
-| Phase | Ships | Effort |
-|---|---|---|
+| Phase  | Ships                                                                                                                                         | Effort                                            |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | **C1** | Fix the gutter bug (Appendix A). Identity colours from `colorHex`. Density control. NOW line. Staff filter chips. Touch targets. **No drag.** | ~1 wk. Ships alone and already feels transformed. |
-| **C2** | `rescheduleAppointmentAction` + chain revalidation + tests. **Server only, no UI.** | ~1.5–2 wks |
-| **C3** | Client island, pointer drag, keyboard parity, optimistic + rollback | ~1.5–2 wks |
-| **C4** | Resize, week view, cross-day drag | ~1.5 wks |
+| **C2** | `rescheduleAppointmentAction` + chain revalidation + tests. **Server only, no UI.**                                                           | ~1.5–2 wks                                        |
+| **C3** | Client island, pointer drag, keyboard parity, optimistic + rollback                                                                           | ~1.5–2 wks                                        |
+| **C4** | Resize, week view, cross-day drag                                                                                                             | ~1.5 wks                                          |
 
 **Ship C1 on its own.** It is the best value in this document and it does not depend on C2.
 
@@ -858,15 +878,15 @@ Three things are badly wrong with that order and content:
    the screen a stylist opens before mixing colour. The appointment page
    (`desk/appointment/[id]/page.tsx:149-200`) already has exactly the right pattern. Reuse it.
 3. **Colour formulas do not appear at all.** `client-portal.ts:197-201` includes only
-   `stylistProfile`, so the timeline shows *"Colour formula · 30 vol · 45 min · 4/5"* while
+   `stylistProfile`, so the timeline shows _"Colour formula · 30 vol · 45 min · 4/5"_ while
    the database holds the full bowl — brand, shade, parts, grams. The components render only
    on the appointment page. **A colourist cannot see a client's colour history from the
    client's own page.**
 
 Also unused and ready to render: `ClientProfile.tags` (a ready-made flag vocabulary),
 `pronouns`, `dateOfBirth`, `preferredStylistId`, `lifetimeSpendCents`, `firstVisitAt`,
-`lastVisitAt`. And `StrandTest.formulaId` exists but is not followed, so *"we tested this
-formula and it snapped"* is split across hundreds of pixels.
+`lastVisitAt`. And `StrandTest.formulaId` exists but is not followed, so _"we tested this
+formula and it snapped"_ is split across hundreds of pixels.
 
 #### The layout
 
@@ -895,6 +915,7 @@ formula and it snapped"* is split across hundreds of pixels.
 ```
 
 **Rules:**
+
 - **Header is sticky and always visible.** Name, pronouns, preferred stylist, and the single
   most urgent flag. Nothing else competes.
 - **"Before you mix" is a `danger`/`warn` left-accent strip, always expanded, always first.**
@@ -926,6 +947,7 @@ sequence])` permits it, but `PhotoCaptureGrid`'s `byView` map (line 76) and `pho
 (line 280) both assume one-photo-per-view and would silently drop the second.
 
 **Required before any gallery UI:**
+
 ```prisma
 model AppointmentPhoto {
   id             String   @id @default(cuid())
@@ -938,6 +960,7 @@ model AppointmentPhoto {
   @@unique([appointmentId, stage, view, sequence])
 }
 ```
+
 Then the comparison UI is easy: a drag-divider slider comparing the same `view` at `BEFORE`
 and `AFTER`, keyboard-operable with `←/→`, defaulting to `FRONT`. Consent gating is already
 solved — `PhotoAsset` carries `isClientVisible`, `isMarketingApproved` and `consentGrantId`,
@@ -993,7 +1016,7 @@ exists, is never taxed, never discounted, and is tracked per payment.
   tip screen that pressures a client in front of their stylist damages the relationship the
   salon depends on.
 - **56px targets.** This is tablet-first and often handed to the client.
-- **Announce changes** via `aria-live="polite"`: *"Tip £19.58. Total £150.08."*
+- **Announce changes** via `aria-live="polite"`: _"Tip £19.58. Total £150.08."_
 - **Timing constraint:** the tip must be set **before** the invoice is issued.
   `buildInvoice` throws `CONFLICT` on a second attempt (`commerce.ts:820`) and there is no
   update or void path (`commerce.ts:1160`). A "tip after seeing the total" flow needs new
@@ -1001,20 +1024,20 @@ exists, is never taxed, never discounted, and is tracked per payment.
 
 #### The rest of the till
 
-| Problem | Fix | Cost |
-|---|---|---|
-| Retail is free text — hand-typed description and price. `RetailProduct` (sku, name, priceCents, stockQty) is **never queried** | Product search/barcode against `RetailProduct`, decrement stock | ~3 d |
-| No quantity control, despite `quantity` existing in `TillLine`, the zod schema and `computeInvoice` | Stepper on `LineRow` | hours |
-| Gift card balance never shown before redemption | `findGiftCard` (`commerce.ts:1424`) already returns `balanceCents` — one thin action | hours |
-| "Produce the bill" is irreversible and looks like every other primary button | Distinct treatment + confirm | hours |
-| Card path dead-ends in production — no Stripe Elements on the till; with a real key and no saved card, `pay()` errors out | Mount `CardOnFile` / Elements on this screen | ~2 d |
-| Mode C is a dead end — no receipt, no print, no email, no rebook. `grep -i receipt` returns **zero** UI hits | Receipt + **rebook prompt** — the highest-revenue element on the screen | ~2 d |
-| `payWithCard` handler is misnamed (`till.tsx:262`) | Rename | minutes |
+| Problem                                                                                                                        | Fix                                                                                  | Cost    |
+| ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ------- |
+| Retail is free text — hand-typed description and price. `RetailProduct` (sku, name, priceCents, stockQty) is **never queried** | Product search/barcode against `RetailProduct`, decrement stock                      | ~3 d    |
+| No quantity control, despite `quantity` existing in `TillLine`, the zod schema and `computeInvoice`                            | Stepper on `LineRow`                                                                 | hours   |
+| Gift card balance never shown before redemption                                                                                | `findGiftCard` (`commerce.ts:1424`) already returns `balanceCents` — one thin action | hours   |
+| "Produce the bill" is irreversible and looks like every other primary button                                                   | Distinct treatment + confirm                                                         | hours   |
+| Card path dead-ends in production — no Stripe Elements on the till; with a real key and no saved card, `pay()` errors out      | Mount `CardOnFile` / Elements on this screen                                         | ~2 d    |
+| Mode C is a dead end — no receipt, no print, no email, no rebook. `grep -i receipt` returns **zero** UI hits                   | Receipt + **rebook prompt** — the highest-revenue element on the screen              | ~2 d    |
+| `payWithCard` handler is misnamed (`till.tsx:262`)                                                                             | Rename                                                                               | minutes |
 
 **Do not compute totals in the browser.** Both preview and commit go through `priceInvoice`
 → `computeInvoice`. Animating a total by summing client-side reintroduces exactly the
 "a till that adds up its own total is a till that can be argued with" problem the file's own
-comment warns about. Animate the *presentation* of the server's number.
+comment warns about. Animate the _presentation_ of the server's number.
 
 **Do not re-key `attemptKey` on re-render or on amount change** (`till.tsx:129, 257, 282`).
 It is minted once per attempt and re-minted only after success. That discipline is what makes
@@ -1029,8 +1052,8 @@ a retry a retry instead of a second charge.
 **The motion layer is currently zero.** `animate-fade-in` and `animate-shimmer` are declared
 in `tailwind.config.ts` and used in **exactly 0 files** — `grep -rn "animate-" src/` returns
 nothing. There are **0 `loading.tsx` files** and no skeleton component anywhere. Every page is
-a `force-dynamic` async RSC, so during navigation users currently stare at the *previous
-page* with no feedback at all.
+a `force-dynamic` async RSC, so during navigation users currently stare at the _previous
+page_ with no feedback at all.
 
 That is good news: "playful brief loading animations" is not a polish item, it is **missing
 feedback**, and it is the highest-value item in this section.
@@ -1038,7 +1061,7 @@ feedback**, and it is the highest-value item in this section.
 **The restraint budget — the rule that keeps this from becoming annoying:**
 
 > **Two animated moments per screen, plus state feedback.** State feedback (hover, press,
-> focus, disabled) is free and should be everywhere. *Announcements* — anything that draws
+> focus, disabled) is free and should be everywhere. _Announcements_ — anything that draws
 > the eye without being asked — are capped at two per screen, and only one may celebrate.
 
 A stylist sees the diary 200 times a day. A 500ms flourish that delights on day one is
@@ -1046,15 +1069,16 @@ something they wait through 200 times on day thirty. Every animation below is un
 and the only one over 300ms fires **once per completed sale**.
 
 **Rejected deliberately:**
-- *Number count-up on stat tiles* — animating a figure means it is briefly **wrong**. On a
+
+- _Number count-up on stat tiles_ — animating a figure means it is briefly **wrong**. On a
   screen showing takings, that is unacceptable. Fade the tile in; never roll the digits.
-- *Page transitions* — with `force-dynamic` RSC they would fight the streaming boundary and
+- _Page transitions_ — with `force-dynamic` RSC they would fight the streaming boundary and
   add perceived latency.
-- *Bouncy spring easing as a default* — reserved for the two moments below. Everywhere else
+- _Bouncy spring easing as a default_ — reserved for the two moments below. Everywhere else
   it reads as unserious.
-- *Confetti on checkout* — for a receptionist closing 40 sales a day this becomes contempt.
+- _Confetti on checkout_ — for a receptionist closing 40 sales a day this becomes contempt.
   §3.2 is the disciplined version.
-- *Animated nav indicator* — the nav is a column of 16 links; movement there is distraction.
+- _Animated nav indicator_ — the nav is a column of 16 links; movement there is distraction.
 
 ---
 
@@ -1062,11 +1086,11 @@ and the only one over 300ms fires **once per completed sale**.
 
 **The signature interaction.** Everything about whether the calendar feels alive lives here.
 
-| | |
-|---|---|
-| **Trigger** | `pointerup` on a valid drop target |
-| **Frequency** | Dozens/day per user — so it must be *fast* and never in the way |
-| **Cost** | Ships with C3 |
+|               |                                                                 |
+| ------------- | --------------------------------------------------------------- |
+| **Trigger**   | `pointerup` on a valid drop target                              |
+| **Frequency** | Dozens/day per user — so it must be _fast_ and never in the way |
+| **Cost**      | Ships with C3                                                   |
 
 The block travels from wherever the pointer released to its snapped position, then settles
 with a single small overshoot. Simultaneously the drop shadow collapses from `shadow-lifted`
@@ -1074,22 +1098,35 @@ back to `shadow-card` — that is what sells "put down" rather than "teleported"
 
 ```css
 @keyframes snap-in {
-  0%   { transform: scale(1.03); }
-  60%  { transform: scale(0.995); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1.03);
+  }
+  60% {
+    transform: scale(0.995);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 .cal-block[data-state='dropping'] {
   animation: snap-in 260ms var(--ease-spring);
-  transition: box-shadow 240ms var(--ease-out), translate 200ms var(--ease-out);
+  transition:
+    box-shadow 240ms var(--ease-out),
+    translate 200ms var(--ease-out);
   box-shadow: var(--shadow-card);
 }
 .cal-block[data-state='dragging'] {
   box-shadow: var(--shadow-lifted);
-  scale: 1.02; opacity: .92; cursor: grabbing;
+  scale: 1.02;
+  opacity: 0.92;
+  cursor: grabbing;
   z-index: 30;
 }
 @media (prefers-reduced-motion: reduce) {
-  .cal-block[data-state='dropping'] { animation: none; transition: none; }
+  .cal-block[data-state='dropping'] {
+    animation: none;
+    transition: none;
+  }
 }
 ```
 
@@ -1100,7 +1137,7 @@ back to `shadow-card` — that is what sells "put down" rather than "teleported"
 - **Rejection variant:** on server refusal the block returns to origin over 200ms and shakes
   — `translate: -3px → 3px → 0` over 180ms — plus a toast naming the reason. Reduced-motion
   users get the toast and a `danger` border flash, no travel.
-- **The satisfying detail:** while dragging, the *origin* slot shows a dashed outline and the
+- **The satisfying detail:** while dragging, the _origin_ slot shows a dashed outline and the
   **processing gap that would be freed up highlights in gold**. You are not moving a
   rectangle, you are seeing the day rearrange. That is the product's actual value made
   visible, and it costs one extra element.
@@ -1109,11 +1146,11 @@ back to `shadow-card` — that is what sells "put down" rather than "teleported"
 
 ### 3.2 The paid moment
 
-| | |
-|---|---|
-| **Trigger** | `takePaymentAction` resolves and the balance reaches zero |
+|               |                                                                         |
+| ------------- | ----------------------------------------------------------------------- |
+| **Trigger**   | `takePaymentAction` resolves and the balance reaches zero               |
 | **Frequency** | Once per completed sale — the only place a 520ms flourish is affordable |
-| **Cost** | Ships with the POS phase, ~half a day |
+| **Cost**      | Ships with the POS phase, ~half a day                                   |
 
 The outstanding figure crossfades to `£0.00`, a **PAID** stamp scales in with a slight
 rotation, and a hairline gold rule sweeps left-to-right beneath it. Then the screen resolves
@@ -1121,15 +1158,41 @@ into the receipt + rebook prompt.
 
 ```css
 @keyframes stamp {
-  0%   { opacity: 0; transform: scale(.6) rotate(-9deg); }
-  55%  { opacity: 1; transform: scale(1.06) rotate(2deg); }
-  100% { opacity: 1; transform: scale(1) rotate(0deg); }
+  0% {
+    opacity: 0;
+    transform: scale(0.6) rotate(-9deg);
+  }
+  55% {
+    opacity: 1;
+    transform: scale(1.06) rotate(2deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
 }
-.paid-stamp { animation: stamp var(--dur-celebrate) var(--ease-spring) both; }
-.paid-rule  { transform-origin: left; animation: sweep 380ms var(--ease-out) 140ms both; }
-@keyframes sweep { from { scale: 0 1; } to { scale: 1 1; } }
+.paid-stamp {
+  animation: stamp var(--dur-celebrate) var(--ease-spring) both;
+}
+.paid-rule {
+  transform-origin: left;
+  animation: sweep 380ms var(--ease-out) 140ms both;
+}
+@keyframes sweep {
+  from {
+    scale: 0 1;
+  }
+  to {
+    scale: 1 1;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .paid-stamp, .paid-rule { animation: none; opacity: 1; scale: 1; }
+  .paid-stamp,
+  .paid-rule {
+    animation: none;
+    opacity: 1;
+    scale: 1;
+  }
 }
 ```
 
@@ -1137,30 +1200,30 @@ into the receipt + rebook prompt.
   "success" generically and would break the palette's semantics.
 - **Not blocking.** The rebook prompt is interactive from frame one — a receptionist who
   knows what they are doing must never wait for an animation.
-- **`aria-live="assertive"`**: *"Paid in full. £150.08 including £19.58 tip."*
+- **`aria-live="assertive"`**: _"Paid in full. £150.08 including £19.58 tip."_
 - **This is the one celebration in the product.** Adding a second devalues it.
 
 ---
 
 ### 3.3 Formula lift — "copy to new visit"
 
-| | |
-|---|---|
-| **Trigger** | Tapping `Copy to new visit` on a formula card |
-| **Frequency** | Several times a day per colourist |
-| **Cost** | Ships with the client-profile phase, ~half a day |
+|               |                                                  |
+| ------------- | ------------------------------------------------ |
+| **Trigger**   | Tapping `Copy to new visit` on a formula card    |
+| **Frequency** | Several times a day per colourist                |
+| **Cost**      | Ships with the client-profile phase, ~half a day |
 
-A colourist's most repeated action is *"the same as last time, slightly warmer"*. Today it is
+A colourist's most repeated action is _"the same as last time, slightly warmer"_. Today it is
 retyping from another page. The card should physically **lift, duplicate and fly into the new
-visit** — the interaction *is* the explanation of what happened.
+visit** — the interaction _is_ the explanation of what happened.
 
 - The source card lifts to `shadow-overlay` and scales to `1.02` over 120ms.
 - A clone crossfades in offset by `6px, 6px`, then travels to the target region over 240ms
   with `--ease-in-out`.
 - The target field flashes a `blue-100` background for 400ms and receives focus.
 - Reduced motion: no travel; the target flashes and focuses, and the toast still fires.
-- **`aria-live="polite"`**: *"Formula copied. Wella Koleston 7/1 40g plus 9/0 20g, 20 vol, 35
-  minutes. Editable."*
+- **`aria-live="polite"`**: _"Formula copied. Wella Koleston 7/1 40g plus 9/0 20g, 20 vol, 35
+  minutes. Editable."_
 
 The important part is the **focus move**, not the animation. Get that right first; the motion
 is garnish on a genuine workflow saving.
@@ -1169,11 +1232,11 @@ is garnish on a genuine workflow saving.
 
 ### 3.4 Anticipatory skeletons
 
-| | |
-|---|---|
-| **Trigger** | Route navigation — via Next.js `loading.tsx` |
+|               |                                                  |
+| ------------- | ------------------------------------------------ |
+| **Trigger**   | Route navigation — via Next.js `loading.tsx`     |
 | **Frequency** | Constantly. **This is the one users feel most.** |
-| **Cost** | ~1 day for the four main routes. Do it first. |
+| **Cost**      | ~1 day for the four main routes. Do it first.    |
 
 There are **zero** `loading.tsx` files. Every navigation currently shows the old page until
 the new one is ready.
@@ -1186,14 +1249,25 @@ was already there.
 
 ```css
 .skeleton {
-  background: linear-gradient(90deg,
-    rgb(var(--surface-alt)) 0%, rgb(var(--surface)) 50%, rgb(var(--surface-alt)) 100%);
+  background: linear-gradient(
+    90deg,
+    rgb(var(--surface-alt)) 0%,
+    rgb(var(--surface)) 50%,
+    rgb(var(--surface-alt)) 100%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.6s var(--ease-in-out) infinite;
 }
-@keyframes shimmer { to { background-position: -200% 0; } }
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .skeleton { animation: none; background: rgb(var(--surface-alt)); }
+  .skeleton {
+    animation: none;
+    background: rgb(var(--surface-alt));
+  }
 }
 ```
 
@@ -1221,7 +1295,7 @@ Outside the budget because none of these draw the eye:
 
 - **Buttons lift 1px on hover, press down on active.** Already partly there
   (`active:translate-y-px`) — add the hover half. One class, product-wide.
-- **Rows highlight on `hover` *and* `focus-within`.** Keyboard users currently get nothing.
+- **Rows highlight on `hover` _and_ `focus-within`.** Keyboard users currently get nothing.
 - **Inputs get a soft 3px focus halo** instead of a hard outline (§1.9).
 - **Stylist chips scale to `0.97` on press.** Makes the filter feel physical.
 - **A live NOW line** on the calendar, updated client-side each minute. Note `force-dynamic`
@@ -1234,17 +1308,17 @@ Outside the budget because none of these draw the eye:
 
 ### 4.1 Phases
 
-| Phase | Contents | Effort | Ships alone? |
-|---|---|---|---|
-| **P0 — Tokens** | §1.4 `globals.css` + §1.5 Tailwind diffs. Warmed neutrals, `ink-subtle` fix, `--field`, violet + coral, motion tokens, deepened shadows. Extend `palette.test.ts` (§1.6). Fix the 6 dead classes. | **2–3 d** | Yes — invisible but everything depends on it |
-| **P1 — Primitives** | §1.9 Button / Card / Input / Badge / Stat. Radius language. Hover + press + focus. | **3–4 d** | Yes — lifts all 43 routes at once |
-| **P2 — Skeletons** | §3.4 `loading.tsx` for the four main routes | **1 d** | Yes — most-felt single change |
-| **P3 — POS** | §2.4. Tip presets, the slot-collision bug, quantity, gift-card balance, receipt + rebook, the paid moment (§3.2) | **1–1.5 wk** | Yes |
-| **P4 — Client record** | §2.3. Formula components query, safety strip, tabs, timeline promotion, formula lift (§3.3) | **1–1.5 wk** | Yes |
-| **P5 — Calendar C1** | Gutter bug, header offset, `colorHex` identity, lane-packing overlaps, density, NOW line, filter chips, touch targets | **1 wk** | Yes — best value/effort in the doc |
-| **P6 — Stylist day** | Permission work + `/my-day` + per-stylist service queries | **1.5–2 wk** | Yes |
-| **P7 — Photos** | `AppointmentPhoto` migration + gallery + comparison slider | **1.5 wk** | Yes |
-| **P8 — Calendar C2/C3** | `rescheduleAppointmentAction` (§2.2, six constraints) + client island + drag + keyboard | **3–4 wk** | No — needs P5 |
+| Phase                   | Contents                                                                                                                                                                                          | Effort       | Ships alone?                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------- |
+| **P0 — Tokens**         | §1.4 `globals.css` + §1.5 Tailwind diffs. Warmed neutrals, `ink-subtle` fix, `--field`, violet + coral, motion tokens, deepened shadows. Extend `palette.test.ts` (§1.6). Fix the 6 dead classes. | **2–3 d**    | Yes — invisible but everything depends on it |
+| **P1 — Primitives**     | §1.9 Button / Card / Input / Badge / Stat. Radius language. Hover + press + focus.                                                                                                                | **3–4 d**    | Yes — lifts all 43 routes at once            |
+| **P2 — Skeletons**      | §3.4 `loading.tsx` for the four main routes                                                                                                                                                       | **1 d**      | Yes — most-felt single change                |
+| **P3 — POS**            | §2.4. Tip presets, the slot-collision bug, quantity, gift-card balance, receipt + rebook, the paid moment (§3.2)                                                                                  | **1–1.5 wk** | Yes                                          |
+| **P4 — Client record**  | §2.3. Formula components query, safety strip, tabs, timeline promotion, formula lift (§3.3)                                                                                                       | **1–1.5 wk** | Yes                                          |
+| **P5 — Calendar C1**    | Gutter bug, header offset, `colorHex` identity, lane-packing overlaps, density, NOW line, filter chips, touch targets                                                                             | **1 wk**     | Yes — best value/effort in the doc           |
+| **P6 — Stylist day**    | Permission work + `/my-day` + per-stylist service queries                                                                                                                                         | **1.5–2 wk** | Yes                                          |
+| **P7 — Photos**         | `AppointmentPhoto` migration + gallery + comparison slider                                                                                                                                        | **1.5 wk**   | Yes                                          |
+| **P8 — Calendar C2/C3** | `rescheduleAppointmentAction` (§2.2, six constraints) + client island + drag + keyboard                                                                                                           | **3–4 wk**   | No — needs P5                                |
 
 **Total ≈ 11–14 engineer-weeks.** Assumes one frontend engineer with backend support for
 P6/P8, and that P8's scheduling work gets a reviewer who knows the solver.
@@ -1264,6 +1338,7 @@ name** — `getByRole('heading', { level: 1 })`, `getByRole('button', { name: /f
 `getByText(/copy this now/i)`. There are essentially no CSS or test-id selectors.
 
 **Therefore:**
+
 - ✅ **Restyling is safe.** Change classes, colours, shadows, spacing freely.
 - ❌ **Changing copy breaks tests.** `Find a client`, `cut & finish`, `narrow it`,
   `copy this now` are all load-bearing strings.
@@ -1271,6 +1346,7 @@ name** — `getByRole('heading', { level: 1 })`, `getByRole('button', { name: /f
   `<button>` to a `<div role="button">`. Keep `<li>` for list rows.
 
 **Add:**
+
 - The §1.6 palette assertions — non-negotiable, they close the gap that shipped a 4.44:1 token.
 - A **hex-literal lint** over `src/**/*.tsx` (§1.6).
 - Interaction tests for the drag state machine (§2.2) at the unit level, and **keyboard
@@ -1295,19 +1371,19 @@ name** — `getByRole('heading', { level: 1 })`, `getByRole('button', { name: /f
 ### 4.4 The three ways this fails
 
 1. **It gets scoped as a re-skin.** Three of four screens need server work first (§0.1).
-   *Mitigation:* P0–P3 and P5 are genuinely UI-only and deliver most of the perceived change.
+   _Mitigation:_ P0–P3 and P5 are genuinely UI-only and deliver most of the perceived change.
    Fund those first and let them prove the direction before committing to P8.
 
 2. **"Vibrant" gets interpreted as saturation.** Someone lightens the primary to make it pop,
    `palette.test.ts` fails, and the fix becomes "loosen the test". My own first attempt at a
    brighter blue measured 4.16:1 and would have shipped a broken button.
-   *Mitigation:* the test is the contract. Every value in §1.2 is computed and passes. If a
+   _Mitigation:_ the test is the contract. Every value in §1.2 is computed and passes. If a
    colour has to change, re-run the numbers — never the threshold.
 
 3. **Drag-and-drop is half-built and abandoned.** It is 3–4 weeks with six real scheduling
    constraints (§2.2), and it is the most visible thing in the brief, so it attracts pressure
    to start early and cut corners.
-   *Mitigation:* P5 ships a much better calendar with **no drag at all**. Treat drag as a
+   _Mitigation:_ P5 ships a much better calendar with **no drag at all**. Treat drag as a
    separate, later, properly-resourced project. A calendar that drags but double-books is far
    worse than one that does not drag.
 
@@ -1326,11 +1402,11 @@ container top.
 
 Measured in Chromium against a faithful reproduction:
 
-| Hour | Expected top | Actual top | Drift |
-|---|---|---|---|
-| 08:00 | 84px | 92px | +8px |
-| 12:00 | 420px | 1,336px | +916px |
-| 21:00 | 1,176px | 9,047px | **+7,871px** |
+| Hour  | Expected top | Actual top | Drift        |
+| ----- | ------------ | ---------- | ------------ |
+| 08:00 | 84px         | 92px       | +8px         |
+| 12:00 | 420px        | 1,336px    | +916px       |
+| 21:00 | 1,176px      | 9,047px    | **+7,871px** |
 
 The gutter renders ~7.7× taller than the 1,176px grid. Fix — match what the column hour rules
 already do correctly:
@@ -1343,6 +1419,7 @@ already do correctly:
 +    top: (minute - startMin) * PIXELS_PER_MIN,
    }}
 ```
+
 …and give the gutter `className="relative w-16 shrink-0 border-r border-line"`.
 
 **Related:** even once fixed, the gutter has **no header spacer** while every stylist column
@@ -1390,11 +1467,11 @@ then hidden is silently applied to the bill.** Separate the cells; clear `tip` o
 
 These compile to nothing (no matching Tailwind key exists):
 
-| Class | Files |
-|---|---|
-| `bg-gold-soft` | `join-waitlist.tsx:113`, `booking-flow.tsx:235`, `video-step.tsx:121`, `desk-booking.tsx:209` |
-| `hover:file:bg-surface-muted` | `admin/imports/upload-form.tsx:104` |
-| `rounded-card` | `review/[id]/review-claim.tsx:70` |
+| Class                         | Files                                                                                         |
+| ----------------------------- | --------------------------------------------------------------------------------------------- |
+| `bg-gold-soft`                | `join-waitlist.tsx:113`, `booking-flow.tsx:235`, `video-step.tsx:121`, `desk-booking.tsx:209` |
+| `hover:file:bg-surface-muted` | `admin/imports/upload-form.tsx:104`                                                           |
+| `rounded-card`                | `review/[id]/review-claim.tsx:70`                                                             |
 
 Gold has no `soft` rung; `surface` has only `DEFAULT` and `alt`; `borderRadius` has no `card`.
 Either add the tokens (and a contrast assertion if text sits on them) or fix the call sites.

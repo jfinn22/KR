@@ -63,7 +63,9 @@ export function MembershipPanel({
 
   if (!membership) {
     if (plans.length === 0) {
-      return <p className="text-secondary text-ink-muted">This salon has no memberships on offer.</p>
+      return (
+        <p className="text-secondary text-ink-muted">This salon has no memberships on offer.</p>
+      )
     }
     return (
       <div className="flex flex-col gap-4">
@@ -82,9 +84,7 @@ export function MembershipPanel({
           </Select>
           <Button
             disabled={busy || planId === ''}
-            onClick={() =>
-              run(() => subscribeClientAction(salonSlug, { clientProfileId, planId }))
-            }
+            onClick={() => run(() => subscribeClientAction(salonSlug, { clientProfileId, planId }))}
           >
             {busy ? 'Starting…' : 'Start it'}
           </Button>
@@ -104,9 +104,7 @@ export function MembershipPanel({
     <div className="flex flex-col gap-5">
       <div className="flex flex-wrap items-center gap-3">
         <span className="font-display text-display-sm text-ink">{membership.planName}</span>
-        <span className="text-body text-ink-muted">
-          {(membership.priceCents / 100).toFixed(2)}
-        </span>
+        <span className="text-body text-ink-muted">{(membership.priceCents / 100).toFixed(2)}</span>
         {/*
          * Two different situations that both withhold benefits, said
          * differently: one the client chose, one they need to fix.

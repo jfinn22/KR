@@ -83,10 +83,7 @@ export function UploadForm({
         </Field>
       )}
 
-      <Field
-        label="Where is it coming from?"
-        help={note ?? 'Any CSV with a header row will do.'}
-      >
+      <Field label="Where is it coming from?" help={note ?? 'Any CSV with a header row will do.'}>
         <Select value={platform} onChange={(e) => setPlatform(e.target.value)}>
           {platforms.map((option) => (
             <option key={option.value} value={option.value}>
@@ -96,12 +93,15 @@ export function UploadForm({
         </Select>
       </Field>
 
-      <Field label="The file" help="A CSV export. Nothing is saved to your salon until you have seen what we made of it.">
+      <Field
+        label="The file"
+        help="A CSV export. Nothing is saved to your salon until you have seen what we made of it."
+      >
         <input
           ref={inputRef}
           type="file"
           accept=".csv,text/csv,text/plain"
-          className="block w-full text-secondary text-ink-muted file:mr-4 file:rounded-md file:border file:border-line file:bg-surface file:px-4 file:py-2 file:font-medium file:text-ink hover:file:bg-surface-muted"
+          className="hover:file:bg-surface-muted block w-full text-secondary text-ink-muted file:mr-4 file:rounded-md file:border file:border-line file:bg-surface file:px-4 file:py-2 file:font-medium file:text-ink"
         />
       </Field>
 

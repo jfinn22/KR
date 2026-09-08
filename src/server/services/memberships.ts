@@ -511,11 +511,7 @@ export async function setMembershipPaused(input: {
     }
   }
 
-  const status = input.paused
-    ? 'PAUSED'
-    : membership.pastDueSince
-      ? 'PAST_DUE'
-      : 'ACTIVE'
+  const status = input.paused ? 'PAUSED' : membership.pastDueSince ? 'PAST_DUE' : 'ACTIVE'
   await db.clientMembership.update({
     where: { id: membership.id },
     data: { status },
@@ -555,7 +551,13 @@ export async function changePlan(input: {
     }),
     db.clientMembershipPlan.findFirst({
       where: { id: input.newPlanId, salonId: input.salonId, isActive: true },
-      select: { id: true, priceCents: true, interval: true, includedJson: true, stripePriceId: true },
+      select: {
+        id: true,
+        priceCents: true,
+        interval: true,
+        includedJson: true,
+        stripePriceId: true,
+      },
     }),
   ])
 
@@ -569,7 +571,8 @@ export async function changePlan(input: {
   }
 
   const periodStart = membership.currentPeriodStart ?? now
-  const periodEnd = membership.renewsAt ?? new Date(periodStart.getTime() + periodOf(newPlan.interval))
+  const periodEnd =
+    membership.renewsAt ?? new Date(periodStart.getTime() + periodOf(newPlan.interval))
 
   const proration = prorate({
     oldPriceCents: membership.plan.priceCents,
@@ -772,7 +775,9 @@ export async function applySubscriptionEvent(event: {
  * notice queued on day one — and a schedule minted per stage would have to be
  * found and cancelled.
  */
-export async function sweepDunning(now = new Date()): Promise<{ suspended: number; cancelled: number }> {
+export async function sweepDunning(
+  now = new Date(),
+): Promise<{ suspended: number; cancelled: number }> {
   const overdue = await unsafeDb.clientMembership.findMany({
     where: { status: { in: ['PAST_DUE'] }, pastDueSince: { not: null } },
     select: {
@@ -932,8 +937,7 @@ export async function membershipRevenue(
 
   for (const membership of memberships) {
     const price = membership.plan.priceCents
-    monthlyRunRateCents +=
-      membership.plan.interval === 'YEAR' ? Math.round(price / 12) : price
+    monthlyRunRateCents += membership.plan.interval === 'YEAR' ? Math.round(price / 12) : price
 
     /*
      * A membership with no period on it is one the provider has not confirmed

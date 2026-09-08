@@ -103,9 +103,9 @@ describe('recording what a strand test showed', () => {
     })
 
     expect(result.requirementStatus).toBe('FAILED')
-    expect((await unsafeDb.preRequirement.findUniqueOrThrow({ where: { id: req.id } })).status).toBe(
-      'FAILED',
-    )
+    expect(
+      (await unsafeDb.preRequirement.findUniqueOrThrow({ where: { id: req.id } })).status,
+    ).toBe('FAILED')
   })
 
   it('counts MODIFY as satisfied, because the test did its job', async () => {
@@ -116,9 +116,9 @@ describe('recording what a strand test showed', () => {
       performedByUserId: USER,
       decision: 'MODIFY',
     })
-    expect((await unsafeDb.preRequirement.findUniqueOrThrow({ where: { id: req.id } })).status).toBe(
-      'SATISFIED',
-    )
+    expect(
+      (await unsafeDb.preRequirement.findUniqueOrThrow({ where: { id: req.id } })).status,
+    ).toBe('SATISFIED')
   })
 
   it('records the test even when nothing asked for one', async () => {
@@ -141,9 +141,9 @@ describe('recording what a strand test showed', () => {
       performedByUserId: USER,
       decision: 'PROCEED',
     })
-    expect((await unsafeDb.preRequirement.findUniqueOrThrow({ where: { id: patch.id } })).status).toBe(
-      'PENDING',
-    )
+    expect(
+      (await unsafeDb.preRequirement.findUniqueOrThrow({ where: { id: patch.id } })).status,
+    ).toBe('PENDING')
   })
 
   it('refuses a client from another salon', async () => {

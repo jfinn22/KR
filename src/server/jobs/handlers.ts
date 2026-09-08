@@ -495,9 +495,8 @@ const importSourceReap = define({
   timeoutMs: 120_000,
   maxAttempts: 3,
   handler: async () => {
-    const { batchesDueForFileDeletion, markSourceDeleted } = await import(
-      '@/server/services/migration/batch'
-    )
+    const { batchesDueForFileDeletion, markSourceDeleted } =
+      await import('@/server/services/migration/batch')
     const cutoff = new Date(Date.now() - IMPORT_FILE_RETENTION_MS)
 
     const salons = await unsafeDb.importBatch.findMany({
@@ -610,9 +609,7 @@ const depositReauthorize = define({
   timeoutMs: 120_000,
   maxAttempts: 3,
   handler: async () => {
-    const { renewDepositAuthorization, releaseDeposit } = await import(
-      '@/server/services/deposits'
-    )
+    const { renewDepositAuthorization, releaseDeposit } = await import('@/server/services/deposits')
 
     // A day's grace, so a hold is renewed before it lapses rather than after.
     const soon = new Date(Date.now() + 86_400_000)
@@ -840,7 +837,6 @@ const systemReap = define({
     })
   },
 })
-
 
 /**
  * Put a booking on the stylist's own calendar.

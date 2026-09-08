@@ -466,9 +466,9 @@ describe('cancelling settles the deposit', () => {
 
     expect(outcome.withinWindow).toBe(true)
     expect(outcome.feeCents).toBe(0)
-    expect(
-      (await unsafeDb.deposit.findUniqueOrThrow({ where: { id: deposit.id } })).status,
-    ).toBe('REFUNDED')
+    expect((await unsafeDb.deposit.findUniqueOrThrow({ where: { id: deposit.id } })).status).toBe(
+      'REFUNDED',
+    )
   })
 
   it('keeps it when nobody turned up', async () => {
@@ -501,11 +501,7 @@ describe('cancelling settles the deposit', () => {
       data: { cancellationWindowHours: 48, cancellationFeePercent: 50 },
     })
     const client = await makeClientWithCard()
-    const appointment = await makeAppointment(
-      client.id,
-      6_000,
-      new Date(Date.now() + 60 * 60_000),
-    )
+    const appointment = await makeAppointment(client.id, 6_000, new Date(Date.now() + 60 * 60_000))
     const first = await unsafeDb.deposit.create({
       data: {
         salonId: S,
@@ -577,9 +573,9 @@ describe('the webhook route', () => {
 
     expect(result.status).toBe(200)
     expect(result.body).toMatchObject({ handled: true, kind: 'deposit', status: 'CAPTURED' })
-    expect(
-      (await unsafeDb.deposit.findUniqueOrThrow({ where: { id: deposit.id } })).status,
-    ).toBe('CAPTURED')
+    expect((await unsafeDb.deposit.findUniqueOrThrow({ where: { id: deposit.id } })).status).toBe(
+      'CAPTURED',
+    )
   })
 
   it('handles a redelivery once, not twice', async () => {
@@ -628,9 +624,9 @@ describe('the webhook route', () => {
     })
 
     expect(result.status).toBe(200)
-    expect(
-      (await unsafeDb.deposit.findUniqueOrThrow({ where: { id: deposit.id } })).status,
-    ).toBe('APPLIED')
+    expect((await unsafeDb.deposit.findUniqueOrThrow({ where: { id: deposit.id } })).status).toBe(
+      'APPLIED',
+    )
   })
 
   it('retries an event whose handling failed, rather than swallowing it', async () => {
@@ -668,9 +664,9 @@ describe('the webhook route', () => {
     })
 
     expect(result.body).toMatchObject({ handled: true, status: 'CAPTURED' })
-    expect(
-      (await unsafeDb.deposit.findUniqueOrThrow({ where: { id: deposit.id } })).status,
-    ).toBe('CAPTURED')
+    expect((await unsafeDb.deposit.findUniqueOrThrow({ where: { id: deposit.id } })).status).toBe(
+      'CAPTURED',
+    )
   })
 
   it('does not take over an event another request is still working on', async () => {

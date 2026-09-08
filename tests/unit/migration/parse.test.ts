@@ -100,9 +100,11 @@ describe('a Fresha export', () => {
 })
 
 describe('the dates nothing in the file settles', () => {
-  const AMBIGUOUS = ['Name,Phone,Date', 'Ada,+447700900123,03/04/2024', 'Bea,+447700900456,05/06/2024'].join(
-    '\n',
-  )
+  const AMBIGUOUS = [
+    'Name,Phone,Date',
+    'Ada,+447700900123,03/04/2024',
+    'Bea,+447700900456,05/06/2024',
+  ].join('\n')
 
   it('refuses to proceed rather than picking a side', () => {
     /*

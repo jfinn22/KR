@@ -165,7 +165,9 @@ export function PlanEditor({
               <input
                 aria-label={`Value ${index + 1}`}
                 value={benefit.value}
-                onChange={(e) => setBenefit(index, { value: e.target.value.replace(/[^\d.]/g, '') })}
+                onChange={(e) =>
+                  setBenefit(index, { value: e.target.value.replace(/[^\d.]/g, '') })
+                }
                 placeholder={benefit.kind === 'PERCENT_OFF' ? '20' : '10'}
                 className="w-20 rounded-md border border-line bg-surface px-3 py-2 text-body text-ink"
               />
@@ -194,7 +196,11 @@ export function PlanEditor({
           </div>
         ))}
         <div>
-          <Button variant="ghost" size="sm" onClick={() => setBenefits((c) => [...c, { ...EMPTY }])}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setBenefits((c) => [...c, { ...EMPTY }])}
+          >
             Another
           </Button>
         </div>

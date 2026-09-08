@@ -118,7 +118,9 @@ export function VideoStep({
           <label
             key={option}
             className={`flex cursor-pointer gap-3 rounded-lg border p-4 transition-colors ${
-              prompt === option ? 'border-gold-500 bg-gold-soft' : 'border-line hover:border-gold-500'
+              prompt === option
+                ? 'bg-gold-soft border-gold-500'
+                : 'border-line hover:border-gold-500'
             }`}
           >
             <input

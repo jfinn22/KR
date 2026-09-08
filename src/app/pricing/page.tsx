@@ -182,7 +182,7 @@ export default function PricingPage() {
               {GROUPS.map((group) => (
                 <React.Fragment key={group.title}>
                   <tr>
-                    <td colSpan={4} className="pt-7 pb-2 font-display text-display-sm text-ink">
+                    <td colSpan={4} className="pb-2 pt-7 font-display text-display-sm text-ink">
                       {group.title}
                     </td>
                   </tr>
@@ -229,7 +229,11 @@ export default function PricingPage() {
       <footer className="border-t border-line">
         <div className="mx-auto flex max-w-shell flex-wrap items-center justify-between gap-4 px-6 py-8 lg:px-10">
           <p className="text-secondary text-ink-muted">
-            Already with us? <Link href="/login" className="text-blue-500 hover:underline">Sign in</Link>.
+            Already with us?{' '}
+            <Link href="/login" className="text-blue-500 hover:underline">
+              Sign in
+            </Link>
+            .
           </p>
           <Link href="/" className="text-secondary text-blue-500 hover:underline">
             Back

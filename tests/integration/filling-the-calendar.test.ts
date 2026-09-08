@@ -210,7 +210,7 @@ async function givePatchTest(clientProfileId: string) {
 
 // ---------------------------------------------------------------------------
 
-describe('a stylist\'s own calendar', () => {
+describe("a stylist's own calendar", () => {
   it('blocks a slot the salon does not otherwise know is taken', async () => {
     /*
      * `externalBusy` was written to be called from the availability solver, and
@@ -718,7 +718,9 @@ describe('the waitlist', () => {
       dayOfWeekMask: (1 << 2) | (1 << 4),
     })
 
-    await unsafeDb.appointmentSegment.deleteMany({ where: { appointmentId: booking.appointmentId } })
+    await unsafeDb.appointmentSegment.deleteMany({
+      where: { appointmentId: booking.appointmentId },
+    })
     invalidateAvailabilityCache(S)
 
     const matched = await matchWaitlist({
@@ -748,7 +750,9 @@ describe('the waitlist', () => {
       windowEndMinute: 11 * 60,
     })
 
-    await unsafeDb.appointmentSegment.deleteMany({ where: { appointmentId: booking.appointmentId } })
+    await unsafeDb.appointmentSegment.deleteMany({
+      where: { appointmentId: booking.appointmentId },
+    })
     invalidateAvailabilityCache(S)
 
     const matched = await matchWaitlist({
@@ -775,7 +779,9 @@ describe('the waitlist', () => {
       latestDate: DATE,
     })
 
-    await unsafeDb.appointmentSegment.deleteMany({ where: { appointmentId: booking.appointmentId } })
+    await unsafeDb.appointmentSegment.deleteMany({
+      where: { appointmentId: booking.appointmentId },
+    })
     invalidateAvailabilityCache(S)
 
     const matched = await matchWaitlist({
@@ -815,7 +821,9 @@ describe('the waitlist', () => {
       })
     }
 
-    await unsafeDb.appointmentSegment.deleteMany({ where: { appointmentId: booking.appointmentId } })
+    await unsafeDb.appointmentSegment.deleteMany({
+      where: { appointmentId: booking.appointmentId },
+    })
     invalidateAvailabilityCache(S)
 
     await matchWaitlist({
@@ -843,7 +851,9 @@ describe('the waitlist', () => {
       latestDate: DATE,
     })
 
-    await unsafeDb.appointmentSegment.deleteMany({ where: { appointmentId: booking.appointmentId } })
+    await unsafeDb.appointmentSegment.deleteMany({
+      where: { appointmentId: booking.appointmentId },
+    })
     invalidateAvailabilityCache(S)
     await matchWaitlist({
       salonId: S,
@@ -859,7 +869,9 @@ describe('the waitlist', () => {
     })
 
     expect(appointment.source).toBe('WAITLIST')
-    expect((await unsafeDb.waitlistEntry.findUniqueOrThrow({ where: { id } })).status).toBe('BOOKED')
+    expect((await unsafeDb.waitlistEntry.findUniqueOrThrow({ where: { id } })).status).toBe(
+      'BOOKED',
+    )
   })
 
   it('is not a way around the consultation gate', async () => {
@@ -876,7 +888,9 @@ describe('the waitlist', () => {
       latestDate: DATE,
     })
 
-    await unsafeDb.appointmentSegment.deleteMany({ where: { appointmentId: booking.appointmentId } })
+    await unsafeDb.appointmentSegment.deleteMany({
+      where: { appointmentId: booking.appointmentId },
+    })
     invalidateAvailabilityCache(S)
     await matchWaitlist({
       salonId: S,
@@ -904,7 +918,9 @@ describe('the waitlist', () => {
       latestDate: DATE,
     })
 
-    await unsafeDb.appointmentSegment.deleteMany({ where: { appointmentId: booking.appointmentId } })
+    await unsafeDb.appointmentSegment.deleteMany({
+      where: { appointmentId: booking.appointmentId },
+    })
     invalidateAvailabilityCache(S)
     await matchWaitlist({
       salonId: S,
@@ -942,7 +958,9 @@ describe('the waitlist', () => {
       latestDate: DATE,
     })
 
-    await unsafeDb.appointmentSegment.deleteMany({ where: { appointmentId: booking.appointmentId } })
+    await unsafeDb.appointmentSegment.deleteMany({
+      where: { appointmentId: booking.appointmentId },
+    })
     invalidateAvailabilityCache(S)
     await matchWaitlist({
       salonId: S,

@@ -131,7 +131,9 @@ export const saveMembershipPlanAction = withAuthz(
      * to another salon's id — and the till would then hand out a benefit
      * against a service this salon does not sell.
      */
-    const serviceIds = [...new Set(input.included.flatMap((i) => (i.serviceId ? [i.serviceId] : [])))]
+    const serviceIds = [
+      ...new Set(input.included.flatMap((i) => (i.serviceId ? [i.serviceId] : []))),
+    ]
     if (serviceIds.length > 0) {
       const ours = await dbFor(ctx.salonId).service.count({
         where: { salonId: ctx.salonId, id: { in: serviceIds } },

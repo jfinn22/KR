@@ -3,7 +3,12 @@ import { storagePort } from '@/ports/registry'
 import { DomainError } from '@/server/errors'
 import { normaliseHeader, PLATFORMS, type SourcePlatform } from '@/domain/migration/columns'
 import { callingCodeForTimeZone } from '@/domain/migration/calling-code'
-import { parseImport, summarise, type ImportSummary, type ParseResult } from '@/domain/migration/parse'
+import {
+  parseImport,
+  summarise,
+  type ImportSummary,
+  type ParseResult,
+} from '@/domain/migration/parse'
 import type { DateOrder } from '@/domain/migration/normalise'
 
 /**
@@ -192,11 +197,7 @@ export async function sourceTextOf(key: string | null): Promise<string> {
  * can guess it. Deliberately outside `dbFor` — this touches object storage,
  * not a table.
  */
-export async function storeSource(
-  salonId: string,
-  batchId: string,
-  text: string,
-): Promise<string> {
+export async function storeSource(salonId: string, batchId: string, text: string): Promise<string> {
   const key = `imports/${salonId}/${batchId}.csv`
   await storagePort().put({
     key,

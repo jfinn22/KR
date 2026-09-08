@@ -244,10 +244,7 @@ function clamp(value: number, low: number, high: number): number {
  * `FormulaPurpose` is the salon's own vocabulary and maps cleanly, which is the
  * whole reason this reads a formula rather than asking anybody a new question.
  */
-export function colourKindOf(
-  purpose: string,
-  developerVolume: number | null,
-): ColourKind | null {
+export function colourKindOf(purpose: string, developerVolume: number | null): ColourKind | null {
   switch (purpose) {
     case 'TONER':
       return 'TONER'

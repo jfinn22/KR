@@ -150,7 +150,10 @@ export const suggestFormulaAction = withAuthz(
   {
     action: 'formula.write',
     feature: 'AI_FORMULA_SUGGEST',
-    schema: z.object({ clientProfileId: z.string().min(1).max(64), targetLevel: z.number().int().min(1).max(10).nullish() }),
+    schema: z.object({
+      clientProfileId: z.string().min(1).max(64),
+      targetLevel: z.number().int().min(1).max(10).nullish(),
+    }),
     resource: (input, ctx) => ({ salonId: ctx.salonId, clientProfileId: input.clientProfileId }),
     auditAs: (input) => ({ entityType: 'ClientProfile', entityId: input.clientProfileId }),
   },

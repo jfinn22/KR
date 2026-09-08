@@ -85,9 +85,7 @@ export function ServiceForm({
   const [values, setValues] = React.useState<ServiceFormValues>(
     service ?? { ...BLANK, categoryId: categories[0]?.id ?? '' },
   )
-  const [price, setPrice] = React.useState(
-    service ? String(service.basePriceCents / 100) : '',
-  )
+  const [price, setPrice] = React.useState(service ? String(service.basePriceCents / 100) : '')
   /*
    * Only auto-derived for a NEW service. Changing an existing slug breaks any
    * link a salon has already put on Instagram, so it becomes theirs to edit
@@ -146,11 +144,7 @@ export function ServiceForm({
     )
   }
 
-  const check = (
-    label: string,
-    key: keyof ServiceFormValues,
-    help?: string,
-  ) => (
+  const check = (label: string, key: keyof ServiceFormValues, help?: string) => (
     <label className="flex max-w-md items-start gap-2 text-body text-ink">
       <input
         type="checkbox"
@@ -244,7 +238,11 @@ export function ServiceForm({
         )}
         {check('It needs a current patch test', 'requiresPatchTest')}
         {check('Clients can book it themselves online', 'isBookableOnline')}
-        {check('It is on offer', 'isActive', 'Turn this off to retire a service without losing its history.')}
+        {check(
+          'It is on offer',
+          'isActive',
+          'Turn this off to retire a service without losing its history.',
+        )}
       </fieldset>
 
       <div className="flex flex-wrap gap-5">
@@ -253,7 +251,8 @@ export function ServiceForm({
             value={values.bufferBeforeMin ?? ''}
             onChange={(e) =>
               set({
-                bufferBeforeMin: e.target.value === '' ? null : Number(e.target.value.replace(/\D/g, '')),
+                bufferBeforeMin:
+                  e.target.value === '' ? null : Number(e.target.value.replace(/\D/g, '')),
               })
             }
             className="w-20 rounded-md border border-line bg-surface px-3 py-2 text-body text-ink"
@@ -264,7 +263,8 @@ export function ServiceForm({
             value={values.bufferAfterMin ?? ''}
             onChange={(e) =>
               set({
-                bufferAfterMin: e.target.value === '' ? null : Number(e.target.value.replace(/\D/g, '')),
+                bufferAfterMin:
+                  e.target.value === '' ? null : Number(e.target.value.replace(/\D/g, '')),
               })
             }
             className="w-20 rounded-md border border-line bg-surface px-3 py-2 text-body text-ink"
@@ -273,7 +273,9 @@ export function ServiceForm({
         <Field label="Difficulty" help="0–100. Feeds the estimate.">
           <input
             value={values.baseComplexity}
-            onChange={(e) => set({ baseComplexity: Number(e.target.value.replace(/\D/g, '') || 0) })}
+            onChange={(e) =>
+              set({ baseComplexity: Number(e.target.value.replace(/\D/g, '') || 0) })
+            }
             className="w-20 rounded-md border border-line bg-surface px-3 py-2 text-body text-ink"
           />
         </Field>

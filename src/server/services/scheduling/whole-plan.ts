@@ -138,7 +138,10 @@ export async function offerWholePlan(input: {
   now?: Date
 }): Promise<WholePlanOffer> {
   const { unbooked, result } = await solveWholePlan(input)
-  const names = await stylistNames(input.salonId, result.booking.map((s) => s.stylistId))
+  const names = await stylistNames(
+    input.salonId,
+    result.booking.map((s) => s.stylistId),
+  )
 
   return {
     complete: result.complete,

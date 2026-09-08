@@ -246,10 +246,7 @@ export async function bookFromDesk(input: DeskBookingInput): Promise<{
   }
 }
 
-function splitDuration(
-  chain: readonly { durationMin: number }[],
-  serviceCount: number,
-): number[] {
+function splitDuration(chain: readonly { durationMin: number }[], serviceCount: number): number[] {
   const total = chain.reduce((sum, link) => sum + link.durationMin, 0)
   if (serviceCount <= 0) return []
   const each = Math.floor(total / serviceCount)

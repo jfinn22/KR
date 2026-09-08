@@ -102,7 +102,10 @@ export function Webhooks({
       {endpoints.length > 0 && (
         <ul className="flex flex-col divide-y divide-line border-y border-line">
           {endpoints.map((endpoint) => (
-            <li key={endpoint.id} className="flex flex-wrap items-center justify-between gap-3 py-4">
+            <li
+              key={endpoint.id}
+              className="flex flex-wrap items-center justify-between gap-3 py-4"
+            >
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="truncate text-body text-ink">{endpoint.url}</span>
@@ -128,12 +131,7 @@ export function Webhooks({
                   <p className="mt-1 text-label text-danger">{endpoint.lastError}</p>
                 )}
               </div>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy}
-                onClick={() => remove(endpoint.id)}
-              >
+              <Button size="sm" variant="ghost" disabled={busy} onClick={() => remove(endpoint.id)}>
                 Remove
               </Button>
             </li>
@@ -152,9 +150,8 @@ export function Webhooks({
           <p className="mt-3 text-secondary text-ink-muted">
             Copy it now — this is the only time it is shown. Every request carries an{' '}
             <code>x-salon-signature</code> header, which is a SHA-256 of{' '}
-            <code>timestamp.body.secret</code>. Reject anything whose{' '}
-            <code>x-salon-timestamp</code> is more than five minutes old, or a captured request can
-            be replayed at you forever.
+            <code>timestamp.body.secret</code>. Reject anything whose <code>x-salon-timestamp</code>{' '}
+            is more than five minutes old, or a captured request can be replayed at you forever.
           </p>
         </div>
       )}

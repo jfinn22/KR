@@ -18,13 +18,7 @@ import { join } from 'node:path'
  * pricing page and the guard disagree about what a plan includes.
  */
 
-const ACTION_FILES = [
-  'booking.ts',
-  'commerce.ts',
-  'integrations.ts',
-  'retention.ts',
-  'settings.ts',
-]
+const ACTION_FILES = ['booking.ts', 'commerce.ts', 'integrations.ts', 'retention.ts', 'settings.ts']
 
 function actionSource(): string {
   return ACTION_FILES.map((f) =>

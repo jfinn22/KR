@@ -54,11 +54,7 @@ function isSlotConflict(err: unknown): boolean {
  * itself. Scoped to (stylist, local date) so two stylists never block each
  * other and a busy salon is not serialised through one lock.
  */
-async function lockStylistDay(
-  tx: TenantTx,
-  stylistId: string,
-  localDate: string,
-): Promise<void> {
+async function lockStylistDay(tx: TenantTx, stylistId: string, localDate: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${stylistId}:${localDate}`}, 0))`
 }
 
@@ -462,4 +458,3 @@ export async function cancelAppointment(input: CancelInput): Promise<void> {
     })
   }
 }
-

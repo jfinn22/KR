@@ -423,10 +423,22 @@ export async function deliverWebhooks(limit = 50): Promise<{ sent: number; faile
         continue
       }
 
-      await recordFailure(delivery.salonId, delivery.id, endpoint.id, `HTTP ${response.status}`, response.status)
+      await recordFailure(
+        delivery.salonId,
+        delivery.id,
+        endpoint.id,
+        `HTTP ${response.status}`,
+        response.status,
+      )
       failed += 1
     } catch (err) {
-      await recordFailure(delivery.salonId, delivery.id, endpoint.id, (err as Error).message.slice(0, 500), null)
+      await recordFailure(
+        delivery.salonId,
+        delivery.id,
+        endpoint.id,
+        (err as Error).message.slice(0, 500),
+        null,
+      )
       failed += 1
     }
   }

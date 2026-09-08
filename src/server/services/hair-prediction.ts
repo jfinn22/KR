@@ -70,7 +70,9 @@ export async function predictionFor(
         clientProfileId,
         isTemplate: false,
         appointmentId: { not: null },
-        purpose: { in: ['GLOBAL_COLOR', 'ROOT_TOUCH_UP', 'LIGHTENER', 'TONER', 'GLOSS', 'LOWLIGHT'] },
+        purpose: {
+          in: ['GLOBAL_COLOR', 'ROOT_TOUCH_UP', 'LIGHTENER', 'TONER', 'GLOSS', 'LOWLIGHT'],
+        },
       },
       orderBy: { appointment: { startsAt: 'desc' } },
       select: {
@@ -201,7 +203,12 @@ export async function noteColourApplied(
     kind === 'TONER'
       ? { tonerLastAt: input.at }
       : kind === 'BLEACH_AND_TONE'
-        ? { bleachLastAt: input.at, hasBleach: true, salonColorLastAt: input.at, hasSalonColor: true }
+        ? {
+            bleachLastAt: input.at,
+            hasBleach: true,
+            salonColorLastAt: input.at,
+            hasSalonColor: true,
+          }
         : { salonColorLastAt: input.at, hasSalonColor: true }
 
   await db.hairProfile.upsert({

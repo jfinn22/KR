@@ -125,7 +125,6 @@ export function esignPort(): EsignPort {
   })
 }
 
-
 /** What each port resolved to — surfaced on the admin integrations screen. */
 export function adapterReport(): { port: string; mode: string; name: string }[] {
   return [

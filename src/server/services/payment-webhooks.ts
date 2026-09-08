@@ -128,7 +128,10 @@ async function claim(eventId: string, requestHash: string): Promise<boolean> {
     select: { id: true, status: true, createdAt: true },
   })
   if (!existing || existing.status === 'DONE') return false
-  if (existing.status === 'IN_PROGRESS' && Date.now() - existing.createdAt.getTime() < STALE_AFTER_MS) {
+  if (
+    existing.status === 'IN_PROGRESS' &&
+    Date.now() - existing.createdAt.getTime() < STALE_AFTER_MS
+  ) {
     return false
   }
 

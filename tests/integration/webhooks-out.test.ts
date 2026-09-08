@@ -111,7 +111,11 @@ describe('registering an endpoint', () => {
 
 describe('queueing an event', () => {
   it('writes one delivery per endpoint that wants the topic', async () => {
-    await addEndpoint({ salonId: S, url: 'https://a.example.com/h', topics: ['appointment.booked'] })
+    await addEndpoint({
+      salonId: S,
+      url: 'https://a.example.com/h',
+      topics: ['appointment.booked'],
+    })
     await addEndpoint({ salonId: S, url: 'https://b.example.com/h', topics: [] })
     await addEndpoint({
       salonId: S,

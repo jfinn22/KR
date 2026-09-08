@@ -94,7 +94,10 @@ describe('costing the bowl', () => {
   it('costs an unpriced line at nothing rather than refusing the whole mix', () => {
     // A salon that has not costed its developer should still see what the
     // colour cost, with the gap visible rather than the screen empty.
-    const costed = costMix([line({ parts: 1, costPerGramMillicents: 40_000 }), line({ parts: 1 })], 60)
+    const costed = costMix(
+      [line({ parts: 1, costPerGramMillicents: 40_000 }), line({ parts: 1 })],
+      60,
+    )
     expect(costed.totalCents).toBe(2_400)
   })
 })

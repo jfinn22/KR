@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  firstTimersAtRisk,
-  rebookDueAt,
-  rebookRates,
-  type Visit,
-} from '@/domain/retention/windows'
+import { firstTimersAtRisk, rebookDueAt, rebookRates, type Visit } from '@/domain/retention/windows'
 
 /**
  * Whether somebody came back, and whether it is fair to ask yet.

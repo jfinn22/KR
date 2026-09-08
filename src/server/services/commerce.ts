@@ -522,8 +522,7 @@ export async function priceInvoice(input: BuildInvoiceInput) {
      * entitlement the client bought — otherwise selling memberships slowly
      * removes the desk's ability to fix anything.
      */
-    discountedCents:
-      totals.discountCents + repricedDownCents - (membership?.totalCents ?? 0),
+    discountedCents: totals.discountCents + repricedDownCents - (membership?.totalCents ?? 0),
     dueCents: amountDue({ totalCents: totals.totalCents, depositAppliedCents: depositHeld }),
   }
 }
@@ -669,10 +668,7 @@ export async function buildInvoice(
  * same number — and the unique constraint on (salonId, number) is the backstop
  * if they somehow do.
  */
-async function nextInvoiceNumber(
-  tx: TenantTx,
-  salonId: string,
-): Promise<string> {
+async function nextInvoiceNumber(tx: TenantTx, salonId: string): Promise<string> {
   const last = await tx.invoice.findFirst({
     where: { salonId },
     orderBy: { number: 'desc' },
@@ -714,7 +710,10 @@ export interface TakePaymentResult {
   clientSecret: string | null
 }
 
-function invoiceStatusFor(paidCents: number, totalCents: number): 'PAID' | 'PARTIALLY_PAID' | 'ISSUED' {
+function invoiceStatusFor(
+  paidCents: number,
+  totalCents: number,
+): 'PAID' | 'PARTIALLY_PAID' | 'ISSUED' {
   if (paidCents <= 0) return 'ISSUED'
   if (paidCents >= totalCents) return 'PAID'
   return 'PARTIALLY_PAID'
@@ -831,61 +830,114 @@ export async function takePayment(input: TakePaymentInput): Promise<TakePaymentR
    * then writing an absolute total both "succeed" and leave the bill short by
    * one of the payments — the classic lost update on a till.
    */
-  return db.$transaction(async (tx) => {
-    await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${input.invoiceId} FOR UPDATE`
+  return db
+    .$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Invoice" WHERE id = ${input.invoiceId} FOR UPDATE`
 
-    const invoice = await tx.invoice.findFirst({
-      where: { id: input.invoiceId, salonId: input.salonId },
-      select: {
-        id: true,
-        clientProfileId: true,
-        totalCents: true,
-        paidCents: true,
-        status: true,
-      },
-    })
-    if (!invoice) throw new DomainError('NOT_FOUND', 'That invoice no longer exists.')
-    if (invoice.status === 'PAID') throw new DomainError('CONFLICT', 'This bill is already settled.')
+      const invoice = await tx.invoice.findFirst({
+        where: { id: input.invoiceId, salonId: input.salonId },
+        select: {
+          id: true,
+          clientProfileId: true,
+          totalCents: true,
+          paidCents: true,
+          status: true,
+        },
+      })
+      if (!invoice) throw new DomainError('NOT_FOUND', 'That invoice no longer exists.')
+      if (invoice.status === 'PAID')
+        throw new DomainError('CONFLICT', 'This bill is already settled.')
 
-    const idempotencyKey =
-      input.idempotencyKey ?? `pay_${invoice.id}_${invoice.paidCents}_${input.amountCents}`
+      const idempotencyKey =
+        input.idempotencyKey ?? `pay_${invoice.id}_${invoice.paidCents}_${input.amountCents}`
 
-    const already = await tx.payment.findUnique({ where: { idempotencyKey } })
-    if (already) {
-      return {
-        paymentId: already.id,
-        paidCents: invoice.paidCents,
-        remainingCents: Math.max(0, invoice.totalCents - invoice.paidCents),
-        status: already.status === 'SUCCEEDED' ? ('SUCCEEDED' as const) : ('PENDING' as const),
-        clientSecret: null,
+      const already = await tx.payment.findUnique({ where: { idempotencyKey } })
+      if (already) {
+        return {
+          paymentId: already.id,
+          paidCents: invoice.paidCents,
+          remainingCents: Math.max(0, invoice.totalCents - invoice.paidCents),
+          status: already.status === 'SUCCEEDED' ? ('SUCCEEDED' as const) : ('PENDING' as const),
+          clientSecret: null,
+        }
       }
-    }
 
-    // PENDING card/terminal attempts reserve the remaining balance the same
-    // way a held deposit does — otherwise two concurrent cards both "fit".
-    const pendingSum = await tx.payment.aggregate({
-      where: { invoiceId: invoice.id, status: 'PENDING' },
-      _sum: { amountCents: true },
-    })
-    const reserved = invoice.paidCents + (pendingSum._sum.amountCents ?? 0)
-    const remaining = Math.max(0, invoice.totalCents - reserved)
-    if (input.amountCents > remaining) {
-      throw new DomainError(
-        'INVALID_INPUT',
-        `Only ${(remaining / 100).toFixed(2)} is still owed on this bill.`,
-      )
-    }
+      // PENDING card/terminal attempts reserve the remaining balance the same
+      // way a held deposit does — otherwise two concurrent cards both "fit".
+      const pendingSum = await tx.payment.aggregate({
+        where: { invoiceId: invoice.id, status: 'PENDING' },
+        _sum: { amountCents: true },
+      })
+      const reserved = invoice.paidCents + (pendingSum._sum.amountCents ?? 0)
+      const remaining = Math.max(0, invoice.totalCents - reserved)
+      if (input.amountCents > remaining) {
+        throw new DomainError(
+          'INVALID_INPUT',
+          `Only ${(remaining / 100).toFixed(2)} is still owed on this bill.`,
+        )
+      }
 
-    const immediate =
-      input.method === 'CASH' ||
-      input.method === 'ACCOUNT_CREDIT' ||
-      input.method === 'GIFT_CARD' ||
-      input.method === 'OTHER'
+      const immediate =
+        input.method === 'CASH' ||
+        input.method === 'ACCOUNT_CREDIT' ||
+        input.method === 'GIFT_CARD' ||
+        input.method === 'OTHER'
 
-    if (immediate) {
-      const paidCents = invoice.paidCents + input.amountCents
-      const status = invoiceStatusFor(paidCents, invoice.totalCents)
-      const created = await tx.payment.create({
+      if (immediate) {
+        const paidCents = invoice.paidCents + input.amountCents
+        const status = invoiceStatusFor(paidCents, invoice.totalCents)
+        const created = await tx.payment.create({
+          data: {
+            salonId: input.salonId,
+            invoiceId: invoice.id,
+            clientProfileId: invoice.clientProfileId,
+            amountCents: input.amountCents,
+            tipCents,
+            method: input.method,
+            status: 'SUCCEEDED',
+            idempotencyKey,
+            capturedAt: new Date(),
+          },
+          select: { id: true },
+        })
+        await tx.invoice.update({
+          where: { id: invoice.id },
+          data: {
+            paidCents,
+            status,
+            ...(status === 'PAID' ? { paidAt: new Date() } : {}),
+          },
+        })
+        return {
+          paymentId: created.id,
+          paidCents,
+          remainingCents: Math.max(0, invoice.totalCents - paidCents),
+          status: 'SUCCEEDED' as const,
+          clientSecret: null,
+        }
+      }
+
+      // CARD / TERMINAL — talk to the provider outside the mental model of "paid".
+      const client = await tx.clientProfile.findFirst({
+        where: { id: invoice.clientProfileId, salonId: input.salonId },
+        select: { paymentsCustomerRef: true },
+      })
+      const card =
+        input.method === 'CARD'
+          ? await tx.savedCard.findFirst({
+              where: {
+                salonId: input.salonId,
+                clientProfileId: invoice.clientProfileId,
+                detachedAt: null,
+              },
+              orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+            })
+          : null
+
+      // Provider calls cannot sit inside a row lock; create the PENDING row first
+      // with a placeholder, then charge, then either settle or leave PENDING.
+      // We release the transaction after creating PENDING when we need the network.
+      const pending = await tx.payment.create({
         data: {
           salonId: input.salonId,
           invoiceId: invoice.id,
@@ -893,132 +945,85 @@ export async function takePayment(input: TakePaymentInput): Promise<TakePaymentR
           amountCents: input.amountCents,
           tipCents,
           method: input.method,
-          status: 'SUCCEEDED',
+          status: 'PENDING',
           idempotencyKey,
-          capturedAt: new Date(),
         },
         select: { id: true },
       })
-      await tx.invoice.update({
-        where: { id: invoice.id },
-        data: {
-          paidCents,
-          status,
-          ...(status === 'PAID' ? { paidAt: new Date() } : {}),
+
+      return {
+        paymentId: pending.id,
+        paidCents: invoice.paidCents,
+        remainingCents: remaining,
+        status: 'PENDING' as const,
+        clientSecret: null,
+        _charge: {
+          paymentId: pending.id,
+          chargeCents,
+          customerRef: client?.paymentsCustomerRef ?? null,
+          paymentMethodRef: card?.providerRef ?? null,
+          offSession: Boolean(card && client?.paymentsCustomerRef && input.method === 'CARD'),
+        },
+      } as TakePaymentResult & {
+        _charge: {
+          paymentId: string
+          chargeCents: number
+          customerRef: string | null
+          paymentMethodRef: string | null
+          offSession: boolean
+        }
+      }
+    })
+    .then(async (result) => {
+      const charge = (
+        result as {
+          _charge?: {
+            paymentId: string
+            chargeCents: number
+            customerRef: string | null
+            paymentMethodRef: string | null
+            offSession: boolean
+          }
+        }
+      )._charge
+      if (!charge) return result
+
+      const intent = await paymentsPort().createIntent({
+        amountCents: charge.chargeCents,
+        currency: input.currency.toLowerCase(),
+        captureMethod: 'automatic',
+        idempotencyKey: input.idempotencyKey ?? `pay_${input.invoiceId}_${charge.paymentId}`,
+        customerRef: charge.customerRef ?? undefined,
+        paymentMethodRef: charge.paymentMethodRef ?? undefined,
+        offSession: charge.offSession || undefined,
+        confirm: charge.offSession || undefined,
+        metadata: {
+          salonId: input.salonId,
+          invoiceId: input.invoiceId,
+          paymentId: charge.paymentId,
         },
       })
-      return {
-        paymentId: created.id,
-        paidCents,
-        remainingCents: Math.max(0, invoice.totalCents - paidCents),
-        status: 'SUCCEEDED' as const,
-        clientSecret: null,
-      }
-    }
 
-    // CARD / TERMINAL — talk to the provider outside the mental model of "paid".
-    const client = await tx.clientProfile.findFirst({
-      where: { id: invoice.clientProfileId, salonId: input.salonId },
-      select: { paymentsCustomerRef: true },
-    })
-    const card =
-      input.method === 'CARD'
-        ? await tx.savedCard.findFirst({
-            where: {
-              salonId: input.salonId,
-              clientProfileId: invoice.clientProfileId,
-              detachedAt: null,
-            },
-            orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
-          })
-        : null
-
-    // Provider calls cannot sit inside a row lock; create the PENDING row first
-    // with a placeholder, then charge, then either settle or leave PENDING.
-    // We release the transaction after creating PENDING when we need the network.
-    const pending = await tx.payment.create({
-      data: {
-        salonId: input.salonId,
-        invoiceId: invoice.id,
-        clientProfileId: invoice.clientProfileId,
-        amountCents: input.amountCents,
-        tipCents,
-        method: input.method,
-        status: 'PENDING',
-        idempotencyKey,
-      },
-      select: { id: true },
-    })
-
-    return {
-      paymentId: pending.id,
-      paidCents: invoice.paidCents,
-      remainingCents: remaining,
-      status: 'PENDING' as const,
-      clientSecret: null,
-      _charge: {
-        paymentId: pending.id,
-        chargeCents,
-        customerRef: client?.paymentsCustomerRef ?? null,
-        paymentMethodRef: card?.providerRef ?? null,
-        offSession: Boolean(card && client?.paymentsCustomerRef && input.method === 'CARD'),
-      },
-    } as TakePaymentResult & {
-      _charge: {
-        paymentId: string
-        chargeCents: number
-        customerRef: string | null
-        paymentMethodRef: string | null
-        offSession: boolean
-      }
-    }
-  }).then(async (result) => {
-    const charge = (result as { _charge?: {
-      paymentId: string
-      chargeCents: number
-      customerRef: string | null
-      paymentMethodRef: string | null
-      offSession: boolean
-    } })._charge
-    if (!charge) return result
-
-    const intent = await paymentsPort().createIntent({
-      amountCents: charge.chargeCents,
-      currency: input.currency.toLowerCase(),
-      captureMethod: 'automatic',
-      idempotencyKey:
-        input.idempotencyKey ?? `pay_${input.invoiceId}_${charge.paymentId}`,
-      customerRef: charge.customerRef ?? undefined,
-      paymentMethodRef: charge.paymentMethodRef ?? undefined,
-      offSession: charge.offSession || undefined,
-      confirm: charge.offSession || undefined,
-      metadata: {
-        salonId: input.salonId,
-        invoiceId: input.invoiceId,
-        paymentId: charge.paymentId,
-      },
-    })
-
-    await db.payment.update({
-      where: { id: charge.paymentId },
-      data: { providerRef: intent.id },
-    })
-
-    if (intent.status === 'SUCCEEDED') {
-      return applySucceededTillPayment({
-        salonId: input.salonId,
-        paymentId: charge.paymentId,
+      await db.payment.update({
+        where: { id: charge.paymentId },
+        data: { providerRef: intent.id },
       })
-    }
 
-    return {
-      paymentId: charge.paymentId,
-      paidCents: result.paidCents,
-      remainingCents: result.remainingCents,
-      status: 'PENDING' as const,
-      clientSecret: intent.clientSecret,
-    }
-  })
+      if (intent.status === 'SUCCEEDED') {
+        return applySucceededTillPayment({
+          salonId: input.salonId,
+          paymentId: charge.paymentId,
+        })
+      }
+
+      return {
+        paymentId: charge.paymentId,
+        paidCents: result.paidCents,
+        remainingCents: result.remainingCents,
+        status: 'PENDING' as const,
+        clientSecret: intent.clientSecret,
+      }
+    })
 }
 
 /**

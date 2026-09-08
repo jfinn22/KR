@@ -59,4 +59,3 @@ export function isSharedLibraryModel(model: string): boolean {
 export function isPlatformNullableModel(model: string): boolean {
   return PLATFORM_NULLABLE_MODELS.has(model)
 }
-

@@ -167,4 +167,3 @@ export function needsReason(ctx: TenantContext, action: Action, resource?: Resou
   const r = can(ctx.principal, action, resource ?? { salonId: ctx.salonId })
   return r.allowed === true && r.requiresReason === true
 }
-

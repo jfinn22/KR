@@ -154,12 +154,7 @@ export async function requestTimeOff(input: {
 
   return {
     timeOffId: created.id,
-    clashes: await clashesFor(
-      input.salonId,
-      input.stylistProfileId,
-      input.startsAt,
-      input.endsAt,
-    ),
+    clashes: await clashesFor(input.salonId, input.stylistProfileId, input.startsAt, input.endsAt),
   }
 }
 
@@ -199,10 +194,7 @@ export async function decideTimeOff(input: {
 }
 
 /** Withdraw a request, or give back time already approved. */
-export async function cancelTimeOff(input: {
-  salonId: string
-  timeOffId: string
-}): Promise<void> {
+export async function cancelTimeOff(input: { salonId: string; timeOffId: string }): Promise<void> {
   const db = dbFor(input.salonId)
   const deleted = await db.timeOff.deleteMany({
     where: { id: input.timeOffId, salonId: input.salonId },

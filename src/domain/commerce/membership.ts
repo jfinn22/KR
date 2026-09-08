@@ -218,7 +218,12 @@ export function prorate(input: {
 }): Proration {
   const total = input.periodEnd.getTime() - input.periodStart.getTime()
   if (total <= 0) {
-    return { creditCents: 0, chargeCents: input.newPriceCents, netCents: input.newPriceCents, remainingFraction: 1 }
+    return {
+      creditCents: 0,
+      chargeCents: input.newPriceCents,
+      netCents: input.newPriceCents,
+      remainingFraction: 1,
+    }
   }
 
   const elapsed = clamp(input.at.getTime() - input.periodStart.getTime(), 0, total)

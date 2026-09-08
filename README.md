@@ -190,8 +190,8 @@ Isolation is structural, in layers:
    rather than being silently corrected.
 2. The repository layer — raw Prisma is exported only as `unsafeDb` and is
    lint-restricted.
-A test walks the Prisma DMMF and fails if any model is neither registered global
-nor carries `salonId`, so a model added later cannot skip the decision.
+   A test walks the Prisma DMMF and fails if any model is neither registered global
+   nor carries `salonId`, so a model added later cannot skip the decision.
 
 > **On row-level security:** the migrations install `tenant_isolation` policies
 > on every table carrying a `salonId`, and they are **not active**. They read

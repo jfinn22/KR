@@ -137,7 +137,10 @@ export default async function MembershipsPage({ params }: { params: Promise<{ sa
       )}
 
       <section>
-        <SectionHeading title="Add one" description="Benefits are rows so the till can apply them." />
+        <SectionHeading
+          title="Add one"
+          description="Benefits are rows so the till can apply them."
+        />
         <div className="mt-6">
           <PlanEditor salonSlug={salon} services={services} plan={null} />
         </div>

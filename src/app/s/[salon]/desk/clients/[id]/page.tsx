@@ -47,24 +47,24 @@ export default async function ClientRecordPage({
 
   const [{ upcoming, past }, timeline, consent, prediction, hair, membership, plans, strandTests] =
     await Promise.all([
-    clientAppointments(ctx.salonId, client.id),
-    hairTimeline(ctx.salonId, client.id),
-    consentState(ctx.salonId, client.id),
-    predictionFor(ctx.salonId, id),
+      clientAppointments(ctx.salonId, client.id),
+      hairTimeline(ctx.salonId, client.id),
+      consentState(ctx.salonId, client.id),
+      predictionFor(ctx.salonId, id),
       ctx.db.hairProfile.findFirst({
-      where: { salonId: ctx.salonId, clientProfileId: id },
-      select: {
-        naturalLevel: true,
-        currentLevelRoots: true,
-        greyPercent: true,
-        washesPerWeek: true,
-        heatStylingPerWeek: true,
-        swimsChlorinatedWeekly: true,
-        usesPurpleShampoo: true,
-        hardWater: true,
-        growthCmPerMonth: true,
-      },
-    }),
+        where: { salonId: ctx.salonId, clientProfileId: id },
+        select: {
+          naturalLevel: true,
+          currentLevelRoots: true,
+          greyPercent: true,
+          washesPerWeek: true,
+          heatStylingPerWeek: true,
+          swimsChlorinatedWeekly: true,
+          usesPurpleShampoo: true,
+          hardWater: true,
+          growthCmPerMonth: true,
+        },
+      }),
       membershipFor(ctx.salonId, id),
       salonPlans(ctx.salonId),
       /*
@@ -220,8 +220,7 @@ export default async function ClientRecordPage({
                 id: deposit.id,
                 amountCents: deposit.amountCents,
                 status: deposit.status,
-                serviceNames:
-                  deposit.appointment?.services.map((row) => row.service.name) ?? [],
+                serviceNames: deposit.appointment?.services.map((row) => row.service.name) ?? [],
                 whenLabel: deposit.appointment
                   ? formatDayHeading(
                       localDateIn(ctx.timezone, deposit.appointment.startsAt),
@@ -412,12 +411,12 @@ export default async function ClientRecordPage({
             <div className="rounded-lg border-l-4 border-l-gold-500 bg-gold-100/50 px-5 py-4">
               <p className="font-display text-display-sm text-ink">
                 {/*
-                  * `formatDayHeading` takes a local calendar date, not an
-                  * instant. Handing it an ISO string builds
-                  * `2026-08-15T12:34:56.789ZT12:00:00Z`, which is an Invalid
-                  * Date, and `Intl` throws on it — a server-side exception
-                  * rather than a wrong-looking date.
-                  */}
+                 * `formatDayHeading` takes a local calendar date, not an
+                 * instant. Handing it an ISO string builds
+                 * `2026-08-15T12:34:56.789ZT12:00:00Z`, which is an Invalid
+                 * Date, and `Intl` throws on it — a server-side exception
+                 * rather than a wrong-looking date.
+                 */}
                 {formatDayHeading(localDateIn(ctx.timezone, prediction.dueAt), ctx.timezone)}
               </p>
               <p className="mt-1 text-body text-ink">
@@ -472,7 +471,10 @@ export default async function ClientRecordPage({
           />
           <ul className="mt-6 flex flex-col divide-y divide-line border-y border-line">
             {strandTests.map((test) => (
-              <li key={test.id} className="flex flex-wrap items-baseline justify-between gap-3 py-3">
+              <li
+                key={test.id}
+                className="flex flex-wrap items-baseline justify-between gap-3 py-3"
+              >
                 <div>
                   <p className="text-body text-ink">
                     {formatDayHeading(localDateIn(ctx.timezone, test.performedAt), ctx.timezone)}
@@ -487,7 +489,15 @@ export default async function ClientRecordPage({
                     <p className="mt-1 text-secondary text-ink-muted">{test.resultNotes}</p>
                   )}
                 </div>
-                <Badge tone={test.decision === 'ABORT' ? 'danger' : test.decision === 'MODIFY' ? 'warn' : 'success'}>
+                <Badge
+                  tone={
+                    test.decision === 'ABORT'
+                      ? 'danger'
+                      : test.decision === 'MODIFY'
+                        ? 'warn'
+                        : 'success'
+                  }
+                >
                   {test.decision === 'ABORT'
                     ? 'do not do it'
                     : test.decision === 'MODIFY'

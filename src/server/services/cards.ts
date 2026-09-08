@@ -17,10 +17,7 @@ import { paymentsPort } from '@/ports/registry'
  */
 
 /** Find or create this client's customer at the provider. */
-export async function customerFor(
-  salonId: string,
-  clientProfileId: string,
-): Promise<string> {
+export async function customerFor(salonId: string, clientProfileId: string): Promise<string> {
   const db = dbFor(salonId)
   const client = await db.clientProfile.findFirst({
     where: { id: clientProfileId, salonId },

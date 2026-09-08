@@ -60,9 +60,7 @@ export function JourneyLadder({
                 <p className="text-label text-ink-muted">
                   {rung.toneName} · level {rung.level}
                 </p>
-                {rung.isStagingPost && (
-                  <p className="text-label text-gold-700">Not the finish</p>
-                )}
+                {rung.isStagingPost && <p className="text-label text-gold-700">Not the finish</p>}
               </div>
             </div>
           </li>

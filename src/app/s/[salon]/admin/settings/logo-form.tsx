@@ -59,10 +59,9 @@ export function LogoForm({
     setBusy(true)
     setError(null)
     try {
-      const response = await fetch(
-        `/api/uploads/logo?salon=${encodeURIComponent(salonSlug)}`,
-        { method: 'DELETE' },
-      )
+      const response = await fetch(`/api/uploads/logo?salon=${encodeURIComponent(salonSlug)}`, {
+        method: 'DELETE',
+      })
       if (!response.ok) throw new Error('That did not work.')
       router.refresh()
     } catch (err) {
@@ -101,11 +100,7 @@ export function LogoForm({
       />
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button
-          variant="secondary"
-          disabled={busy}
-          onClick={() => inputRef.current?.click()}
-        >
+        <Button variant="secondary" disabled={busy} onClick={() => inputRef.current?.click()}>
           {busy ? 'Uploading…' : logoUrl ? 'Replace it' : 'Upload a logo'}
         </Button>
         {logoUrl && (

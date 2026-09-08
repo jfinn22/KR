@@ -59,7 +59,12 @@ export function FormulaForm({
     ratio: string | null
     processingTimeMin: number | null
     applicationNotes: string | null
-    components: { productName: string; shadeCode: string | null; parts: number | null; retailProductId: string | null }[]
+    components: {
+      productName: string
+      shadeCode: string | null
+      parts: number | null
+      retailProductId: string | null
+    }[]
   } | null
 }) {
   const router = useRouter()

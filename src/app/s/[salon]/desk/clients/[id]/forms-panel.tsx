@@ -102,14 +102,17 @@ export function FormsPanel({
               {form.signed ? (
                 <p className="mt-1 text-secondary text-ink-muted">
                   {form.signed.signerName ?? 'Signed'}
-                  {form.signed.signerRelationship ? ` (${form.signed.signerRelationship})` : ''} ·{' '}
-                  {form.signed.signedOn}
+                  {form.signed.signerRelationship
+                    ? ` (${form.signed.signerRelationship})`
+                    : ''} · {form.signed.signedOn}
                   {!form.signed.current
                     ? ` · signed v${form.signed.signedVersion}, now on v${form.signed.currentVersion}`
                     : ''}
                 </p>
               ) : (
-                <p className="mt-1 text-secondary text-ink-muted">Nothing on file for this client.</p>
+                <p className="mt-1 text-secondary text-ink-muted">
+                  Nothing on file for this client.
+                </p>
               )}
             </div>
 

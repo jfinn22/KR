@@ -259,7 +259,8 @@ describe('committing a file', () => {
     const batch = await newBatch()
     await commitBatch(S, batch.id, rowsOf(), OPTIONS)
     expect(
-      (await unsafeDb.clientProfile.findUniqueOrThrow({ where: { id: 'ib_known' } })).completedVisits,
+      (await unsafeDb.clientProfile.findUniqueOrThrow({ where: { id: 'ib_known' } }))
+        .completedVisits,
     ).toBe(2)
 
     await undoBatch(S, batch.id, BY)
@@ -366,9 +367,9 @@ describe('undoing it', () => {
     expect(result.clientsKept[0]?.reason).toMatch(/did not come from this import/)
     // The real Tuesday survives; the imported history does not.
     expect(await unsafeDb.appointment.findUnique({ where: { id: 'ib_real' } })).not.toBeNull()
-    expect(await unsafeDb.appointment.count({ where: { salonId: S, importBatchId: batch.id } })).toBe(
-      0,
-    )
+    expect(
+      await unsafeDb.appointment.count({ where: { salonId: S, importBatchId: batch.id } }),
+    ).toBe(0)
   })
 
   it('clears the visit counters of a client it kept', async () => {
@@ -592,9 +593,9 @@ describe('consent an import can honestly claim', () => {
     })
 
     expect(consents).toHaveLength(4)
-    expect(consents.filter((c) => c.purpose === 'MARKETING').every((c) => c.status === 'REVOKED')).toBe(
-      true,
-    )
+    expect(
+      consents.filter((c) => c.purpose === 'MARKETING').every((c) => c.status === 'REVOKED'),
+    ).toBe(true)
     expect(
       consents.filter((c) => c.purpose === 'TRANSACTIONAL').every((c) => c.status === 'GRANTED'),
     ).toBe(true)
@@ -743,9 +744,10 @@ describe('what the review caught', () => {
   it('says so when it had to invent a time', async () => {
     const batch = await newBatch()
     const rows = rowsOf(
-      ['Client,Mobile,Date,Service,Team member', 'Ada Rivera,07700 900123,03/04/2024,Balayage,Wren'].join(
-        '\n',
-      ),
+      [
+        'Client,Mobile,Date,Service,Team member',
+        'Ada Rivera,07700 900123,03/04/2024,Balayage,Wren',
+      ].join('\n'),
     )
     await commitBatch(S, batch.id, rows, OPTIONS)
 

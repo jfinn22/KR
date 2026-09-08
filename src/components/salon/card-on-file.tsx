@@ -126,22 +126,22 @@ export function CardOnFile({
 
   return (
     <div className="space-y-4">
-      {purpose && <p className="text-sm text-muted-foreground">{purpose}</p>}
+      {purpose && <p className="text-muted-foreground text-sm">{purpose}</p>}
 
       {cards.length > 0 && (
         <ul className="space-y-2">
           {cards.map((card) => (
             <li
               key={card.id}
-              className="flex items-center justify-between rounded-lg border border-border/60 px-3 py-2"
+              className="border-border/60 flex items-center justify-between rounded-lg border px-3 py-2"
             >
               <span className="text-sm">
                 <span className="font-medium capitalize">{card.brand}</span> ···· {card.last4}
-                <span className="ml-2 text-muted-foreground">
+                <span className="text-muted-foreground ml-2">
                   {String(card.expMonth).padStart(2, '0')}/{String(card.expYear).slice(-2)}
                 </span>
                 {card.isDefault && (
-                  <span className="ml-2 text-xs uppercase tracking-wide text-muted-foreground">
+                  <span className="text-muted-foreground ml-2 text-xs uppercase tracking-wide">
                     default
                   </span>
                 )}
@@ -177,7 +177,7 @@ export function CardOnFile({
       )}
 
       {setup && !publishableKey && (
-        <div className="rounded-lg border border-dashed border-border/60 p-4 text-sm">
+        <div className="border-border/60 rounded-lg border border-dashed p-4 text-sm">
           <p className="text-muted-foreground">
             This salon has not connected a payment provider yet, so no real card can be taken.
           </p>
@@ -192,7 +192,7 @@ export function CardOnFile({
         </div>
       )}
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="text-destructive text-sm">{error}</p>}
     </div>
   )
 }
@@ -243,7 +243,7 @@ function ProviderCardForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [publishableKey])
 
-  if (!mod) return <p className="text-sm text-muted-foreground">Loading the card form…</p>
+  if (!mod) return <p className="text-muted-foreground text-sm">Loading the card form…</p>
 
   const { Elements } = mod.react
   return (

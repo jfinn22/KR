@@ -67,7 +67,9 @@ export async function recordUsage(input: UsageInput): Promise<{ totalCents: numb
     )
   }
 
-  const productIds = formula.components.flatMap((c) => (c.retailProductId ? [c.retailProductId] : []))
+  const productIds = formula.components.flatMap((c) =>
+    c.retailProductId ? [c.retailProductId] : [],
+  )
   const products = productIds.length
     ? await db.retailProduct.findMany({
         where: { salonId: input.salonId, id: { in: productIds } },

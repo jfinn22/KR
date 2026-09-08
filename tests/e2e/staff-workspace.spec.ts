@@ -339,7 +339,10 @@ test.describe('the catalogue', () => {
     await signIn(page, OWNER)
     await page.goto(`/s/${SALON}/admin/services`)
 
-    await page.getByRole('link', { name: /cut & finish/i }).first().click()
+    await page
+      .getByRole('link', { name: /cut & finish/i })
+      .first()
+      .click()
     await expect(page).toHaveURL(/\/admin\/services\/[a-z0-9]+/)
 
     await page.getByRole('button', { name: /change what this service is/i }).click()
@@ -546,7 +549,10 @@ test.describe('booking from the desk', () => {
 
     await expect(page.getByRole('heading', { level: 1 })).toContainText(/book for/i)
 
-    await page.getByRole('button', { name: /cut & finish/i }).first().click()
+    await page
+      .getByRole('button', { name: /cut & finish/i })
+      .first()
+      .click()
     await page.getByRole('button', { name: /check what this needs/i }).click()
 
     /*
@@ -572,7 +578,10 @@ test.describe('booking from the desk', () => {
     await page.getByRole('button', { name: 'Search', exact: true }).click()
     await page.getByRole('listitem').first().getByRole('link').click()
 
-    await page.getByRole('button', { name: /restyle consultation & cut/i }).first().click()
+    await page
+      .getByRole('button', { name: /restyle consultation & cut/i })
+      .first()
+      .click()
     await page.getByRole('button', { name: /check what this needs/i }).click()
 
     // The reason names the service that caused it, not "this needs approval".
@@ -598,7 +607,10 @@ test.describe('booking from the desk', () => {
     await page.getByRole('button', { name: 'Search', exact: true }).click()
     await page.getByRole('listitem').first().getByRole('link').click()
 
-    await page.getByRole('button', { name: /full balayage/i }).first().click()
+    await page
+      .getByRole('button', { name: /full balayage/i })
+      .first()
+      .click()
     await page.getByRole('button', { name: /check what this needs/i }).click()
 
     await expect(page.getByText(/needs a patch test on file/i)).toBeVisible({ timeout: 15_000 })

@@ -100,11 +100,7 @@ export default async function SettingsPage({ params }: { params: Promise<{ salon
             initialAccent={branding?.accentHex ?? null}
             available={mayBrand}
           />
-          <LogoForm
-            salonSlug={salon}
-            logoUrl={branding?.logoUrl ?? null}
-            available={mayBrand}
-          />
+          <LogoForm salonSlug={salon} logoUrl={branding?.logoUrl ?? null} available={mayBrand} />
         </div>
       </section>
 

@@ -4,11 +4,7 @@ import { dbFor } from '@/server/db/tenant-client'
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { withAuthz, DomainError } from './guard'
-import {
-  saveAnswer,
-  startConsultation,
-  submitConsultation,
-} from '@/server/services/consultation'
+import { saveAnswer, startConsultation, submitConsultation } from '@/server/services/consultation'
 import { maybeAutoApprove } from '@/server/services/service-plan'
 import {
   removeConsultationPhoto,
@@ -147,7 +143,6 @@ export const saveAnswerAction = withAuthz(
     return { saved: true }
   },
 )
-
 
 /**
  * Submit, evaluate, and approve where the salon has said that is acceptable.

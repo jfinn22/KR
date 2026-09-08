@@ -110,7 +110,7 @@ export function JoinWaitlist({
                 aria-pressed={on}
                 className={`rounded-md border px-3 py-1.5 text-secondary transition-colors ${
                   on
-                    ? 'border-gold-500 bg-gold-soft text-ink'
+                    ? 'bg-gold-soft border-gold-500 text-ink'
                     : 'border-line text-ink-muted hover:border-gold-500'
                 }`}
               >
@@ -139,9 +139,7 @@ export function JoinWaitlist({
         </Button>
       </div>
 
-      {mask === 0 && (
-        <p className="text-secondary text-ink-muted">Pick at least one day.</p>
-      )}
+      {mask === 0 && <p className="text-secondary text-ink-muted">Pick at least one day.</p>}
       {error && (
         <p role="alert" className="text-secondary text-danger">
           {error}

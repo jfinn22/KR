@@ -89,7 +89,10 @@ export function WaitlistPanel({
               <div>
                 <p className="label-caps mb-1">Something has come free</p>
                 <p className="font-display text-display-sm text-ink">
-                  {formatDayHeading(localDateIn(timeZone, new Date(entry.offer.startsAt)), timeZone)}
+                  {formatDayHeading(
+                    localDateIn(timeZone, new Date(entry.offer.startsAt)),
+                    timeZone,
+                  )}
                 </p>
                 <p className="tabular mt-1 text-body text-ink">
                   {formatTime(entry.offer.startsAt, timeZone)} –{' '}
@@ -97,7 +100,8 @@ export function WaitlistPanel({
                 </p>
                 {entry.offerExpiresAt && (
                   <p className="mt-2 text-secondary text-ink-muted">
-                    Held for you until {formatTime(new Date(entry.offerExpiresAt).toISOString(), timeZone)}.
+                    Held for you until{' '}
+                    {formatTime(new Date(entry.offerExpiresAt).toISOString(), timeZone)}.
                   </p>
                 )}
               </div>
@@ -116,7 +120,9 @@ export function WaitlistPanel({
                   variant="secondary"
                   disabled={busy !== null}
                   onClick={() =>
-                    run(entry.id, () => declineWaitlistOfferAction(salonSlug, { entryId: entry.id }))
+                    run(entry.id, () =>
+                      declineWaitlistOfferAction(salonSlug, { entryId: entry.id }),
+                    )
                   }
                 >
                   No thanks — stay on the list

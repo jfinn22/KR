@@ -1,10 +1,7 @@
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { pageContext } from '@/server/auth/page'
-import {
-  consultInvite,
-  findConsultSlots,
-} from '@/server/services/scheduling/consult-appointment'
+import { consultInvite, findConsultSlots } from '@/server/services/scheduling/consult-appointment'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/feedback'
 import { addDays, formatDayHeading, formatTime, localDateIn } from '@/lib/format'

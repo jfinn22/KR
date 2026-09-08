@@ -78,7 +78,10 @@ export function AftercareForm({
       {initialProducts.length > 0 && (
         <ul className="flex flex-col gap-2">
           {initialProducts.map((product) => (
-            <li key={product.id} className="flex flex-wrap items-center gap-3 text-secondary text-ink-muted">
+            <li
+              key={product.id}
+              className="flex flex-wrap items-center gap-3 text-secondary text-ink-muted"
+            >
               <span>
                 <span className="text-ink">{product.name}</span>
                 {product.reason && ` — ${product.reason}`}

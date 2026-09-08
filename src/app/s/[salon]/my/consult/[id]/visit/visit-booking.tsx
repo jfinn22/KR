@@ -4,10 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { SlotPicker, SlotSummary, type OfferedSlot } from '@/components/salon/slot-picker'
-import {
-  bookConsultAppointmentAction,
-  findConsultSlotsAction,
-} from '@/server/actions/booking'
+import { bookConsultAppointmentAction, findConsultSlotsAction } from '@/server/actions/booking'
 import { formatMinutes } from '@/lib/format'
 
 /**

@@ -234,8 +234,7 @@ export default async function HandoffPage({
               {[
                 lastFormula.developerVolume != null && `${lastFormula.developerVolume} vol`,
                 lastFormula.ratio,
-                lastFormula.processingTimeMin != null &&
-                  `${lastFormula.processingTimeMin} min`,
+                lastFormula.processingTimeMin != null && `${lastFormula.processingTimeMin} min`,
                 lastFormula.technique,
               ]
                 .filter(Boolean)
@@ -255,8 +254,8 @@ export default async function HandoffPage({
           </div>
         ) : (
           <p className="mt-4 text-body text-ink-muted">
-            Nothing on file. If this is colour, write the formula down at the end — the next
-            person doing this hair will be reading this box.
+            Nothing on file. If this is colour, write the formula down at the end — the next person
+            doing this hair will be reading this box.
           </p>
         )}
       </section>

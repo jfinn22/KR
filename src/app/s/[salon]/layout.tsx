@@ -70,7 +70,10 @@ export default async function SalonLayout({
   const brandStyle = branding?.cssVariables ?? {}
 
   return (
-    <div className="flex min-h-screen flex-col lg:flex-row" style={brandStyle as React.CSSProperties}>
+    <div
+      className="flex min-h-screen flex-col lg:flex-row"
+      style={brandStyle as React.CSSProperties}
+    >
       <SalonNav
         salon={salon}
         salonName={ctx.salonName}

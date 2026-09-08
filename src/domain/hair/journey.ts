@@ -155,7 +155,8 @@ export function planJourney(input: JourneyInput): HairJourney | null {
       ? toLevel
       : (clampLevel(Math.round(fromLevel + (difference * visit) / visits)) as Level)
 
-    const label = input.sessionLabels?.[visit - 1] ?? (visits === 1 ? 'Your appointment' : `Visit ${visit}`)
+    const label =
+      input.sessionLabels?.[visit - 1] ?? (visits === 1 ? 'Your appointment' : `Visit ${visit}`)
 
     /*
      * The last rung wears the target's own colour, because that is the visit
@@ -224,11 +225,7 @@ function finalNote(
   return null
 }
 
-function summaryFor(
-  direction: HairJourney['direction'],
-  levels: number,
-  visits: number,
-): string {
+function summaryFor(direction: HairJourney['direction'], levels: number, visits: number): string {
   const trip = `${visits} visit${visits === 1 ? '' : 's'}`
 
   if (direction === 'SAME') {

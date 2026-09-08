@@ -124,10 +124,7 @@ function readAllergies(value: unknown): string[] {
   return []
 }
 
-export async function handoffCard(
-  salonId: string,
-  appointmentId: string,
-): Promise<HandoffCard> {
+export async function handoffCard(salonId: string, appointmentId: string): Promise<HandoffCard> {
   const db = dbFor(salonId)
   const appointment = await db.appointment.findFirst({
     where: { id: appointmentId, salonId },

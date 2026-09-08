@@ -189,48 +189,48 @@ export async function reviewDetail(salonId: string, consultationId: string) {
 
   const [services, photos, inspiration, flags, evaluationRow, priorVisits, heldBy] =
     await Promise.all([
-    db.service.findMany({
-      where: { salonId, id: { in: consultation.requestedServiceIds } },
-      include: { phases: { orderBy: { sequence: 'asc' } } },
-    }),
-    consultationPhotos(salonId, consultationId),
-    inspirationPhotos(salonId, consultationId),
-    db.riskFlag.findMany({
-      where: { salonId, consultationId },
-      orderBy: { severity: 'asc' },
-    }),
-    consultation.latestEvaluationId
-      ? db.ruleEvaluation.findUnique({
-          where: { id: consultation.latestEvaluationId },
-          select: { id: true, outputSnapshotJson: true, rulesetVersion: true, createdAt: true },
-        })
-      : null,
-    // What actually happened last time beats any estimate.
-    db.appointment.findMany({
-      where: {
-        salonId,
-        clientProfileId: consultation.clientProfileId,
-        status: 'COMPLETED',
-      },
-      orderBy: { startsAt: 'desc' },
-      take: 5,
-      include: {
-        primaryStylist: { select: { displayName: true } },
-        services: { include: { service: { select: { name: true } } } },
-      },
-    }),
-    /*
-     * Who has it. `requestedStylistId` is a bare column with no relation, so
-     * this is a lookup rather than an include — a name on the screen is not
-     * worth a migration.
-     */
-    consultation.requestedStylistId
-      ? db.stylistProfile.findFirst({
-          where: { id: consultation.requestedStylistId, salonId },
-          select: { id: true, displayName: true },
-        })
-      : null,
-  ])
+      db.service.findMany({
+        where: { salonId, id: { in: consultation.requestedServiceIds } },
+        include: { phases: { orderBy: { sequence: 'asc' } } },
+      }),
+      consultationPhotos(salonId, consultationId),
+      inspirationPhotos(salonId, consultationId),
+      db.riskFlag.findMany({
+        where: { salonId, consultationId },
+        orderBy: { severity: 'asc' },
+      }),
+      consultation.latestEvaluationId
+        ? db.ruleEvaluation.findUnique({
+            where: { id: consultation.latestEvaluationId },
+            select: { id: true, outputSnapshotJson: true, rulesetVersion: true, createdAt: true },
+          })
+        : null,
+      // What actually happened last time beats any estimate.
+      db.appointment.findMany({
+        where: {
+          salonId,
+          clientProfileId: consultation.clientProfileId,
+          status: 'COMPLETED',
+        },
+        orderBy: { startsAt: 'desc' },
+        take: 5,
+        include: {
+          primaryStylist: { select: { displayName: true } },
+          services: { include: { service: { select: { name: true } } } },
+        },
+      }),
+      /*
+       * Who has it. `requestedStylistId` is a bare column with no relation, so
+       * this is a lookup rather than an include — a name on the screen is not
+       * worth a migration.
+       */
+      consultation.requestedStylistId
+        ? db.stylistProfile.findFirst({
+            where: { id: consultation.requestedStylistId, salonId },
+            select: { id: true, displayName: true },
+          })
+        : null,
+    ])
 
   const answers = new Map(consultation.answers.map((a) => [a.questionKey, a.valueJson]))
 

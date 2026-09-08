@@ -82,7 +82,8 @@ export function BackbarForm({
           <p className="mt-3 text-body text-ink">
             {money(cost.totalCents)} in the bowl
             {cost.wasteCents > 0 && `, ${money(cost.wasteCents)} of it down the sink`}
-            {cost.marginPct !== null && ` · ${Math.round(cost.marginPct * 100)}% left after product`}
+            {cost.marginPct !== null &&
+              ` · ${Math.round(cost.marginPct * 100)}% left after product`}
           </p>
           {cost.incomplete && (
             <p className="mt-2 text-secondary text-warn">

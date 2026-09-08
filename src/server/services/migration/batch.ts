@@ -233,7 +233,11 @@ export async function commitBatch(
           // review screen can actually see it.
           const timeInvented = row.appointmentTimeMin === null
           const startsAt = fromEpochMinutes(
-            localTimeToEpochMinutes(row.appointmentDate, row.appointmentTimeMin ?? 9 * 60, timeZone),
+            localTimeToEpochMinutes(
+              row.appointmentDate,
+              row.appointmentTimeMin ?? 9 * 60,
+              timeZone,
+            ),
           )
           const endsAt = new Date(startsAt.getTime() + durationMin * 60_000)
           const priceCents = Math.max(0, row.priceCents ?? 0)
@@ -681,7 +685,10 @@ async function stillInUse(
   })
   for (const row of worked) {
     if (!reasons.has(row.clientProfileId)) {
-      reasons.set(row.clientProfileId, 'They have been in since, on an appointment this import made.')
+      reasons.set(
+        row.clientProfileId,
+        'They have been in since, on an appointment this import made.',
+      )
     }
   }
 
@@ -759,11 +766,7 @@ async function writeImportedConsent(
  * and subtracting from a running total — one missed decrement and a client
  * carries a wrong lifetime figure forever, with nothing to compare it against.
  */
-async function recount(
-  tx: TenantTx,
-  salonId: string,
-  clientIds: readonly string[],
-): Promise<void> {
+async function recount(tx: TenantTx, salonId: string, clientIds: readonly string[]): Promise<void> {
   const unique = [...new Set(clientIds)]
   for (const clientProfileId of unique) {
     const visits = await tx.appointment.findMany({
@@ -776,7 +779,10 @@ async function recount(
       where: { salonId, id: clientProfileId },
       data: {
         completedVisits: visits.length,
-        lifetimeSpendCents: visits.reduce((total, visit) => total + (visit.actualTotalCents ?? 0), 0),
+        lifetimeSpendCents: visits.reduce(
+          (total, visit) => total + (visit.actualTotalCents ?? 0),
+          0,
+        ),
         firstVisitAt: visits[0]?.startsAt ?? null,
         lastVisitAt: visits.at(-1)?.startsAt ?? null,
       },

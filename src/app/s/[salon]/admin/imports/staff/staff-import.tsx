@@ -5,10 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Field, Select, Textarea } from '@/components/ui/field'
-import {
-  commitStaffImportAction,
-  previewStaffImportAction,
-} from '@/server/actions/migration'
+import { commitStaffImportAction, previewStaffImportAction } from '@/server/actions/migration'
 
 interface StaffRow {
   line: number
@@ -125,7 +122,9 @@ export function StaffImport({
               <li key={row.line} className="flex flex-col gap-1 py-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-body text-ink">
-                    {row.displayName || <span className="text-danger">no name on line {row.line}</span>}
+                    {row.displayName || (
+                      <span className="text-danger">no name on line {row.line}</span>
+                    )}
                   </span>
                   {existing[row.displayName] && <Badge tone="info">already here</Badge>}
                   {row.title && <span className="text-secondary text-ink-muted">{row.title}</span>}

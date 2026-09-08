@@ -55,8 +55,8 @@ export default async function TimeOffPage({ params }: { params: Promise<{ salon:
       <header>
         <h1 className="heading-flourish font-display text-display-lg text-ink">Time off</h1>
         <p className="mt-2 max-w-prose text-body text-ink-muted">
-          Only approved time takes a stylist out of the diary. Asking for it costs the salon
-          nothing until somebody agrees.
+          Only approved time takes a stylist out of the diary. Asking for it costs the salon nothing
+          until somebody agrees.
         </p>
       </header>
 

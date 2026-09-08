@@ -56,15 +56,17 @@ const toInterval = (start: Date, end: Date): Interval => ({
  * would be a salon whose slots are a different size depending on which screen
  * asked. The defaults belong in exactly one place.
  */
-export function schedulingSettingsFrom(row: {
-  slotGranularityMin?: number | null
-  minBookingLeadMin?: number | null
-  maxAdvanceDays?: number | null
-  allowFinishAfterCloseMin?: number | null
-  interleaveEnabled?: boolean | null
-  maxConcurrentClients?: number | null
-  minInterleaveMin?: number | null
-} | null): SchedulingSettings {
+export function schedulingSettingsFrom(
+  row: {
+    slotGranularityMin?: number | null
+    minBookingLeadMin?: number | null
+    maxAdvanceDays?: number | null
+    allowFinishAfterCloseMin?: number | null
+    interleaveEnabled?: boolean | null
+    maxConcurrentClients?: number | null
+    minInterleaveMin?: number | null
+  } | null,
+): SchedulingSettings {
   return {
     slotGranularityMin: row?.slotGranularityMin ?? 15,
     minBookingLeadMin: row?.minBookingLeadMin ?? 120,
@@ -146,92 +148,92 @@ export async function loadAvailabilityRequest(opts: LoadOptions): Promise<Availa
     resourceRows,
     externalRows,
   ] = await Promise.all([
-      db.stylistProfile.findMany({
-        where: {
-          salonId: opts.salonId,
-          isActive: true,
-          ...(opts.stylistIds ? { id: { in: [...opts.stylistIds] } } : {}),
-          ...(opts.pinnedStylistId ? { id: opts.pinnedStylistId } : {}),
-        },
-        select: {
-          id: true,
-          acceptsNewClients: true,
-          bookingLeadMin: true,
-          maxConcurrentClients: true,
-          maxDailyChemicalServices: true,
-          skills: { select: { skillCode: true, level: true } },
-        },
-      }),
-      db.workingHours.findMany({
-        where: { salonId: opts.salonId },
-        select: {
-          stylistProfileId: true,
-          locationId: true,
-          dayOfWeek: true,
-          startMinute: true,
-          endMinute: true,
-        },
-      }),
-      db.scheduleException.findMany({
-        where: { salonId: opts.salonId, date: { gte: rangeStart, lte: rangeEnd } },
-        select: {
-          stylistProfileId: true,
-          date: true,
-          kind: true,
-          startMinute: true,
-          endMinute: true,
-        },
-      }),
-      db.timeOff.findMany({
-        where: {
-          salonId: opts.salonId,
-          status: 'APPROVED',
-          startsAt: { lt: rangeEnd },
-          endsAt: { gt: rangeStart },
-        },
-        select: { stylistProfileId: true, startsAt: true, endsAt: true },
-      }),
-      db.appointmentSegment.findMany({
-        where: {
-          salonId: opts.salonId,
-          locationId: opts.locationId,
-          startsAt: { lt: rangeEnd },
-          endsAt: { gt: rangeStart },
-          state: { in: ['ACTIVE', 'HOLD'] },
-          // An expired hold is not a reservation any more.
-          OR: [{ state: 'ACTIVE' }, { holdExpiresAt: { gt: now } }],
-        },
-        select: {
-          stylistProfileId: true,
-          resourceId: true,
-          appointmentId: true,
-          bookingHoldId: true,
-          blocksStylist: true,
-          blocksResource: true,
-          startsAt: true,
-          endsAt: true,
-        },
-      }),
-      db.resource.findMany({
-        where: { salonId: opts.salonId, locationId: opts.locationId, isBookable: true },
-        select: { id: true, type: true },
-      }),
-      /*
-       * Commitments on a stylist's own calendar that the salon does not own.
-       *
-       * Mirrored by the sync job rather than fetched here — the alternative is
-       * a network call to somebody else's server inside every slot search, and
-       * a slow one reads to a client as "this salon has nothing free".
-       */
-      db.externalBusy.findMany({
-        where: {
-          salonId: opts.salonId,
-          startsAt: { lt: rangeEnd },
-          endsAt: { gt: rangeStart },
-        },
-        select: { stylistProfileId: true, startsAt: true, endsAt: true },
-      }),
-    ])
+    db.stylistProfile.findMany({
+      where: {
+        salonId: opts.salonId,
+        isActive: true,
+        ...(opts.stylistIds ? { id: { in: [...opts.stylistIds] } } : {}),
+        ...(opts.pinnedStylistId ? { id: opts.pinnedStylistId } : {}),
+      },
+      select: {
+        id: true,
+        acceptsNewClients: true,
+        bookingLeadMin: true,
+        maxConcurrentClients: true,
+        maxDailyChemicalServices: true,
+        skills: { select: { skillCode: true, level: true } },
+      },
+    }),
+    db.workingHours.findMany({
+      where: { salonId: opts.salonId },
+      select: {
+        stylistProfileId: true,
+        locationId: true,
+        dayOfWeek: true,
+        startMinute: true,
+        endMinute: true,
+      },
+    }),
+    db.scheduleException.findMany({
+      where: { salonId: opts.salonId, date: { gte: rangeStart, lte: rangeEnd } },
+      select: {
+        stylistProfileId: true,
+        date: true,
+        kind: true,
+        startMinute: true,
+        endMinute: true,
+      },
+    }),
+    db.timeOff.findMany({
+      where: {
+        salonId: opts.salonId,
+        status: 'APPROVED',
+        startsAt: { lt: rangeEnd },
+        endsAt: { gt: rangeStart },
+      },
+      select: { stylistProfileId: true, startsAt: true, endsAt: true },
+    }),
+    db.appointmentSegment.findMany({
+      where: {
+        salonId: opts.salonId,
+        locationId: opts.locationId,
+        startsAt: { lt: rangeEnd },
+        endsAt: { gt: rangeStart },
+        state: { in: ['ACTIVE', 'HOLD'] },
+        // An expired hold is not a reservation any more.
+        OR: [{ state: 'ACTIVE' }, { holdExpiresAt: { gt: now } }],
+      },
+      select: {
+        stylistProfileId: true,
+        resourceId: true,
+        appointmentId: true,
+        bookingHoldId: true,
+        blocksStylist: true,
+        blocksResource: true,
+        startsAt: true,
+        endsAt: true,
+      },
+    }),
+    db.resource.findMany({
+      where: { salonId: opts.salonId, locationId: opts.locationId, isBookable: true },
+      select: { id: true, type: true },
+    }),
+    /*
+     * Commitments on a stylist's own calendar that the salon does not own.
+     *
+     * Mirrored by the sync job rather than fetched here — the alternative is
+     * a network call to somebody else's server inside every slot search, and
+     * a slow one reads to a client as "this salon has nothing free".
+     */
+    db.externalBusy.findMany({
+      where: {
+        salonId: opts.salonId,
+        startsAt: { lt: rangeEnd },
+        endsAt: { gt: rangeStart },
+      },
+      select: { stylistProfileId: true, startsAt: true, endsAt: true },
+    }),
+  ])
 
   // --- Location opening hours ---------------------------------------------
   const salonHours: Record<number, { startMinute: number; endMinute: number }[]> = {}

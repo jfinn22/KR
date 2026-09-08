@@ -67,7 +67,7 @@ export function ReviewClaim({
   const unclaimed = status === 'SUBMITTED'
 
   return (
-    <div className="flex flex-wrap items-center gap-4 rounded-card border border-line bg-surface-alt px-5 py-4">
+    <div className="rounded-card flex flex-wrap items-center gap-4 border border-line bg-surface-alt px-5 py-4">
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
         {unclaimed ? (
           <>
@@ -96,7 +96,9 @@ export function ReviewClaim({
         ) : (
           <>
             <Badge tone="info">In review</Badge>
-            <span className="text-secondary text-ink-muted">Started, but not by anyone in particular.</span>
+            <span className="text-secondary text-ink-muted">
+              Started, but not by anyone in particular.
+            </span>
           </>
         )}
       </div>

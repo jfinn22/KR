@@ -66,10 +66,7 @@ async function move(
     select: { status: true },
   })
   if (!canTransition(current.status, to)) {
-    throw new DomainError(
-      'CONFLICT',
-      `A deposit cannot go from ${current.status} to ${to}.`,
-    )
+    throw new DomainError('CONFLICT', `A deposit cannot go from ${current.status} to ${to}.`)
   }
   await tx.deposit.update({
     where: { id: depositId },
@@ -106,10 +103,7 @@ export async function authorizeDeposit(input: {
   const card = deposit.savedCard ?? (await defaultCardFor(input.salonId, deposit.clientProfileId))
   const customerRef = deposit.clientProfile.paymentsCustomerRef
   if (!card || !customerRef) {
-    throw new DomainError(
-      'CONFLICT',
-      'There is no card on file to take this deposit from.',
-    )
+    throw new DomainError('CONFLICT', 'There is no card on file to take this deposit from.')
   }
 
   /*
@@ -255,7 +249,11 @@ export async function forfeitDeposit(input: {
   if (deposit.status === 'AUTHORIZED' && deposit.providerIntentId) {
     const captured = await paymentsPort().capture(deposit.providerIntentId, keep)
     forfeitedCents = captured.capturedCents || keep
-  } else if (deposit.status === 'CAPTURED' && keep < deposit.amountCents && deposit.providerIntentId) {
+  } else if (
+    deposit.status === 'CAPTURED' &&
+    keep < deposit.amountCents &&
+    deposit.providerIntentId
+  ) {
     // Already taken in full, so the difference has to go back the other way.
     await paymentsPort().refund(
       deposit.providerIntentId,
@@ -379,8 +377,7 @@ export async function chargeConsultationFee(input: {
       status: 'PENDING',
       policySnapshotJson: {
         kind: 'CORRECTIVE_CONSULTATION',
-        rationale:
-          'Corrective assessments are charged up front and come off the cost of the work.',
+        rationale: 'Corrective assessments are charged up front and come off the cost of the work.',
       } as never,
     },
     select: { id: true },

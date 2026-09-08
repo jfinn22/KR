@@ -172,9 +172,7 @@ export function parseMoneyCents(raw: string): number | null {
   let normalised: string
   if (lastComma >= 0 && lastDot >= 0) {
     normalised =
-      lastComma > lastDot
-        ? digits.replace(/\./g, '').replace(',', '.')
-        : digits.replace(/,/g, '')
+      lastComma > lastDot ? digits.replace(/\./g, '').replace(',', '.') : digits.replace(/,/g, '')
   } else if (lastComma >= 0) {
     normalised =
       digits.length - lastComma - 1 === 2 ? digits.replace(',', '.') : digits.replace(/,/g, '')

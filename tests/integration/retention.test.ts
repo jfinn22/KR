@@ -373,13 +373,23 @@ describe('the 72-hour check-in', () => {
     const minted = await mintCheckIn(S, 'rt_a17')
 
     expect(
-      await respondToCheckIn({ salonId: S, token: minted!.token, sentiment: 'NOT_RIGHT', note: 'Brassy.' }),
+      await respondToCheckIn({
+        salonId: S,
+        token: minted!.token,
+        sentiment: 'NOT_RIGHT',
+        note: 'Brassy.',
+      }),
     ).toEqual({ recorded: true })
 
     // Somebody double-tapping on a phone sees a thank-you, not an error — and
     // does not silently rewrite what the salon has already acted on.
     expect(
-      await respondToCheckIn({ salonId: S, token: minted!.token, sentiment: 'DELIGHTED', note: null }),
+      await respondToCheckIn({
+        salonId: S,
+        token: minted!.token,
+        sentiment: 'DELIGHTED',
+        note: null,
+      }),
     ).toEqual({ recorded: false })
 
     const row = await unsafeDb.postVisitCheckIn.findFirstOrThrow({ where: { salonId: S } })
@@ -426,7 +436,12 @@ describe('the 72-hour check-in', () => {
 
     const sad = await mintCheckIn(S, 'rt_a20')
     const happy = await mintCheckIn(S, 'rt_a21')
-    await respondToCheckIn({ salonId: S, token: sad!.token, sentiment: 'NOT_RIGHT', note: 'Brassy.' })
+    await respondToCheckIn({
+      salonId: S,
+      token: sad!.token,
+      sentiment: 'NOT_RIGHT',
+      note: 'Brassy.',
+    })
     await respondToCheckIn({ salonId: S, token: happy!.token, sentiment: 'DELIGHTED', note: null })
 
     const queue = await unhappyCheckIns(S)
@@ -548,8 +563,20 @@ describe('what the colour cost', () => {
     await makeAppointment('rt_a24', 'rt_c22', day(1))
     const formulaId = await mixOn('rt_a24', 'rt_c22')
 
-    await recordUsage({ salonId: S, appointmentId: 'rt_a24', formulaId, anchorGrams: 60, wasteGrams: 0 })
-    await recordUsage({ salonId: S, appointmentId: 'rt_a24', formulaId, anchorGrams: 90, wasteGrams: 0 })
+    await recordUsage({
+      salonId: S,
+      appointmentId: 'rt_a24',
+      formulaId,
+      anchorGrams: 60,
+      wasteGrams: 0,
+    })
+    await recordUsage({
+      salonId: S,
+      appointmentId: 'rt_a24',
+      formulaId,
+      anchorGrams: 90,
+      wasteGrams: 0,
+    })
 
     const cost = await costOfService(S, 'rt_a24')
     expect(cost?.lines).toHaveLength(2)
@@ -569,7 +596,13 @@ describe('what the colour cost', () => {
     await makeAppointment('rt_a25', 'rt_c23', day(1))
     const formulaId = await mixOn('rt_a25', 'rt_c23')
 
-    await recordUsage({ salonId: S, appointmentId: 'rt_a25', formulaId, anchorGrams: 60, wasteGrams: 0 })
+    await recordUsage({
+      salonId: S,
+      appointmentId: 'rt_a25',
+      formulaId,
+      anchorGrams: 60,
+      wasteGrams: 0,
+    })
 
     const cost = await costOfService(S, 'rt_a25')
     expect(cost?.incomplete).toBe(true)
@@ -582,7 +615,13 @@ describe('what the colour cost', () => {
     await makeAppointment('rt_a26', 'rt_c24', day(1))
 
     await expect(
-      recordUsage({ salonId: S, appointmentId: 'rt_a26', formulaId: null, anchorGrams: 60, wasteGrams: 0 }),
+      recordUsage({
+        salonId: S,
+        appointmentId: 'rt_a26',
+        formulaId: null,
+        anchorGrams: 60,
+        wasteGrams: 0,
+      }),
     ).rejects.toThrow(/formula/i)
   })
 
@@ -590,7 +629,13 @@ describe('what the colour cost', () => {
     await makeClient('rt_c25')
     await makeAppointment('rt_a27', 'rt_c25', day(1))
     const formulaId = await mixOn('rt_a27', 'rt_c25')
-    await recordUsage({ salonId: S, appointmentId: 'rt_a27', formulaId, anchorGrams: 60, wasteGrams: 30 })
+    await recordUsage({
+      salonId: S,
+      appointmentId: 'rt_a27',
+      formulaId,
+      anchorGrams: 60,
+      wasteGrams: 30,
+    })
 
     const summary = await backbarSummary(S, {
       from: new Date(Date.now() - 86_400_000),

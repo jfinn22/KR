@@ -175,7 +175,9 @@ export function DeskBooking({
   const blocked = gate?.decision === 'REFUSED'
   const needsSignOff = gate?.decision === 'OVERRIDABLE'
   const canProceed =
-    gate != null && !blocked && (!needsSignOff || (context!.mayOverride && overrideReason.length >= 4))
+    gate != null &&
+    !blocked &&
+    (!needsSignOff || (context!.mayOverride && overrideReason.length >= 4))
 
   return (
     <div className="flex flex-col gap-8">
@@ -194,7 +196,7 @@ export function DeskBooking({
         <div className="flex flex-col gap-5">
           {categories.map((category) => (
             <div key={category.id}>
-              <p className="text-secondary mb-2 text-ink-muted">{category.name}</p>
+              <p className="mb-2 text-secondary text-ink-muted">{category.name}</p>
               <div className="flex flex-wrap gap-2">
                 {category.services.map((service) => {
                   const on = picked.includes(service.id)
@@ -206,7 +208,7 @@ export function DeskBooking({
                       aria-pressed={on}
                       className={`rounded-md border px-3 py-2 text-left text-secondary transition-colors ${
                         on
-                          ? 'border-gold-500 bg-gold-soft text-ink'
+                          ? 'bg-gold-soft border-gold-500 text-ink'
                           : 'border-line text-ink hover:border-gold-500'
                       }`}
                     >

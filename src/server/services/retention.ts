@@ -357,7 +357,10 @@ export async function nudgeRebookDue(
       salonId,
       status: 'ACTIVE',
       completedVisits: { gt: 0 },
-      lastVisitAt: { lt: new Date(now.getTime() - window / 4), gt: new Date(now.getTime() - window) },
+      lastVisitAt: {
+        lt: new Date(now.getTime() - window / 4),
+        gt: new Date(now.getTime() - window),
+      },
       // Somebody already booked in does not need telling.
       appointments: { none: { status: { in: ['BOOKED', 'CONFIRMED', 'CHECKED_IN'] } } },
     },

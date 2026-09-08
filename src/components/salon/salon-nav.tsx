@@ -147,8 +147,8 @@ export function SalonNav({ salon, salonName, logoUrl, kicker, groups, footnote }
         id={drawerId}
         className={cn(
           'nav-navy fixed inset-y-0 left-0 z-40 w-72 transition-transform duration-200 ease-out',
-          'lg:static lg:z-auto lg:w-64 lg:shrink-0 lg:translate-x-0 lg:visible lg:transition-none xl:w-72',
-          open ? 'translate-x-0 visible' : 'invisible -translate-x-full',
+          'lg:visible lg:static lg:z-auto lg:w-64 lg:shrink-0 lg:translate-x-0 lg:transition-none xl:w-72',
+          open ? 'visible translate-x-0' : 'invisible -translate-x-full',
         )}
       >
         <aside className="flex h-full flex-col lg:sticky lg:top-0 lg:h-screen">

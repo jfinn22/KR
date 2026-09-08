@@ -287,9 +287,7 @@ function verifyMockSignature(payload: string, signature: string): boolean {
   const age = Math.abs(Math.floor(Date.now() / 1000) - t)
   if (age > MOCK_TOLERANCE_SECONDS) return false
 
-  const expected = createHmac('sha256', MOCK_WEBHOOK_SECRET)
-    .update(`${t}.${payload}`)
-    .digest('hex')
+  const expected = createHmac('sha256', MOCK_WEBHOOK_SECRET).update(`${t}.${payload}`).digest('hex')
   const given = Buffer.from(parts.v1, 'utf8')
   const want = Buffer.from(expected, 'utf8')
   // Constant time, so a wrong signature does not leak how wrong it was.
@@ -997,8 +995,7 @@ export class StripePaymentsAdapter implements PaymentsPort {
      * of the wrong kind — a wrong id matches nothing, which looks the same as
      * "not ours" and is how this went unnoticed.
      */
-    const subscriptionRef =
-      object.object === 'subscription' ? object.id : ref(object.subscription)
+    const subscriptionRef = object.object === 'subscription' ? object.id : ref(object.subscription)
 
     /*
      * A subscription states its own period end. An invoice does not — its

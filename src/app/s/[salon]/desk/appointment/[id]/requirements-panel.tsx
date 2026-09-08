@@ -5,10 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Field, Select, Textarea } from '@/components/ui/field'
-import {
-  recordStrandTestAction,
-  waiveRequirementAction,
-} from '@/server/actions/requirements'
+import { recordStrandTestAction, waiveRequirementAction } from '@/server/actions/requirements'
 
 interface Requirement {
   id: string

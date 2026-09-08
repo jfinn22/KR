@@ -75,7 +75,9 @@ function scopeWhere(
    * leaves an empty where and Prisma rejects the call. Keep salonId when it is
    * the only concrete selector (or when shared-library OR needs the stamp).
    */
-  const concreteKeys = Object.keys(rest).filter((key) => key !== 'AND' && key !== 'OR' && key !== 'NOT')
+  const concreteKeys = Object.keys(rest).filter(
+    (key) => key !== 'AND' && key !== 'OR' && key !== 'NOT',
+  )
   if (concreteKeys.length === 0) {
     return { salonId, AND: [...and, tenantFilter] }
   }
@@ -98,7 +100,12 @@ function stampData(model: string, operation: string, data: unknown, salonId: str
  * into relation-style `UpdateInput` either — Prisma rejects the scalar when
  * the payload uses `savedCard: { connect }` / `salon: { connect }`.
  */
-function guardUpdateData(model: string, operation: string, data: unknown, salonId: string): unknown {
+function guardUpdateData(
+  model: string,
+  operation: string,
+  data: unknown,
+  salonId: string,
+): unknown {
   if (Array.isArray(data)) {
     return data.map((d) => guardUpdateData(model, operation, d, salonId))
   }
@@ -167,7 +174,11 @@ export type TenantDb = ReturnType<typeof dbFor>
 export type TenantTx = TenantDb['$transaction'] extends {
   <R>(
     fn: (client: infer C) => Promise<R>,
-    options?: { maxWait?: number; timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel },
+    options?: {
+      maxWait?: number
+      timeout?: number
+      isolationLevel?: Prisma.TransactionIsolationLevel
+    },
   ): Promise<R>
 }
   ? C

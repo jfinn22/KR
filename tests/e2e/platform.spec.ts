@@ -27,9 +27,9 @@ test.describe('marketing surface', () => {
      */
     await page.goto('/')
 
-    const hrefs = await page.locator('main a[href^="/"]').evaluateAll((links) =>
-      links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''),
-    )
+    const hrefs = await page
+      .locator('main a[href^="/"]')
+      .evaluateAll((links) => links.map((a) => (a as HTMLAnchorElement).getAttribute('href') ?? ''))
     expect(hrefs.length).toBeGreaterThan(0)
 
     for (const href of new Set(hrefs)) {
@@ -61,7 +61,10 @@ test.describe('marketing surface', () => {
 
   test('sign in is reachable from the landing page', async ({ page }) => {
     await page.goto('/')
-    await page.getByRole('link', { name: /sign in/i }).first().click()
+    await page
+      .getByRole('link', { name: /sign in/i })
+      .first()
+      .click()
     await expect(page).toHaveURL(/\/login/)
   })
 })

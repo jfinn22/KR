@@ -98,7 +98,8 @@ export async function clientAddress(): Promise<string> {
   const realIp = headerList.get('x-real-ip')?.trim()
   if (realIp) return realIp
 
-  const trustForwarded = process.env.AUTH_TRUST_HOST === 'true' || process.env.AUTH_TRUST_HOST === '1'
+  const trustForwarded =
+    process.env.AUTH_TRUST_HOST === 'true' || process.env.AUTH_TRUST_HOST === '1'
   if (trustForwarded) {
     const forwarded = headerList.get('x-forwarded-for')?.split(',')[0]?.trim()
     if (forwarded) return forwarded
@@ -183,7 +184,8 @@ export function withPublicAction<I, O>(
           return {
             ok: false,
             code: 'RATE_LIMITED',
-            error: 'That is a lot of tries in a short time. Please wait a few minutes and try again.',
+            error:
+              'That is a lot of tries in a short time. Please wait a few minutes and try again.',
           }
         }
         // Recorded under both, so neither count can be evaded by using the other.

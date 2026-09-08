@@ -188,10 +188,7 @@ export default async function ImportReviewPage({
 
       {done ? (
         <section>
-          <SectionHeading
-            title="What it did"
-            description="And how to take it back out again."
-          />
+          <SectionHeading title="What it did" description="And how to take it back out again." />
           <div className="mt-6 flex flex-col gap-6">
             <CountsPanel counts={batch.countsJson} />
             <UndoPanel salonSlug={salon} batchId={batch.id} undone={batch.status === 'UNDONE'} />

@@ -40,7 +40,9 @@ test.describe('the salon’s own plan', () => {
 
     // Aurora seeds five stylists across two locations, so both cheaper tiers
     // are out of reach — and each says by how much rather than just refusing.
-    await expect(page.getByText(/You are over this one by 4 stylists and 1 location\./)).toBeVisible()
+    await expect(
+      page.getByText(/You are over this one by 4 stylists and 1 location\./),
+    ).toBeVisible()
     await expect(page.getByText(/You are over this one by 1 location\./)).toBeVisible()
   })
 

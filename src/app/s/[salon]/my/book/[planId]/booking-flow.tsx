@@ -232,7 +232,7 @@ export function BookingFlow({
            * fastest way to lose a booking that was going to happen.
            */}
           {depositCents > 0 && (
-            <div className="rounded-lg border border-line bg-gold-soft p-5">
+            <div className="bg-gold-soft rounded-lg border border-line p-5">
               <p className="text-body text-ink">
                 This visit asks for a {formatMoney(depositCents, currency)} deposit, which comes off
                 the cost on the day.
@@ -273,7 +273,11 @@ export function BookingFlow({
            */}
           <div className="flex flex-wrap gap-3">
             <Button onClick={confirm} disabled={busy || needsCard}>
-              {busy ? 'Booking…' : depositCents > 0 ? 'Confirm and pay the deposit' : 'Confirm this time'}
+              {busy
+                ? 'Booking…'
+                : depositCents > 0
+                  ? 'Confirm and pay the deposit'
+                  : 'Confirm this time'}
             </Button>
             <Button
               variant="secondary"

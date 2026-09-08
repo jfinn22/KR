@@ -57,8 +57,22 @@ async function seed() {
 
   await unsafeDb.service.createMany({
     data: [
-      { id: 'mb_cut', salonId: S, categoryId: 'mb_cat', name: 'Cut', slug: 'cut', basePriceCents: 5_000 },
-      { id: 'mb_col', salonId: S, categoryId: 'mb_cat', name: 'Colour', slug: 'colour', basePriceCents: 9_000 },
+      {
+        id: 'mb_cut',
+        salonId: S,
+        categoryId: 'mb_cat',
+        name: 'Cut',
+        slug: 'cut',
+        basePriceCents: 5_000,
+      },
+      {
+        id: 'mb_col',
+        salonId: S,
+        categoryId: 'mb_cat',
+        name: 'Colour',
+        slug: 'colour',
+        basePriceCents: 9_000,
+      },
     ],
   })
 
@@ -247,7 +261,9 @@ describe('what it takes off the bill', () => {
       pastDueSince: new Date(NOW.getTime() - 2 * 86_400_000),
     })
 
-    expect((await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW))?.totalCents).toBe(5_000)
+    expect((await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW))?.totalCents).toBe(
+      5_000,
+    )
   })
 
   it('says nothing at all for a client with no membership', async () => {
@@ -456,7 +472,9 @@ describe('changing and stopping', () => {
     expect(row.cancelAtPeriodEnd).toBe(true)
 
     // And the benefits still work until then.
-    expect((await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW))?.totalCents).toBe(5_000)
+    expect((await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW))?.totalCents).toBe(
+      5_000,
+    )
   })
 
   it('ends it there and then when somebody deliberately says so', async () => {
@@ -525,7 +543,11 @@ describe('reaching the payment provider at all', () => {
 
   it('gives a rejoiner a new subscription, not the dead one', async () => {
     await pricedPlan()
-    const first = await subscribeClient({ salonId: S, clientProfileId: 'mb_cli', planId: 'mb_basic' })
+    const first = await subscribeClient({
+      salonId: S,
+      clientProfileId: 'mb_cli',
+      planId: 'mb_basic',
+    })
     await cancelMembership({ salonId: S, membershipId: first.membershipId, immediately: true })
 
     const second = await subscribeClient({
@@ -859,8 +881,18 @@ describe('a refund undoing the bill', () => {
 
   it('releases once partial refunds add up to the whole bill', async () => {
     await billed()
-    await refundPayment({ salonId: S, paymentId: 'mb_pay', amountCents: 2_000, reason: 'Part one.' })
-    await refundPayment({ salonId: S, paymentId: 'mb_pay', amountCents: 3_000, reason: 'Part two.' })
+    await refundPayment({
+      salonId: S,
+      paymentId: 'mb_pay',
+      amountCents: 2_000,
+      reason: 'Part one.',
+    })
+    await refundPayment({
+      salonId: S,
+      paymentId: 'mb_pay',
+      amountCents: 3_000,
+      reason: 'Part two.',
+    })
 
     const again = await benefitsForBill(S, 'mb_cli', [line('mb_cut', 5_000)], NOW)
     expect(again?.totalCents).toBe(5_000)

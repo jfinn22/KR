@@ -19,11 +19,7 @@ export const dynamic = 'force-dynamic'
  * out of the old system in a shape nobody can trust, and a wrong one silently
  * removes a stylist's Saturday from the diary.
  */
-export default async function StaffImportPage({
-  params,
-}: {
-  params: Promise<{ salon: string }>
-}) {
+export default async function StaffImportPage({ params }: { params: Promise<{ salon: string }> }) {
   const { salon } = await params
   const ctx = await pageContextFor(salon, 'migration.import')
 
@@ -42,7 +38,9 @@ export default async function StaffImportPage({
       </div>
 
       <header>
-        <h1 className="heading-flourish font-display text-display-lg text-ink">Bring the team across</h1>
+        <h1 className="heading-flourish font-display text-display-lg text-ink">
+          Bring the team across
+        </h1>
         <p className="mt-2 max-w-prose text-body text-ink-muted">
           Do this before the appointments. An appointment needs a stylist, and one imported against
           somebody who is not here yet has nowhere to go.

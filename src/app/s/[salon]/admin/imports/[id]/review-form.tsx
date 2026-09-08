@@ -189,8 +189,8 @@ export function ReviewForm({
       {lostRows > 0 && (
         <p className="text-secondary text-warn">
           {lostRows} appointment{lostRows === 1 ? '' : 's'} will not be imported because{' '}
-          {unassigned.length === 1 ? 'one name is' : `${unassigned.length} names are`} not matched to
-          anybody. The clients on those rows still come across.
+          {unassigned.length === 1 ? 'one name is' : `${unassigned.length} names are`} not matched
+          to anybody. The clients on those rows still come across.
         </p>
       )}
 

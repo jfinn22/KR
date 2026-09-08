@@ -110,7 +110,11 @@ export function HairForm({
       <div className="flex flex-wrap gap-5">
         {number('washesPerWeek', 'Washes a week', 'The biggest single thing they control.')}
         {number('heatStylingPerWeek', 'Heat a week', 'Irons, tongs, a hot dryer.')}
-        {number('growthCmPerMonth', 'Growth cm/month', 'If anyone has measured it. Average is 1.25.')}
+        {number(
+          'growthCmPerMonth',
+          'Growth cm/month',
+          'If anyone has measured it. Average is 1.25.',
+        )}
       </div>
 
       <fieldset className="flex flex-wrap gap-6">

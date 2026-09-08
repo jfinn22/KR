@@ -324,7 +324,10 @@ async function solve(input: {
   })
 
   const result = computeAvailability(request)
-  const names = await stylistNames(input.salonId, result.slots.map((s) => s.stylistId))
+  const names = await stylistNames(
+    input.salonId,
+    result.slots.map((s) => s.stylistId),
+  )
   const durationMin = chainDuration(input.chain)
 
   return {
