@@ -15,8 +15,18 @@ const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient }
 
 function create(): PrismaClient {
   return new PrismaClient({
+    /*
+     * Warnings everywhere except production, rather than only when NODE_ENV
+     * says "development".
+     *
+     * Next sets NODE_ENV itself, but the scripts run through tsx — `pnpm seed`,
+     * `pnpm worker` — inherit whatever the shell has, which is now nothing.
+     * Testing for the one value that must stay quiet, the way the pool guard
+     * below already does, keeps the warnings in the two places most likely to
+     * need them and cannot go silent because a variable is unset.
+     */
     log:
-      process.env.NODE_ENV === 'development'
+      process.env.NODE_ENV !== 'production'
         ? [
             { level: 'warn', emit: 'stdout' },
             { level: 'error', emit: 'stdout' },

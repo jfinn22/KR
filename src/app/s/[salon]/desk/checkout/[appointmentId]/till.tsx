@@ -753,7 +753,10 @@ function PaymentRow({
 
   const cents = Math.round(Number(amount) * 100)
   const valid =
-    Number.isFinite(cents) && cents > 0 && cents <= payment.refundableCents && reason.trim().length >= 8
+    Number.isFinite(cents) &&
+    cents > 0 &&
+    cents <= payment.refundableCents &&
+    reason.trim().length >= 8
 
   async function refund() {
     setBusy(true)
@@ -782,9 +785,7 @@ function PaymentRow({
           </span>
           <span className="text-secondary text-ink-muted">{payment.method.toLowerCase()}</span>
           {payment.refundedCents > 0 && (
-            <Badge tone="warn">
-              {formatMoney(payment.refundedCents, currency)} back
-            </Badge>
+            <Badge tone="warn">{formatMoney(payment.refundedCents, currency)} back</Badge>
           )}
           {payment.status !== 'SUCCEEDED' && (
             <Badge tone="neutral">{payment.status.toLowerCase().replace(/_/g, ' ')}</Badge>
