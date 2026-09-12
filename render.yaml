@@ -1,0 +1,158 @@
+# ---------------------------------------------------------------------------
+# Render blueprint — a public demo of the platform.
+#
+# Provisions three things from one file: the Next.js server, the job worker,
+# and a Postgres. Render reads this when you create a Blueprint from the repo,
+# so there is nothing to wire up by hand.
+#
+# WHY NOT A SERVERLESS HOST
+#
+# `src/server/jobs/worker.ts` is a long-lived process that holds in-flight
+# state and drains on SIGTERM. On a serverless platform there is nowhere to run
+# it, so every reminder, hold expiry, waitlist match and outbox message would
+# queue and never be delivered — silently. `/api/cron/[job]` only ENQUEUES; the
+# worker still has to exist to drain the queue. Hence a web service and a
+# worker service, both always on.
+#
+# WHAT THIS DEPLOYS
+#
+# A DEMO, not a salon's real system. See `E2E_ALLOW_MOCK` below — every
+# third-party adapter is the mock, so no card is ever charged and no text
+# message is ever sent. Do not point a real salon at this.
+#
+# AFTER THE FIRST DEPLOY — the site is empty until you seed it
+#
+# Migrations create the tables; they do not create the demo salon. Until you
+# run this there is no Aurora, no services and no accounts to sign in with.
+# Copy the database's EXTERNAL connection string from the Render dashboard and
+# run the seed once from a checkout of this repo:
+#
+#   DATABASE_URL="<external connection string>" pnpm seed
+#
+# It prints the logins it created. Every account uses the password `salon1234`,
+# which is another reason this is a demo and not somewhere real client data
+# belongs.
+#
+# ON PLANS AND THE DISK
+#
+# `starter` is a paid instance type, chosen because Render's free services
+# sleep when idle and cannot mount a disk — and without the disk every uploaded
+# photo and salon logo is lost on the next deploy. Switching both services to
+# `free` and deleting the `disk:` block works and costs nothing; uploads then
+# survive only until the container restarts.
+# ---------------------------------------------------------------------------
+
+databases:
+  - name: salon-db
+    databaseName: salon
+    user: salon
+    # btree_gist backs the AppointmentSegment exclusion constraints that make
+    # double-booking impossible in the storage layer. It ships with Postgres as
+    # a contrib module and the initial migration creates it, so nothing extra
+    # is needed here — but the database must be real Postgres, not a subset.
+    postgresMajorVersion: "16"
+
+services:
+  # --- The app -------------------------------------------------------------
+  - type: web
+    name: salon-web
+    runtime: node
+    plan: starter
+    # Migrations run here and only here. Running them from the worker as well
+    # would have two services racing to migrate the same database on every
+    # deploy.
+    buildCommand: pnpm install --frozen-lockfile && pnpm prisma migrate deploy && pnpm build
+    startCommand: pnpm start
+    healthCheckPath: /
+    # Uploaded photos and salon logos. The mock storage adapter writes them to
+    # disk, so without this they would live in the container filesystem and
+    # disappear on the next deploy.
+    disk:
+      name: uploads
+      mountPath: /var/data/uploads
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: salon-db
+          property: connectionString
+
+      # Generated once by Render and never shown to anyone. Production refuses
+      # to boot on the development defaults for either of these.
+      - key: AUTH_SECRET
+        generateValue: true
+      - key: CRON_SECRET
+        generateValue: true
+      - key: AUTH_TRUST_HOST
+        value: "true"
+
+      # The salon's join QR code and the 72-hour check-in link are built by
+      # concatenation — `${NEXT_PUBLIC_APP_URL}/join/${salon}` — so this needs
+      # the scheme, not just a hostname. Render's `fromService … property: host`
+      # yields `salon-web.onrender.com` with no `https://`, which would put a
+      # broken link on the mirror and in every check-in message.
+      #
+      # `sync: false` makes Render ask for it when the blueprint is created.
+      # Enter the full URL of this service, e.g. https://salon-web.onrender.com
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+
+      # --- The demo switch -------------------------------------------------
+      #
+      # `src/env.ts` refuses to start in production with mock adapters, which
+      # is the correct behaviour: shipping a salon a payment provider that
+      # quietly does nothing would be worse than not shipping at all.
+      #
+      # E2E_ALLOW_MOCK is the deliberate escape hatch that the Playwright suite
+      # already uses to run a production build without six third-party
+      # accounts. It is what makes this a demo:
+      #
+      #   * no card is charged and no card is stored anywhere real
+      #   * texts and emails go to the in-app outbox, never to a phone
+      #   * the AI layer returns canned observations
+      #
+      # To run this for an actual salon, delete these two lines and supply real
+      # credentials for every port — Stripe, Twilio, Resend, S3, Anthropic.
+      - key: ADAPTER_MODE
+        value: mock
+      - key: E2E_ALLOW_MOCK
+        value: "1"
+
+      - key: MOCK_STORAGE_DIR
+        value: /var/data/uploads
+
+  # --- The job worker ------------------------------------------------------
+  - type: worker
+    name: salon-worker
+    runtime: node
+    plan: starter
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: salon-db
+          property: connectionString
+      # The worker reads the same secrets as the web service. Rather than
+      # generating its own — which would produce a DIFFERENT value and leave
+      # the two halves unable to agree — these are copied from the app.
+      - key: AUTH_SECRET
+        fromService:
+          type: web
+          name: salon-web
+          envVarKey: AUTH_SECRET
+      - key: CRON_SECRET
+        fromService:
+          type: web
+          name: salon-web
+          envVarKey: CRON_SECRET
+      - key: ADAPTER_MODE
+        value: mock
+      - key: E2E_ALLOW_MOCK
+        value: "1"
+      - key: MOCK_STORAGE_DIR
+        value: /tmp/uploads
