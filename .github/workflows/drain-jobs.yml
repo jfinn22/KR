@@ -1,0 +1,59 @@
+name: Run background jobs
+
+# The scheduler for a deployment that has no always-on worker.
+#
+# On a normal host `pnpm worker` loops forever and drains the job queue. A
+# serverless deployment has no such process, so something outside it has to
+# knock on the door: this hits `/api/cron/drain`, which tops up the recurring
+# sweeps and then works the queue until it is empty or its time budget is out.
+#
+# Without this, nothing errors — it just quietly stops. Confirmations are never
+# sent, abandoned booking holds never expire, and a cancellation is never
+# offered to the next person on the waitlist.
+#
+# Why here rather than Vercel Cron: Vercel's free plan caps cron jobs at once
+# per day, which would leave a reminder sitting in the queue for up to
+# twenty-four hours. GitHub Actions runs on any plan, costs nothing on a public
+# repo, and the schedule is version-controlled next to the code it drives. On
+# Vercel Pro you can delete this file and add a `crons` block to `vercel.json`
+# instead.
+
+on:
+  schedule:
+    # Every five minutes — GitHub's shortest allowed interval. Runs can be
+    # delayed when the shared runners are busy, which the jobs tolerate: every
+    # sweep is deduplicated on a time bucket, so a late run is a no-op rather
+    # than a double-send.
+    - cron: '*/5 * * * *'
+  # So you can prove it works without waiting for the timer.
+  workflow_dispatch:
+
+concurrency:
+  # Overlapping runs are safe — the queue hands out each job under a row lock —
+  # but pointless, and they would burn Actions minutes racing each other.
+  group: drain-jobs
+  cancel-in-progress: false
+
+jobs:
+  drain:
+    name: Drain the job queue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the drain endpoint
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "APP_URL and CRON_SECRET must be set as repository secrets." >&2
+            exit 1
+          fi
+
+          # --max-time is below the endpoint's own 60s ceiling, so a hung
+          # request fails this step rather than hanging the runner.
+          response=$(curl --silent --show-error --fail-with-body \
+            --max-time 70 \
+            --header "Authorization: Bearer $CRON_SECRET" \
+            "$APP_URL/api/cron/drain")
+
+          echo "$response"
