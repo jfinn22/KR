@@ -23,6 +23,20 @@ export interface EnqueueInput {
    * cron tick firing twice, must not produce two sends.
    */
   dedupeKey?: string | null
+  /**
+   * What the dedupe key claims.
+   *
+   * `in-flight` (the default) means "there must not be two of these waiting or
+   * running at once". Once the job finishes, the same key may be used again —
+   * which is what makes a reminder re-materialisable after a reschedule.
+   *
+   * `ever` means "this unit of work has been done, full stop". Only pass it
+   * when the key names something that happens exactly once — a time bucket, a
+   * provider event id — because a SUCCEEDED, FAILED or DEAD row will then block
+   * the key for good. Requires an index on `dedupeKey`, since the lookup can no
+   * longer be narrowed to the handful of rows that are still in flight.
+   */
+  dedupeScope?: 'in-flight' | 'ever'
 }
 
 export interface ClaimedJob {
@@ -40,7 +54,10 @@ export async function enqueue(
 ): Promise<string | null> {
   if (input.dedupeKey) {
     const existing = await tx.job.findFirst({
-      where: { dedupeKey: input.dedupeKey, status: { in: ['PENDING', 'RUNNING'] } },
+      where: {
+        dedupeKey: input.dedupeKey,
+        ...(input.dedupeScope === 'ever' ? {} : { status: { in: ['PENDING', 'RUNNING'] } }),
+      },
       select: { id: true },
     })
     if (existing) return null
@@ -148,6 +165,48 @@ export async function reap(staleAfterMinutes = 10): Promise<number> {
     data: { status: 'PENDING', lockedAt: null, lockedBy: null },
   })
   return result.count
+}
+
+/**
+ * Delete succeeded job rows that nothing can still be deduping against.
+ *
+ * SUCCEEDED only. A DEAD row is the record of something that never happened and
+ * somebody has to look at; it stays.
+ *
+ * Nothing has ever deleted from `Job`. Every notification, every sweep and
+ * every webhook delivery leaves a row behind for ever, on the table the queue
+ * reads from on every claim — and `dedupeScope: 'ever'` now looks through those
+ * rows too, so letting them accumulate without bound is no longer merely untidy.
+ *
+ * `olderThanMs` is a correctness parameter, not a taste one: deleting a
+ * SUCCEEDED row whose dedupe key names a bucket that has not closed yet makes
+ * that work run a second time. The caller owns that floor — see `systemReap`.
+ *
+ * Deletes in bounded batches and stops at `maxRows`. A backlog of millions of
+ * rows drains over successive runs instead of holding one enormous transaction
+ * open, which on a live queue is the difference between a quiet cleanup and a
+ * stalled worker.
+ */
+export async function pruneCompleted(olderThanMs: number, maxRows = 20_000): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanMs)
+  const batchSize = 5_000
+  let deleted = 0
+
+  while (deleted < maxRows) {
+    const count = await unsafeDb.$executeRaw`
+      DELETE FROM "Job"
+       WHERE id IN (
+         SELECT id FROM "Job"
+          WHERE status = 'SUCCEEDED'
+            AND "completedAt" < ${cutoff}
+          LIMIT ${Math.min(batchSize, maxRows - deleted)}
+       )
+    `
+    deleted += count
+    if (count === 0) break
+  }
+
+  return deleted
 }
 
 /** Queue depth, for the health endpoint and the owner dashboard. */

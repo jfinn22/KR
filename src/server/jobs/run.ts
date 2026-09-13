@@ -90,8 +90,23 @@ export async function runJob(job: ClaimedJob, runnerId: string): Promise<JobOutc
 /**
  * Keep the recurring sweeps topped up.
  *
- * Deduped on a time bucket, so calling this more often than necessary — or from
- * two runners at once — is a no-op rather than a double-send.
+ * The dedupe key names a time bucket, so the question this has to ask the
+ * database is "has this bucket already been done?" — not "is a copy in flight
+ * right now?", which is what `enqueue` asks by default and what every other
+ * caller wants. Scoping to PENDING/RUNNING is why the worker used to re-enqueue
+ * all thirteen sweeps the instant the previous copies succeeded:
+ * `calibration.recompute`, declared once a day, ran several times a second on an
+ * idle queue.
+ *
+ * With `dedupeScope: 'ever'` the row itself holds the bucket, so calling this on
+ * every loop iteration — or from `/api/cron/drain` on a timer — costs one
+ * indexed lookup per sweep and enqueues nothing until the interval has genuinely
+ * elapsed.
+ *
+ * The check and the insert are still two statements, so two runners hitting the
+ * same bucket rollover in the same millisecond can both insert. That is the
+ * pre-existing window and it is deliberately left: a duplicate sweep is
+ * indistinguishable from a retry, which every handler already has to survive.
  */
 export async function scheduleRecurring(): Promise<void> {
   const now = Date.now()
@@ -101,6 +116,7 @@ export async function scheduleRecurring(): Promise<void> {
       type: entry.type,
       payload: {},
       dedupeKey: `${entry.key}:${bucket}`,
+      dedupeScope: 'ever',
       priority: 200,
     })
   }

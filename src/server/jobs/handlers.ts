@@ -813,14 +813,29 @@ const calibrationRecompute = define({
   },
 })
 
-/** Recover jobs stranded by a crashed worker. */
+/** Recover jobs stranded by a crashed worker, and keep the queue table small. */
 const systemReap = define({
   schema: z.object({}).passthrough(),
   timeoutMs: 30_000,
   maxAttempts: 3,
   handler: async () => {
-    const { reap } = await import('./queue')
+    const { pruneCompleted, reap } = await import('./queue')
     await reap()
+
+    /*
+     * Succeeded jobs, which nothing has ever deleted from either — on the table
+     * every claim reads from.
+     *
+     * The retention window has a hard floor rather than a chosen one.
+     * `scheduleRecurring` claims a time bucket by leaving a row behind and asks
+     * whether that bucket has been done at all, so deleting the row for a bucket
+     * still in progress makes the sweep run twice — a daily recompute becomes an
+     * hourly one. Twice the longest declared interval is the floor; a week is
+     * what we keep, because the rows are also the only record of what the queue
+     * did, and a week is long enough to answer "did that reminder go out?".
+     */
+    const longestIntervalMs = Math.max(...RECURRING.map((r) => r.everyMinutes)) * 60_000
+    await pruneCompleted(Math.max(7 * 24 * 3_600_000, longestIntervalMs * 2))
 
     /*
      * The attempt log, which nothing has ever deleted from.

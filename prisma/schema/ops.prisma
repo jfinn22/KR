@@ -199,6 +199,12 @@ model Job {
   @@index([status, queue, priority, runAt])
   @@index([status, lockedAt])
   @@index([salonId, type, createdAt])
+  /// Recurring sweeps dedupe on a time bucket across every status, so this
+  /// lookup cannot be narrowed to the few rows still in flight. Unindexed it is
+  /// a sequential scan of the whole queue history on every scheduler tick.
+  @@index([dedupeKey])
+  /// The reaper prunes succeeded jobs by age.
+  @@index([status, completedAt])
 }
 
 /// Transactional outbox: domain writes and event rows commit together, so a
