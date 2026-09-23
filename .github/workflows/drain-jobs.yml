@@ -44,8 +44,21 @@ jobs:
           APP_URL: ${{ secrets.APP_URL }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
+          # Neither secret set means this repository has no deployment yet, so
+          # there is nothing to drain and nothing has gone wrong. Failing here
+          # put a red X on the repository every time the timer fired — 67 runs
+          # in the eleven days after this workflow was added, none of which
+          # indicated a problem, all of which trained the eye to ignore the
+          # actions tab. Skip quietly instead, and say why.
+          if [ -z "$APP_URL" ] && [ -z "$CRON_SECRET" ]; then
+            echo "::notice::No APP_URL or CRON_SECRET set — no deployment to drain yet, skipping."
+            exit 0
+          fi
+
+          # One of the two set is a misconfiguration rather than an absence:
+          # somebody meant to wire this up and got half way. That still fails.
           if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
-            echo "APP_URL and CRON_SECRET must be set as repository secrets." >&2
+            echo "Set BOTH APP_URL and CRON_SECRET as repository secrets, or neither." >&2
             exit 1
           fi
 

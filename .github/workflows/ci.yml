@@ -62,6 +62,14 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Generate the client explicitly. `@prisma/client` generates on install,
+      # but only when it actually installs — and with a warm pnpm cache every
+      # package is reused, no postinstall runs, and `node_modules/.prisma` is
+      # never written. `prisma migrate deploy` still works, because the CLI
+      # reads the schema rather than the client, so the job gets all the way to
+      # the tests before dying on "Cannot find module '.prisma/client/default'"
+      # — which reads like a database problem and is not one.
+      - run: pnpm exec prisma generate
       # btree_gist is declared in the Prisma datasource, so the init migration
       # creates it. Doing it here as well would only cause drift.
       - name: Create test database
@@ -91,6 +99,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Same reason as the integration job: a cache hit means no postinstall,
+      # so nothing has generated the client the seed imports.
+      - run: pnpm exec prisma generate
       - run: pnpm exec prisma migrate deploy
       - run: pnpm seed
       - run: pnpm exec playwright install --with-deps chromium
