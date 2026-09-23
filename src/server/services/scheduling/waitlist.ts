@@ -306,8 +306,20 @@ export async function acceptOffer(input: {
   entryId: string
   timeZone: string
   actorUserId?: string | null
+  /*
+   * Injectable, the same way `matchWaitlist` takes one.
+   *
+   * This read the wall clock directly, while the function that WRITES
+   * `offerExpiresAt` took a `now`. A test could therefore make an offer at a
+   * fixed instant and then have it judged against the real date — which works
+   * until that fixed instant falls into the past, and then fails every run
+   * afterwards with "that offer has expired", naming the clock rather than the
+   * code. Both halves of the comparison now come from the same place.
+   */
+  now?: Date
 }): Promise<{ appointmentId: string }> {
   const db = dbFor(input.salonId)
+  const now = input.now ?? new Date()
   const entry = await db.waitlistEntry.findFirst({
     where: { id: input.entryId, salonId: input.salonId },
   })
@@ -315,7 +327,7 @@ export async function acceptOffer(input: {
   if (entry.status !== 'OFFERED') {
     throw new DomainError('CONFLICT', 'There is no offer open on that entry.')
   }
-  if (entry.offerExpiresAt && entry.offerExpiresAt < new Date()) {
+  if (entry.offerExpiresAt && entry.offerExpiresAt < now) {
     throw new DomainError('CONFLICT', 'That offer has expired. You are still on the list.')
   }
 

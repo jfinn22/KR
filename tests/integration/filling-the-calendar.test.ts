@@ -863,7 +863,7 @@ describe('the waitlist', () => {
       now: NOW,
     })
 
-    const accepted = await acceptOffer({ salonId: S, entryId: id, timeZone: TZ })
+    const accepted = await acceptOffer({ salonId: S, entryId: id, timeZone: TZ, now: NOW })
     const appointment = await unsafeDb.appointment.findUniqueOrThrow({
       where: { id: accepted.appointmentId },
     })
@@ -900,7 +900,7 @@ describe('the waitlist', () => {
       now: NOW,
     })
 
-    await expect(acceptOffer({ salonId: S, entryId: id, timeZone: TZ })).rejects.toThrow(
+    await expect(acceptOffer({ salonId: S, entryId: id, timeZone: TZ, now: NOW })).rejects.toThrow(
       /patch test/i,
     )
   })
